@@ -1,0 +1,6 @@
+2026-05-13 00:00  catnip.md       STALE marker added: 24h session duration conflicts with "short enough to prevent AFKing" design intent (re: main.py / config/catnip.json)
+2026-05-13 00:00  catnip.md       STALE marker added: Time Manipulator perk desc in catnip.json still says "+5 minutes" but code derives from tuning.json (1800s=30min) (re: main.py)
+2026-05-13 00:00  catnip.md       updated perks effects list: replaced "Catch-time skews" with accurate "Pack drops on catch" and "Rain triggers on catch" bullets (re: main.py / config/catnip.json)
+2026-05-13 00:00  achievements.md STALE marker added: trigger engine events message_text, prism, command not listed in doc (re: main.py)
+2026-05-13 00:00  economy.md      STALE marker added: "bakery" in coins description was inaccurate; /bakery uses cookies/coffees/Nice cats not coins (re: main.py)
+2026-05-13 00:00  economy.md      STALE marker added: new mechanic bakery/brew/cookie (Bake.gg integration) not represented in design docs (re: main.py)

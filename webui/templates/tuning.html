@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "config / tuning.json" %}
+  {% set heading = "Tuning" %}
+  {% set lede    = "Magic numbers extracted from main.py. Change them, reload, see the effect." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Edits land in <code>config/tuning.json</code> and apply on next <strong>Reload Bot</strong>.
+    Editing <code>type_dict</code> triggers regeneration of derived lists
+    (<code>cattypes</code>, <code>cattype_lc_dict</code>, <code>allowedemojis</code>) on reload.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <h2 class="section">Scalar values <span class="heading-count">{{ scalars|length }}</span></h2>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for row in scalars %}
+        {% include "tuning_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% for section in dict_sections %}
+    <h2 class="section">{{ section.label }} <span class="heading-count">{{ section.entries|length }}</span></h2>
+    <table class="editor-table" id="dict-{{ section.key }}">
+      <thead>
+        <tr><th>Key</th><th>Value</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for entry in section.entries %}
+          {% include "tuning_dict_row.html" with context %}
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% set total = state.get_dirty_total() %}
+{% if total %}
+  <span class="dirty-pill" title="{% for k, v in state.get_dirty().items() %}{{ k }}: {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}">
+    {{ total }} unsaved edit{{ "s" if total != 1 else "" }} since last reload
+  </span>
+{% endif %}

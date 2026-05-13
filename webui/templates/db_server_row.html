@@ -1,0 +1,12 @@
+{% set row_id = "server-" ~ row.server_id %}
+<tr id="{{ row_id }}">
+  <td><span class="name">{{ row.server_id }}</span></td>
+  {% for t in toggles %}
+    <td>
+      <button class="btn {% if row[t] %}btn-primary{% else %}btn-ghost{% endif %}" type="button"
+              hx-post="/db/server/{{ row.server_id }}/toggle/{{ t }}"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">{{ "on" if row[t] else "off" }}</button>
+    </td>
+  {% endfor %}
+</tr>

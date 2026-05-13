@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · Cat Bot Admin</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,0..100;1,9..144,300..700,0..100&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+  <link rel="stylesheet" href="/static/app.css?v=5">
+  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+  <script src="/static/htmx-config.js?v=5" defer></script>
+</head>
+<body data-section="{{ active_section }}" class="app-shell">
+
+  {# ============================== SIDEBAR ============================== #}
+  {% set sections = [
+    ("dashboard",      "/",            "Dashboard",  "▤"),
+    ("tuning",         "/tuning",      "Tuning",     "✦"),
+    ("battlepass",     "/battlepass",  "Battlepass", "▦"),
+    ("catnip",         "/catnip",      "Catnip",     "✿"),
+    ("commands",       "/commands",    "Commands",   "❯"),
+    ("server_table",   "/db/server",   "Servers",    "◉"),
+    ("channel_table",  "/db/channel",  "Channels",   "◐"),
+    ("profile_table",  "/db/profile",  "Profiles",   "◍"),
+    ("user_table",     "/db/user",     "Users",      "◎"),
+    ("prism_table",    "/db/prism",    "Prisms",     "◇")
+  ] %}
+  <aside class="sidebar" aria-label="Sections">
+    <div class="sidebar-brand">
+      <span class="brand-mark">🐈</span>
+      <div>
+        <div class="brand-name">Cat Bot</div>
+        <div class="brand-sub">admin console</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section-label">Configure</div>
+    <nav class="sidebar-nav">
+      {% for slug, href, label, glyph in sections[:5] %}
+        <a class="sidebar-link {% if active_section == slug %}active{% endif %}" href="{{ href }}">
+          <span class="sidebar-glyph" aria-hidden="true">{{ glyph }}</span>
+          <span>{{ label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
+    <div class="sidebar-section-label">Database</div>
+    <nav class="sidebar-nav">
+      {% for slug, href, label, glyph in sections[5:] %}
+        <a class="sidebar-link {% if active_section == slug %}active{% endif %}" href="{{ href }}">
+          <span class="sidebar-glyph" aria-hidden="true">{{ glyph }}</span>
+          <span>{{ label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs)">127.0.0.1:9445</div>
+      <div class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs)">uptime · {{ state.uptime_seconds()|fmt_dur }}</div>
+    </div>
+  </aside>
+
+  {# ============================== TOPBAR ============================== #}
+  <header class="topbar">
+    <div class="topbar-context">
+      <span class="topbar-crumb">{{ active_section or "—" }}</span>
+    </div>
+    <div class="reload-controls">
+      {% include "partials/_dirty_banner.html" %}
+      <button class="btn btn-primary"
+              hx-post="/actions/reload-bot"
+              hx-target="#flash"
+              hx-swap="innerHTML"
+              hx-confirm="Reload main extension? This briefly unloads the bot.">Reload Bot</button>
+    </div>
+  </header>
+
+  {# ============================== MAIN ============================== #}
+  <main class="content">
+    <div id="flash" class="flash-region"></div>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

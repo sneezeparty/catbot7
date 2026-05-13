@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "live / bot.tree" %}
+  {% set heading = "Commands" %}
+  {% set lede    = "Slash commands registered on the running bot." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Read-only listing reflecting the live bot. Reload after adding/removing a command to refresh.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  {% if groups %}
+    <h2 class="section">Groups <span class="heading-count">{{ groups|length }}</span></h2>
+    <table class="editor-table">
+      <thead><tr><th>Name</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for g in groups %}
+          <tr>
+            <td><span class="name">/{{ g.qualified_name }}</span></td>
+            <td>{{ g.description }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2 class="section">Slash commands <span class="heading-count">{{ total }}</span></h2>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Name</th><th>Description</th><th>Parameters</th></tr>
+    </thead>
+    <tbody>
+      {% for c in rows %}
+        <tr>
+          <td><span class="name">/{{ c.qualified_name }}</span></td>
+          <td>{{ c.description }}</td>
+          <td>
+            {% if c.parameters %}
+              {% for p in c.parameters %}
+                <code title="{{ p.description }}">{{ p.name }}{% if not p.required %}?{% endif %}:{{ p.type }}</code>{% if not loop.last %} {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if context_menus %}
+    <h2 class="section">Context menus <span class="heading-count">{{ context_menus|length }}</span></h2>
+    <table class="editor-table">
+      <thead><tr><th>Name</th><th>Kind</th></tr></thead>
+      <tbody>
+        {% for c in context_menus %}
+          <tr><td><span class="name">{{ c.name }}</span></td><td>{{ c.kind }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endblock %}

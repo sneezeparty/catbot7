@@ -1,0 +1,32 @@
+{% set entry_key, entry_value = entry %}
+{% set row_id = "tuning-dict-" ~ section ~ "-" ~ entry_key %}
+<tr id="{{ row_id }}" class="{% if editing %}editing{% endif %}">
+  <td><span class="name">{{ entry_key }}</span></td>
+  <td>
+    {% if editing %}
+      <form hx-post="/tuning/dict/{{ section }}/{{ entry_key }}" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+        <input class="numeric" name="value" value="{{ entry_value }}" inputmode="decimal">
+      </form>
+    {% else %}
+      <span class="numeric">{{ entry_value }}</span>
+    {% endif %}
+  </td>
+  <td class="actions">
+    {% if editing %}
+      <button class="btn btn-primary" type="button"
+              hx-post="/tuning/dict/{{ section }}/{{ entry_key }}"
+              hx-include="closest tr form"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Save</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/tuning/dict/{{ section }}/{{ entry_key }}/cancel"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Cancel</button>
+    {% else %}
+      <button class="btn" type="button"
+              hx-get="/tuning/dict/{{ section }}/{{ entry_key }}/edit"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </td>
+</tr>

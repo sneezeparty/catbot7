@@ -1,0 +1,9 @@
+{# Reusable help / "note" block.
+   Usage:
+     {% set body %}
+       Free <strong>HTML</strong> goes here. Mark inline literals with <code>code</code>.
+     {% endset %}
+     {% include "partials/_help.html" %}
+   Or pass `body` directly from the route's render context.
+#}
+<aside class="help" role="note">{{ body|safe }}</aside>

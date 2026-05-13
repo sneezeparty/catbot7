@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / prism" %}
+  {% set heading = "Prisms" %}
+  {% set lede    = "Top 200 prisms by catches boosted, plus a guild leaderboard." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Read-only. Total live prisms: <strong>{{ total }}</strong>.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <h2 class="section">Top guilds by prism count</h2>
+  <table class="editor-table">
+    <thead><tr><th>guild_id</th><th>count</th></tr></thead>
+    <tbody>
+      {% for g in by_guild %}
+        <tr><td><span class="name">{{ g.guild_id }}</span></td><td class="numeric">{{ g.n }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">Recent / most-boosted prisms <span class="heading-count">{{ rows|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>id</th><th>name</th><th>owner</th><th>guild</th><th>creator</th><th>created</th><th>boosted</th></tr></thead>
+    <tbody>
+      {% for p in rows %}
+        <tr>
+          <td class="numeric">{{ p.id }}</td>
+          <td>{{ p.name }}</td>
+          <td><span class="name">{{ p.user_id }}</span></td>
+          <td><span class="name">{{ p.guild_id }}</span></td>
+          <td><span class="name">{{ p.creator }}</span></td>
+          <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+          <td class="numeric">{{ p.catches_boosted }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

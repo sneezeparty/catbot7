@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set eyebrow = "overview" %}
+  {% set heading = "Dashboard" %}
+  {% set lede    = "Live state, pending edits, and activity across the bot." %}
+  {% include "partials/_section_header.html" %}
+
+  {# ============================ system cards (existing) ============================ #}
+  <div class="card-grid">
+    <article class="card">
+      <h2>Uptime</h2>
+      <p class="metric">{{ uptime|fmt_dur }}</p>
+      <p class="muted">Hard restart: <strong class="mono-soft">{{ hard_restart|fmt_ts }}</strong></p>
+      {% if soft_restart %}
+        <p class="muted">Last soft reload: <strong class="mono-soft">{{ soft_restart|fmt_ts }}</strong></p>
+      {% else %}
+        <p class="muted">No soft reloads this session.</p>
+      {% endif %}
+    </article>
+
+    <article class="card">
+      <h2>Discord</h2>
+      <p class="metric">{{ guild_count or 0 }} <span class="metric-unit">guild{{ "s" if (guild_count or 0) != 1 else "" }}</span></p>
+      {% if shard_count %}<p class="muted">{{ shard_count }} shard{{ "s" if shard_count != 1 else "" }}</p>{% endif %}
+    </article>
+
+    <article class="card">
+      <h2>Live state</h2>
+      <ul class="kv">
+        <li><span>Servers configured</span><strong>{{ counts.get('servers', 0) }}</strong></li>
+        <li><span>Active spawn channels</span><strong>{{ counts.get('channels', 0) }}</strong></li>
+        <li><span>Profiles</span><strong>{{ counts.get('profiles', 0) }}</strong></li>
+        <li><span>Users</span><strong>{{ counts.get('users', 0) }}</strong></li>
+        <li><span>Prisms</span><strong>{{ counts.get('prisms', 0) }}</strong></li>
+        <li><span>Active rains</span><strong>{{ counts.get('active_rains', 0) }}</strong></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <h2>Unsaved edits</h2>
+      {% if dirty_total %}
+        <p class="metric danger">{{ dirty_total }}</p>
+        <ul class="kv">
+          {% for k, v in dirty.items() %}
+            <li><span>{{ k }}</span><strong>{{ v }}</strong></li>
+          {% endfor %}
+        </ul>
+        <p class="muted">Click <em>Reload Bot</em> in the header to apply.</p>
+      {% else %}
+        <p class="metric">0</p>
+        <p class="muted">Nothing pending.</p>
+      {% endif %}
+    </article>
+  </div>
+
+  {# ============================ activity ============================ #}
+  <h2 class="section">Activity</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Distinct users with at least one catch in the window. Today is UTC.
+  </p>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Today</span>
+      <span class="stat-value">{{ "{:,}".format(activity.today) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 7 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity.week) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 30 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity.month) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">All-time</span>
+      <span class="stat-value">{{ "{:,}".format(counts.get('users', 0)) }}</span>
+      <span class="stat-foot">users tracked</span>
+    </article>
+  </div>
+
+  {# ============================ totals ============================ #}
+  <h2 class="section">By the numbers</h2>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catches</span>
+      <span class="stat-value">{{ "{:,}".format(totals.catches) }}</span>
+      <span class="stat-foot">all-time across all profiles</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Packs opened</span>
+      <span class="stat-value">{{ "{:,}".format(totals.packs) }}</span>
+      <span class="stat-foot">all-time</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Prism boosts</span>
+      <span class="stat-value">{{ "{:,}".format(totals.prism_boosts) }}</span>
+      <span class="stat-foot">catches boosted by prisms</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Profiles</span>
+      <span class="stat-value">{{ "{:,}".format(counts.get('profiles', 0)) }}</span>
+      <span class="stat-foot">per-(user, guild) rows</span>
+    </article>
+  </div>
+
+  {# ============================ distributions ============================ #}
+  <h2 class="section">Distributions</h2>
+  <div class="charts-row">
+    <article class="card chart-card">
+      <h2>Catches by rarity</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-rarity"></canvas></div>
+    </article>
+    <article class="card chart-card">
+      <h2>Packs by tier</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-packs"></canvas></div>
+    </article>
+  </div>
+
+  {# ============================ trends ============================ #}
+  {% if prism_history %}
+  <h2 class="section">Prisms created — last 12 months</h2>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-prisms"></canvas></div>
+  </article>
+  {% endif %}
+
+  {# ============================ leaderboard ============================ #}
+  {% if leaderboard %}
+  <h2 class="section">Top catchers <span class="heading-count">{{ leaderboard|length }}</span></h2>
+  {% set top_catches = leaderboard[0].catches if leaderboard else 1 %}
+  <table class="editor-table leaderboard">
+    <thead><tr><th>#</th><th>user_id</th><th class="numeric">catches</th><th>relative</th></tr></thead>
+    <tbody>
+      {% for u in leaderboard %}
+        <tr>
+          <td class="numeric">{{ loop.index }}</td>
+          <td><span class="name">{{ u.user_id }}</span></td>
+          <td class="numeric">{{ "{:,}".format(u.catches) }}</td>
+          <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (u.catches / top_catches * 100)|round(1) }}%"></div></div></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <p class="dashboard-note">
+    <strong>A note on "today":</strong> the schema doesn't log per-event timestamps for catches or pack opens, so the bot can only report
+    <em>active catchers today</em>, not <em>catches today</em>. Adding a daily snapshot table writeable from
+    <code>background_loop()</code> would unlock proper per-day deltas.
+  </p>
+</section>
+
+{# ============================ chart data + init ============================ #}
+<script id="dash-data" type="application/json">
+{
+  "rarities": {{ rarities|tojson }},
+  "packs":    {{ packs|tojson }},
+  "prisms":   {{ prism_history|tojson }}
+}
+</script>
+<script>
+(function () {
+  const palette = [
+    "#e6ad55", "#d06650", "#7dba6e", "#c98c64", "#8ba668",
+    "#b07a3a", "#bb8e5a", "#a08454", "#97784e", "#73895a", "#604f33"
+  ];
+  function readData() {
+    try { return JSON.parse(document.getElementById("dash-data").textContent); }
+    catch (e) { return { rarities: [], packs: [], prisms: [] }; }
+  }
+  function doughnut(canvas, entries) {
+    if (!canvas || !entries || !entries.length) return;
+    const labels = entries.map(([k]) => k);
+    const data   = entries.map(([, v]) => v);
+    new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: labels.map((_, i) => palette[i % palette.length]),
+          borderColor: "#14100b",
+          borderWidth: 2,
+          hoverOffset: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "58%",
+        plugins: {
+          legend: {
+            position: "right",
+            labels: {
+              color: "#c9b791",
+              font: { family: "'IBM Plex Sans', sans-serif", size: 12 },
+              boxWidth: 12,
+              boxHeight: 12,
+              padding: 8
+            }
+          },
+          tooltip: {
+            backgroundColor: "#1d1812",
+            titleColor: "#f4ead0",
+            bodyColor: "#f4ead0",
+            borderColor: "#3d2e1c",
+            borderWidth: 1,
+            titleFont: { family: "'IBM Plex Sans', sans-serif", weight: "600" },
+            bodyFont:  { family: "'IBM Plex Mono', monospace" },
+            padding: 10,
+            callbacks: {
+              label: (ctx) => `${ctx.label}: ${ctx.parsed.toLocaleString()}`
+            }
+          }
+        }
+      }
+    });
+  }
+  function bar(canvas, entries) {
+    if (!canvas || !entries || !entries.length) return;
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: entries.map(([m]) => m),
+        datasets: [{
+          label: "prisms created",
+          data: entries.map(([, n]) => n),
+          backgroundColor: "rgba(230, 173, 85, 0.55)",
+          borderColor: "#e6ad55",
+          borderWidth: 1,
+          borderRadius: 4,
+          hoverBackgroundColor: "#e6ad55"
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#1d1812",
+            titleColor: "#f4ead0",
+            bodyColor: "#f4ead0",
+            borderColor: "#3d2e1c",
+            borderWidth: 1,
+            padding: 10,
+            titleFont: { family: "'IBM Plex Mono', monospace", weight: "500" },
+            bodyFont:  { family: "'IBM Plex Mono', monospace" }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: "#8a7553", font: { family: "'IBM Plex Mono', monospace", size: 11 } },
+            grid:  { color: "rgba(244, 234, 208, 0.04)" }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: "#8a7553", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 },
+            grid:  { color: "rgba(244, 234, 208, 0.04)" }
+          }
+        }
+      }
+    });
+  }
+  function init() {
+    if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
+    const d = readData();
+    doughnut(document.getElementById("chart-rarity"), d.rarities);
+    doughnut(document.getElementById("chart-packs"),  d.packs);
+    bar(document.getElementById("chart-prisms"), d.prisms);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+{% endblock %}

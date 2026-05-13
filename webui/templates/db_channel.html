@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / channel" %}
+  {% set heading = "Channels" %}
+  {% set lede    = "Spawn configuration and the live state of each catch channel." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    <code>cat</code> is the message ID of the currently spawned cat (0 = none).
+    <code>yet_to_spawn</code> is a unix-time floor for the next spawn.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <form method="get" action="/db/channel" class="search-bar">
+    <input name="q" value="{{ q }}" placeholder="Filter by channel_id">
+    <button class="btn">Search</button>
+  </form>
+
+  {% if rows %}
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th>channel_id</th>
+          <th>cat</th>
+          <th>yet_to_spawn</th>
+          <th>spawn_min</th>
+          <th>spawn_max</th>
+          <th>cattype</th>
+          <th>rain</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% include "db_channel_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No channels found.</p>
+  {% endif %}
+</section>
+{% endblock %}

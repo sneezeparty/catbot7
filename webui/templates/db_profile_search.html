@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / profile" %}
+  {% set heading = "Profiles" %}
+  {% set lede    = "Per-(user, guild) gameplay state. Both filter fields accept substrings." %}
+  {% include "partials/_section_header.html" %}
+
+  <form method="get" action="/db/profile" class="search-bar">
+    <input name="user"  value="{{ q_user }}"  placeholder="user_id substring">
+    <input name="guild" value="{{ q_guild }}" placeholder="guild_id substring">
+    <button class="btn">Search</button>
+  </form>
+
+  {% if rows %}
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th>user_id</th><th>guild_id</th><th>bp</th><th>xp</th><th>season</th>
+          <th>catch_quest</th><th>misc_quest</th><th>catches</th><th>rain</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td><span class="name">{{ r.user_id }}</span></td>
+            <td><span class="name">{{ r.guild_id }}</span></td>
+            <td class="numeric">{{ r.battlepass }}</td>
+            <td class="numeric">{{ r.progress }}</td>
+            <td class="numeric">{{ r.season }}</td>
+            <td>{{ r.catch_quest }}</td>
+            <td>{{ r.misc_quest }}</td>
+            <td class="numeric">{{ r.total_catches }}</td>
+            <td class="numeric">{{ r.rain_minutes }}</td>
+            <td class="actions"><a class="btn" href="/db/profile/{{ r.user_id }}/{{ r.guild_id }}">View</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif q_user or q_guild %}
+    <p class="empty-state">No profiles matched.</p>
+  {% else %}
+    <p class="empty-state">Enter at least one filter to search.</p>
+  {% endif %}
+</section>
+{% endblock %}

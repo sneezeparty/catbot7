@@ -1,0 +1,15 @@
+{# Reusable section header.
+   Context vars:
+     eyebrow  — small uppercase label above the h1 (optional)
+     heading  — the h1 text (required)
+     lede     — optional italic subtitle paragraph
+     actions  — optional caller block (use {% set actions %}...{% endset %} before including)
+#}
+<header class="section-header">
+  <div>
+    {% if eyebrow %}<span class="eyebrow">{{ eyebrow }}</span>{% endif %}
+    <h1>{{ heading|safe }}</h1>
+    {% if lede %}<p class="lede">{{ lede }}</p>{% endif %}
+  </div>
+  {% if actions %}<div class="actions">{{ actions|safe }}</div>{% endif %}
+</header>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / user" %}
+  {% set heading = "Users" %}
+  {% set lede    = "Global per-user state. Click a row to view + edit." %}
+  {% include "partials/_section_header.html" %}
+
+  <form method="get" action="/db/user" class="search-bar">
+    <input name="q" value="{{ q }}" placeholder="Filter by user_id or username">
+    <button class="btn">Search</button>
+  </form>
+
+  {% if rows %}
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th>user_id</th><th>username</th><th>premium</th><th>rain min</th>
+          <th>votes</th><th>streak</th><th>last bake</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in rows %}
+          <tr>
+            <td><span class="name">{{ u.user_id }}</span></td>
+            <td>{{ u.username }}</td>
+            <td>{% if u.premium %}<span style="color:var(--amber)">✓</span>{% endif %}</td>
+            <td class="numeric">{{ u.rain_minutes }}</td>
+            <td class="numeric">{{ u.total_votes }}</td>
+            <td class="numeric">{{ u.vote_streak }}</td>
+            <td><span class="muted">{{ u.last_bakegg_send }}</span></td>
+            <td class="actions"><a class="btn" href="/db/user/{{ u.user_id }}">View</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No users matched.</p>
+  {% endif %}
+</section>
+{% endblock %}

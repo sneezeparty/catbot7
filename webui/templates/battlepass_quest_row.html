@@ -1,0 +1,39 @@
+{% set row_id = "quest-" ~ qtype ~ "-" ~ name %}
+<tr id="{{ row_id }}" class="{% if editing %}editing{% endif %}">
+  <td><span class="name">{{ name }}</span></td>
+  {% if editing %}
+    <td><input name="emoji" value="{{ quest.emoji }}" form="{{ row_id }}-form" style="width:6em"></td>
+    <td><input name="title" value="{{ quest.title }}" form="{{ row_id }}-form"></td>
+    <td><input class="numeric" name="xp_min" value="{{ quest.xp_min }}" inputmode="numeric" form="{{ row_id }}-form"></td>
+    <td><input class="numeric" name="xp_max" value="{{ quest.xp_max }}" inputmode="numeric" form="{{ row_id }}-form"></td>
+    <td><input class="numeric" name="progress" value="{{ quest.progress }}" inputmode="numeric" form="{{ row_id }}-form"></td>
+    <td class="actions">
+      <form id="{{ row_id }}-form" hx-post="/battlepass/quest/{{ qtype }}/{{ name }}" hx-target="#{{ row_id }}" hx-swap="outerHTML"></form>
+      <button class="btn btn-primary" type="submit" form="{{ row_id }}-form">Save</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/battlepass/quest/{{ qtype }}/{{ name }}/cancel"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Cancel</button>
+    </td>
+  {% else %}
+    <td>{{ quest.emoji }}</td>
+    <td>{{ quest.title }}{% if quest.dynamic_reward %} <span class="muted" title="XP is derived from cat value at award time">(dynamic)</span>{% endif %}</td>
+    <td class="numeric">{{ quest.xp_min }}</td>
+    <td class="numeric">{{ quest.xp_max }}</td>
+    <td class="numeric">{{ quest.progress }}</td>
+    <td class="actions">
+      {% if delete_blocked %}
+        <span class="muted" title="{{ live_refs }} profile rows still reference this quest">delete blocked ({{ live_refs }} refs)</span>
+      {% endif %}
+      <button class="btn" type="button"
+              hx-get="/battlepass/quest/{{ qtype }}/{{ name }}/edit"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Edit</button>
+      <button class="btn btn-danger" type="button"
+              hx-post="/battlepass/quest/{{ qtype }}/{{ name }}/delete"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML"
+              hx-confirm="Delete quest '{{ name }}'? This checks for live profile references first.">Delete</button>
+    </td>
+  {% endif %}
+</tr>

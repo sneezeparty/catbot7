@@ -1,0 +1,15 @@
+aiohttp[speedups]
+aiohttp-jinja2
+discord.py[speed]
+Pillow
+Pilmoji==2.0.4
+emoji==1.7
+requests
+discord-emoji
+winuvloop
+psutil
+asyncpg
+sentry-sdk
+unidecode
+numpy
+matplotlib

@@ -1,0 +1,76 @@
+# Catnip
+
+Catnip is Cat Bot's late-game endgame loop, themed as a "cat mafia". It's the primary cat sink for high-volume players and the source of the most powerful perks in the game.
+
+## The shape
+
+A catnip "session" is a temporary buff window:
+
+- The user runs `/catnip` once they've unlocked it (catching enough cats flips `profile.dark_market_active`).
+- Each session has a **level** (1–10) and a finite **duration** (`catnip_active` is the unix expiry).
+- During a session, catches roll for perk-driven effects (doubled catches, tripled catches, timer extensions, etc.).
+- Levels increase by completing **bounties** and **paying a price** (cats of a specific rarity).
+- Failing the bounty window before the session expires drops the user one level and revokes their last perk.
+- Level 10 is repeatable but caps out — extra runs just add 24h to `catnip_active`.
+
+**Design intent:** catnip is the **active-engagement reward**. The buff window is short enough that a player can't just hoard catnip and afk through it. The level-up loop creates a "feed the slot machine" tension — keep catching to keep the buff alive.
+
+> **STALE:** all catnip levels 1–10 now have `"duration": 24` in `config/catnip.json`, meaning each session lasts a full 24 hours. The "short enough to prevent AFKing" framing above no longer reflects the current config. The design intent around session length should be revisited and rewritten to match the 24h cadence.
+
+## Level structure
+
+Defined in `config/catnip.json` under `levels[<n>]`. Each level has:
+- `bonus`: a special bounty (e.g., catch a specific cat type)
+- `price`: cat type + amount required to advance
+- `perks`: list of allowed perk indices for the random-3 picker
+
+Perks themselves are defined separately under `perks` with rarity tiers (Common, Uncommon, Rare, Epic, Legendary) and effect values.
+
+## Perks
+
+When a user pays up to level N, they pick **one of three random perks** (with rarities weighted by level). Perks stack across levels — by level 10 a user can have 10 perks active simultaneously.
+
+Effects include:
+- Double/triple catches with some probability
+- Timer extensions on catches (extending the session)
+- Pack drops on catch (Wooden through Platinum)
+- Streak-scaled bonuses (e.g., timer extension proportional to vote_streak)
+- Rain triggers on catch
+
+**Design intent:** the perk grid is intentionally not balanced for "best build" — every perk is useful, but the random-3 picker means users can't optimize. The cap is the picker, not the perks themselves.
+
+> **STALE:** the Time Manipulator perk (`timer_add`) description in `config/catnip.json` still reads "+5 minutes", but `main.py` derives the displayed value from `config/tuning.json:catnip_timer_extend_seconds` (currently 1800 s = 30 minutes). The perk description string in `catnip.json` needs updating to match the tuning value.
+
+## Bounties
+
+Each level has 0–3 bounties (`bounty_one`, `bounty_two`, `bounty_three`) with rarities and target counts. The user advances toward a bounty by catching matching cats during the session.
+
+**Design intent:** bounties are time pressure. The "complete bounties before the session expires" loop is what keeps catnip from being passive.
+
+## Catnip XP
+
+Each level-up grants **+100 XP** to the battlepass, capped at **1000 XP per season** (tracked via `profile.catnip_xp_awarded`). That matches the 10-level ceiling exactly — a player who maxes catnip from 0 → 10 in one season gets the full 1000.
+
+**Design intent:** the cap exists so that grinding catnip up-and-down for XP isn't more efficient than questing. A repeated 10 → 9 → 10 → 9 loop would let a single user drain unlimited XP without it; with the cap, catnip XP is a *first-time-this-season* reward.
+
+## Hibernation
+
+When the user advances a level, `profile.hibernation = True`. This pauses catnip's effects until they pick their perk. It prevents weird interactions where a level-up happens mid-catch.
+
+## Decay
+
+If a session expires with bounties incomplete: level drops by 1, last perk removed, `catnip_active = 0`. The user keeps their position in `bp_history`, just loses a level.
+
+**Design intent:** failure must be visible and felt. Without the level-drop, catnip would be free progress — players would just camp at level 1 and ignore bounties.
+
+## Cutscenes
+
+There are two scripted cutscenes (`mafia_cutscene` at level 8 first-reach, `mafia_cutscene2` at level 10 first-reach). They unlock achievements (`thanksforplaying`, `mafia_win`) and lore.
+
+**Design intent:** cutscenes are *one-shot* rewards for crossing a threshold. They're not meant to gate gameplay — if a user skips them somehow, nothing breaks.
+
+## Quest interaction
+
+The `catnip_session` extra-slot battlepass quest fires on successful `/catnip` activation (a paid level-up). It's gated to users with `catnip_level > 0` so freshly-unlocked players who haven't paid yet don't get assigned an unwinnable quest.
+
+> **TODO(design):** consider adding a separate "complete a bounty" quest. Currently bounty completion isn't directly XP-rewarded outside the level-up grant.

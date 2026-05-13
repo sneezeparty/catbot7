@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <a href="/db/user" class="back-link">back to users</a>
+
+  {% set eyebrow = "db / user" %}
+  {% set heading %}<span class="name">{{ row.user_id }}</span>{% endset %}
+  {% include "partials/_section_header.html" %}
+
+  <h2 class="section">Editable</h2>
+  <table class="editor-table">
+    <tbody>
+      {% for f in str_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td><input name="value" form="form-{{ f }}" value="{{ row.get(f, '') }}"></td>
+          <td class="actions">
+            <form id="form-{{ f }}" hx-post="/db/user/{{ row.user_id }}/{{ f }}" hx-target="#flash" hx-swap="innerHTML"></form>
+            <button class="btn btn-primary" form="form-{{ f }}" type="submit">Save</button>
+          </td>
+        </tr>
+      {% endfor %}
+      {% for f in int_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td><input class="numeric" name="value" form="form-{{ f }}" value="{{ row.get(f, 0) }}" inputmode="numeric"></td>
+          <td class="actions">
+            <form id="form-{{ f }}" hx-post="/db/user/{{ row.user_id }}/{{ f }}" hx-target="#flash" hx-swap="innerHTML"></form>
+            <button class="btn btn-primary" form="form-{{ f }}" type="submit">Save</button>
+          </td>
+        </tr>
+      {% endfor %}
+      {% for f in bool_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td>
+            <select name="value" form="form-{{ f }}">
+              <option value="true"  {% if row.get(f) %}selected{% endif %}>true</option>
+              <option value="false" {% if not row.get(f) %}selected{% endif %}>false</option>
+            </select>
+          </td>
+          <td class="actions">
+            <form id="form-{{ f }}" hx-post="/db/user/{{ row.user_id }}/{{ f }}" hx-target="#flash" hx-swap="innerHTML"></form>
+            <button class="btn btn-primary" form="form-{{ f }}" type="submit">Save</button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">All columns <span class="heading-count">read-only</span></h2>
+  <table class="editor-table">
+    <tbody>
+      {% for k, v in row.items()|sort %}
+        <tr><td><span class="name">{{ k }}</span></td><td>{{ v }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

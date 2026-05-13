@@ -1,0 +1,10 @@
+2026-05-13 00:00  Added: "Pack rewards in battlepass level-up track" (re: config/battlepass.json)
+2026-05-13 00:00  Changed: "All catnip durations unified to 24 hours" (re: config/catnip.json — user-provided context)
+2026-05-13 00:00  Changed: "Time Manipulator perk now adds 30 minutes" (re: main.py, config/tuning.json — user-provided context)
+2026-05-13 00:00  Changed: "Catnip level names L5-L11 updated" (re: config/catnip.json — user-provided context)
+2026-05-13 00:00  Changed: "Plush promo footer removed" (re: main.py)
+2026-05-13 00:00  Removed: "Easter-egg achievements website_user and click_here removed" (re: main.py)
+2026-05-13 00:00  Internal: "CATNIP_TIMER_EXTEND and tuning constants read from config/tuning.json" (re: main.py)
+2026-05-13 00:00  Internal: "TriggerEngine imported and constructed at module load" (re: main.py)
+2026-05-13 00:00  Skipped: config/battlepass.json extra quest pool — already covered by existing "Third battlepass quest slot" bullet
+2026-05-13 00:00  Skipped: main.py pack_data rebalance — already covered by existing "Pack values rebalanced" bullet

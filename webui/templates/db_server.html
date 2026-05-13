@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / server" %}
+  {% set heading = "Server settings" %}
+  {% set lede    = "Per-guild feature toggles. Edits go straight to the table — no reload needed." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Toggles flip directly against the live <code>server</code> table. Showing up to 200 rows.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <form method="get" action="/db/server" class="search-bar">
+    <input name="q" value="{{ q }}" placeholder="Filter by server_id (substring)">
+    <button class="btn">Search</button>
+  </form>
+
+  {% if rows %}
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th>server_id</th>
+          {% for t in toggles %}<th title="{{ t }}">{{ t|replace("_", " ")|truncate(12) }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% include "db_server_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No servers found.</p>
+  {% endif %}
+</section>
+{% endblock %}

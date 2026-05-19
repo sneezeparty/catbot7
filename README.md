@@ -28,6 +28,7 @@ Operator-visible game changes that drift from upstream:
 - **Voting is permanently retired.** `/vote`, the top.gg webhook, vote-replay, and the catch-message vote button are all gated behind `voting_enabled` (default `0`) and treated as dormant scaffolding. The vote-streak counter was renamed `daily_catch_streak` and now tracks a per-day catch streak.
 - **One unified `coins` wallet.** `/stocks`, `/packs`, `/roulette`, and `/catstore` all spend the same `profile.coins`. The original "cat dollars" gambling silo was merged into coins (see `docs/design/economy.md`).
 - **/catstore** — a coins-to-cats marketplace with a discovery gate. Buy prices scale with Cat Mafia level from −20% (Newbie tax) to +30% (El Patrón discount). Sell prices also scale with mafia level (50% face at Newbie → up to ~80% at mid-rank), but are capped at `buy_pct − 5` per level so round-trips always net negative and can't be farmed.
+- **/jobs** — Mafia Killings, a PvE contract system. Six NPCs offer up to three contracts per 6h window (deterministic per `(user, guild, window)`). Send cats as a crew, roll a sigmoid against the difficulty, three outcomes (success / 10pp near-miss / total failure). A second die rolls **complications** — independent of the success roll, so a high-SP crew can still get hit by a Cat Police raid, a rival crew, a double-cross, or a sloppy-target jackpot. Diminishing returns on mono-rarity stacking, heat that ticks toward a 12h perk lockout at 100, daily commit cap of 3, and a once-per-season Big Score at Lv10 for 3 eGirls + a permanent +5% spawn-extra perk. `/rep` shows per-NPC standing. See `docs/design/jobs.md`.
 - **Activity-driven stock market.** Prices for PRSM/CTNP/PASS/ACHS/RAIN now follow in-game metrics (prism count, active catnip sessions, average battlepass level, etc.) via a bot-owned market maker that ticks each background loop, instead of sitting flat on a dormant order book.
 - **Catnip perks reshuffled** — Time Manipulator retired (frozen in place to preserve stored-perk indices); three new perks added: Snowballer, Battlepass Booster, Bait & Switch. Voting Booster renamed to Loyalty Streak. All sessions are now 24h regardless of level.
 - **5 quest slots per cycle** — vote, catch, misc, extra, and a new `challenge` slot for harder catch-condition quests (`under3`, `slow`, `legendary+`, `catnip_catch`, `streak10`).
@@ -112,6 +113,9 @@ After bringing up a fresh database from `schema.sql`, you should not need to run
 | 004 | Rename voting columns: `user.vote_streak` → `daily_catch_streak`, `user.max_vote_streak` → `max_daily_streak`. |
 | 005 | Add `profile.discovered_cats` + `profile.store_purchased_rarities` for the Cat Store; backfill discovery from existing per-type cat counters. |
 | 006 | Merge `profile.roulette_balance` into `profile.coins` and drop the column. |
+| 007 | Jobs / Mafia Killings foundation: 16 profile columns (`heat`, `faction_rep`, `jobs_completed`, …) + `jobinstance` table + 2 indexes. |
+| 008 | Add `profile.perks_suspended_until` for the Cat Police Station pinch (12h catnip-perk lockout at heat 100). |
+| 009 | Jobs complications: `profile.jobs_pending_difficulty_mult`, `profile.jobs_pending_heat_bonus`, `jobinstance.complication`. |
 
 Run them in numeric order. Each one is safe to re-run if it failed partway.
 

@@ -345,7 +345,9 @@ CREATE TABLE public.profile (
     whiskers_favor_season integer DEFAULT -1 NOT NULL,
     jobs_send_screen_seen boolean DEFAULT false NOT NULL,
     tutorial_errand_complete boolean DEFAULT false NOT NULL,
-    perks_suspended_until bigint DEFAULT 0 NOT NULL
+    perks_suspended_until bigint DEFAULT 0 NOT NULL,
+    jobs_pending_difficulty_mult real DEFAULT 1.0 NOT NULL,
+    jobs_pending_heat_bonus integer DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -542,7 +544,8 @@ CREATE TABLE public.jobinstance (
     offered_at bigint NOT NULL,
     expires_at bigint NOT NULL,
     resolved_at bigint DEFAULT 0 NOT NULL,
-    committed_at bigint DEFAULT 0 NOT NULL
+    committed_at bigint DEFAULT 0 NOT NULL,
+    complication text DEFAULT ''::text NOT NULL
 );
 
 ALTER TABLE public.jobinstance OWNER TO cat_bot;

@@ -1109,6 +1109,222 @@ def _jobs_resolve_outcome_with_rep(send_total: int, difficulty: int, send: dict,
     return {"outcome": outcome, "roll": float(r), "success_chance": float(chance), "cats_destroyed": destroyed}
 
 
+# ---------------------------------------------------------------------------
+# Complications: independent second die rolled per commit. Closes the 95%
+# success-ceiling loophole and adds texture (heat raids, rival crews, jackpots,
+# pending aftermath effects). See docs/design/jobs.md.
+# ---------------------------------------------------------------------------
+
+JOBS_COMPLICATIONS = config.jobs.get("complications", {})
+JOBS_COMPLICATION_POOLS = config.jobs.get("complication_pools", {})
+JOBS_COMPLICATION_FLAVOR = config.jobs.get("complication_flavor", {})
+
+# Order matters — used by sloppy_target to pick "one tier above" defaults.
+PACK_TIER_ORDER = ["wooden", "stone", "bronze", "silver", "gold", "platinum", "diamond", "celestial"]
+
+
+def _jobs_col(profile, name, default):
+    """Safe read for newly-migrated profile columns. catpg's __getattr__ raises
+    KeyError (not AttributeError) when a column is missing, so the standard
+    getattr-with-default idiom doesn't fall back. This wraps that for the
+    Phase 1 columns that may not exist yet pre-migration-009."""
+    try:
+        v = getattr(profile, name)
+    except KeyError:
+        return default
+    return default if v is None else v
+
+
+def _jobs_heat_band(heat: int) -> str:
+    if heat >= 71:
+        return "scrutiny"
+    if heat >= 31:
+        return "watching"
+    return "low"
+
+
+def _jobs_complication_chance(tier: int, current_heat: int, offerer_rep: int) -> float:
+    """final = base_by_tier * (1 + heat_factor) * (1 - clamp(rep_discount))."""
+    base = float(JOBS_COMPLICATIONS.get("base_chance_by_tier", {}).get(str(tier), 0.0))
+    if base <= 0:
+        return 0.0
+    heat_factor = float(JOBS_COMPLICATIONS.get("heat_modifier", {}).get(_jobs_heat_band(int(current_heat)), 0.0))
+    rep_per = float(JOBS_COMPLICATIONS.get("rep_discount_per_point", 0.0))
+    rep_cap = float(JOBS_COMPLICATIONS.get("rep_discount_cap", 0.0))
+    rep_discount = min(rep_cap, max(0, int(offerer_rep)) * rep_per)
+    return max(0.0, base * (1.0 + heat_factor) * (1.0 - rep_discount))
+
+
+def _jobs_roll_complication(tier: int, chance: float, rng: random.Random) -> dict | None:
+    """Roll the complication die. Returns a copy of the chosen event dict
+    from the per-tier pool, or None if the die misses or the pool is empty."""
+    if chance <= 0 or rng.random() >= chance:
+        return None
+    pool = JOBS_COMPLICATION_POOLS.get(str(tier)) or []
+    if not pool:
+        return None
+    weights = [max(0, int(e.get("weight", 0))) for e in pool]
+    if sum(weights) <= 0:
+        return None
+    picked = rng.choices(pool, weights=weights, k=1)[0]
+    return dict(picked)
+
+
+def _jobs_apply_pre_roll(event: dict, difficulty: int, send_total: int) -> tuple[int, str | None]:
+    """Mutate difficulty / force outcome before the success die rolls.
+    Returns (effective_difficulty, forced_outcome). forced_outcome is None
+    unless the event short-circuits (rival_crew when SP wall fails)."""
+    eid = event.get("id")
+    if eid == "rival_crew":
+        frac = float(event.get("wall_fraction", 0.4))
+        wall = max(1, math.ceil(difficulty * frac))
+        if send_total < wall:
+            return difficulty, "near_miss"
+        return difficulty, None
+    if eid == "boss_arrives":
+        mult = float(event.get("difficulty_mult", 1.4))
+        return max(1, math.ceil(difficulty * mult)), None
+    return difficulty, None
+
+
+def _jobs_bump_pack_tier(current: str | None, recipe_tier: int) -> str:
+    """sloppy_target: pick a pack tier one above the default for this recipe
+    tier (or one above the existing pack if the recipe already had one).
+    Capped at Celestial."""
+    if current:
+        try:
+            idx = PACK_TIER_ORDER.index(current)
+            return PACK_TIER_ORDER[min(len(PACK_TIER_ORDER) - 1, idx + 1)]
+        except ValueError:
+            pass
+    default = JOBS_COMPLICATIONS.get("sloppy_target_default_pack_tier_by_tier", {}).get(str(recipe_tier))
+    if default and default in PACK_TIER_ORDER:
+        try:
+            idx = PACK_TIER_ORDER.index(default)
+            return PACK_TIER_ORDER[min(len(PACK_TIER_ORDER) - 1, idx + 1)]
+        except ValueError:
+            pass
+    return "wooden"
+
+
+def _jobs_cat_one_tier_above(reward_cats: dict) -> str | None:
+    """For found_a_stash: pick a rarity one step rarer than the rarest cat in
+    the existing reward. If no cats in reward, fall back to Rare."""
+    if not reward_cats:
+        return "Rare"
+    rarest = None
+    rarest_idx = -1
+    for t in reward_cats.keys():
+        try:
+            idx = cattypes.index(t)
+        except ValueError:
+            continue
+        if idx > rarest_idx:
+            rarest_idx = idx
+            rarest = t
+    if rarest is None:
+        return "Rare"
+    next_idx = min(len(cattypes) - 1, rarest_idx + 1)
+    return cattypes[next_idx]
+
+
+def _jobs_apply_post_roll(event: dict, outcome_dict: dict, reward: dict, recipe_tier: int, send: dict, rng: random.Random) -> tuple[dict, dict, int, bool]:
+    """Apply post_roll effects after the success die has resolved. Returns
+    (mutated_outcome_dict, mutated_reward_dict, extra_heat, fired_meaningfully).
+    `fired_meaningfully` is False if the event's effect is null on the actual
+    outcome (e.g. easy_mark on a total_failure) — the caller clears the
+    complication id in that case so the result screen doesn't lie."""
+    eid = event.get("id")
+    outcome = outcome_dict.get("outcome", "")
+    extra_heat = 0
+    reward = dict(reward) if isinstance(reward, dict) else {}
+    reward.setdefault("cats", {})
+    if not isinstance(reward["cats"], dict):
+        reward["cats"] = {}
+
+    if eid == "cat_police_raid":
+        extra_heat = int(event.get("heat_bonus", 30))
+        return outcome_dict, reward, extra_heat, True
+
+    if eid == "informant":
+        # Only downgrades a success → near_miss. If already worse, no effect.
+        if outcome == "success":
+            new_outcome = dict(outcome_dict)
+            new_outcome["outcome"] = "near_miss"
+            new_outcome["cats_destroyed"] = _jobs_select_near_miss_casualties(send, rng)
+            return new_outcome, reward, 0, True
+        return outcome_dict, reward, 0, False
+
+    # Reward modifiers — only fire on success (cleaner UX; near_miss/wipe have
+    # no reward to modify).
+    if outcome != "success":
+        return outcome_dict, reward, 0, False
+
+    if eid == "easy_mark":
+        reward["coins"] = int(reward.get("coins", 0) or 0) * 2
+        reward["cats"] = {t: int(c) * 2 for t, c in (reward.get("cats") or {}).items()}
+        return outcome_dict, reward, 0, True
+
+    if eid == "double_cross":
+        new_cats = {}
+        for t, c in (reward.get("cats") or {}).items():
+            kept = max(0, int(c) // 2)
+            if kept > 0:
+                new_cats[t] = kept
+        if new_cats == (reward.get("cats") or {}):
+            # Skim had no bite (e.g. recipe only paid 1 cat — //2 = 0 cats kept
+            # makes the player feel robbed which IS the flavor). Allow that —
+            # the all-floor case here is the intended teeth.
+            pass
+        reward["cats"] = new_cats
+        return outcome_dict, reward, 0, True
+
+    if eid == "found_a_stash":
+        extra_type = _jobs_cat_one_tier_above(reward.get("cats") or {})
+        if extra_type:
+            reward["cats"] = dict(reward.get("cats") or {})
+            reward["cats"][extra_type] = int(reward["cats"].get(extra_type, 0)) + 1
+        return outcome_dict, reward, 0, True
+
+    if eid == "sloppy_target":
+        new_pack = _jobs_bump_pack_tier(reward.get("pack"), recipe_tier)
+        reward["pack"] = new_pack
+        reward["cats"] = {}  # replaces the cat reward
+        return outcome_dict, reward, 0, True
+
+    return outcome_dict, reward, 0, False
+
+
+def _jobs_apply_aftermath(event: dict, profile: Profile) -> None:
+    """Persist aftermath effects to the player's profile so the NEXT commit
+    consumes them. Both columns are reset to defaults whenever they're consumed."""
+    eid = event.get("id")
+    if eid == "witness":
+        mult = float(event.get("difficulty_mult", 1.2))
+        # Compose with any already-pending mult (rare edge case if two
+        # aftermaths stack — just multiply, the cap is loose).
+        cur = float(_jobs_col(profile, "jobs_pending_difficulty_mult", 1.0))
+        try:
+            profile.jobs_pending_difficulty_mult = round(cur * mult, 4)
+        except KeyError:
+            logging.warning("jobs: aftermath witness skipped — migration 009 not applied")
+    elif eid == "loose_end":
+        bonus = int(event.get("heat_bonus", 10))
+        cur = int(_jobs_col(profile, "jobs_pending_heat_bonus", 0))
+        try:
+            profile.jobs_pending_heat_bonus = cur + bonus
+        except KeyError:
+            logging.warning("jobs: aftermath loose_end skipped — migration 009 not applied")
+
+
+def _jobs_complication_flavor(event_id: str, rng: random.Random) -> str:
+    """One-line flavor pulled from the per-event pool. Empty if no flavor set."""
+    pool = JOBS_COMPLICATION_FLAVOR.get(event_id) or []
+    if not pool:
+        return ""
+    return rng.choice(pool)
+
+
 def _jobs_add_cat(profile: Profile, cat_type: str, count: int) -> None:
     """Safely increment a cat column. No-op if column doesn't exist."""
     if count == 0 or cat_type not in type_dict:
@@ -8328,8 +8544,19 @@ async def jobs(message: discord.Interaction):
 
         send_total = _jobs_send_total(send_state)
         rep_bonus = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(profile))
-        chance = _jobs_success_chance(send_total, job.difficulty, rep_bonus)
-        ratio = send_total / max(1, job.difficulty)
+        # Pending aftermath effects from a previous commit get applied to THIS
+        # send. Surface them inline so the player isn't surprised at commit time.
+        pending_diff_mult = float(_jobs_col(profile, "jobs_pending_difficulty_mult", 1.0))
+        pending_heat_bonus = int(_jobs_col(profile, "jobs_pending_heat_bonus", 0))
+        effective_difficulty = max(1, math.ceil(int(job.difficulty) * pending_diff_mult))
+        effective_heat_cost = int(job.heat_cost or 0) + pending_heat_bonus
+        chance = _jobs_success_chance(send_total, effective_difficulty, rep_bonus)
+        ratio = send_total / max(1, effective_difficulty)
+        # Complication preview (informational — the actual roll happens on commit).
+        offerer_rep_for_comp = int(_jobs_faction_rep(profile).get(job.offered_by, 0))
+        comp_chance = _jobs_complication_chance(
+            int(job.tier), int(getattr(profile, "heat", 0) or 0), offerer_rep_for_comp
+        )
         near_miss_band = JOBS_PROB["near_miss_band"]
         feel, color = _jobs_feel_label(chance)
         gauge = _jobs_gauge(chance)
@@ -8369,16 +8596,22 @@ async def jobs(message: discord.Interaction):
             Separator(),
             "**👥 Your Crew**",
             "```\n" + "\n".join(crew_lines) + f"\nTotal: {send_total} SP\n```",
-            f"💪 Difficulty: **{job.difficulty} SP**  ·  Ratio: **{ratio:.2f}×**",
+            (f"💪 Difficulty: **{effective_difficulty} SP**"
+             f"{' (witness: +' + str(round((pending_diff_mult - 1) * 100)) + '%)' if pending_diff_mult > 1.0 else ''}"
+             f"  ·  Ratio: **{ratio:.2f}×**"),
             f"📊 Success Chance: **{chance * 100:.0f}%**",
             f"`{gauge}` {feel}",
+            f"⚠️ Complication chance: **{comp_chance * 100:.0f}%** — heat raids, rivals, jackpots",
             f"💰 Reward (success): {_jobs_reward_summary(reward)}",
             f"🩹 Near-miss ({near_miss_chance * 100:.0f}%): half your crew survives, no reward",
             f"💀 Total failure ({wipe_chance * 100:.0f}%): all cats destroyed",
         ]
         if sent_count:
             items.append(f"📉 Expected loss: ~{expected_loss_sp} SP across many attempts")
-        items.append(f"🚨 Heat cost: +{job.heat_cost}")
+        heat_str = f"🚨 Heat cost: +{effective_heat_cost}"
+        if pending_heat_bonus:
+            heat_str += f" (+{pending_heat_bonus} loose end)"
+        items.append(heat_str)
         for line in last_toast:
             items.append(line)
         last_toast.clear()
@@ -8463,9 +8696,19 @@ async def jobs(message: discord.Interaction):
             f"Rolled **{job.roll * 100:.1f}%** vs threshold **{job.success_chance * 100:.0f}%**",
             Separator(),
             *body_lines,
-            Separator(),
-            f"🚨 Heat: +{job.heat_cost}",
         ]
+        # Complication block — sits between outcome body and heat summary so
+        # it reads as "what happened beyond the dice."
+        comp_id = (_jobs_col(job, "complication", "") or "").strip()
+        if comp_id:
+            flavor = _jobs_complication_flavor(comp_id, random.Random(int(job.committed_at or 0) ^ int(job.id or 0)))
+            comp_pretty = comp_id.replace("_", " ").title()
+            items.append(Separator())
+            items.append(f"⚠️ **Complication: {comp_pretty}**")
+            if flavor:
+                items.append(f"*{flavor}*")
+        items.append(Separator())
+        items.append(f"🚨 Heat: +{job.heat_cost}")
         if destroyed_count:
             lost_summary = ", ".join(f"{c}× {t}" for t, c in cats_destroyed.items())
             items.append(f"💀 Lost: {lost_summary}")
@@ -8696,12 +8939,84 @@ async def jobs(message: discord.Interaction):
                 send_total = _jobs_send_total(send_state)
                 rep_bonus_now = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(fresh))
                 rng = random.Random()
-                outcome_dict = _jobs_resolve_outcome_with_rep(send_total, int(job.difficulty), dict(send_state), rep_bonus_now, rng)
+
+                # --- Consume pending aftermath from the previous commit ---
+                pending_diff_mult = float(_jobs_col(fresh, "jobs_pending_difficulty_mult", 1.0))
+                pending_heat_bonus = int(_jobs_col(fresh, "jobs_pending_heat_bonus", 0))
+                # Reset immediately so this commit's aftermath (if any) starts
+                # from a clean slate. Tolerate the columns being absent (pre-009).
+                try:
+                    fresh.jobs_pending_difficulty_mult = 1.0
+                    fresh.jobs_pending_heat_bonus = 0
+                except KeyError:
+                    pass
+                effective_difficulty = max(1, math.ceil(int(job.difficulty) * pending_diff_mult))
+                # Heat cost compounds: base × scrutiny × pending_heat_bonus, then
+                # complications may add more in post_roll.
+                committed_heat_cost = int(job.heat_cost or 0) + pending_heat_bonus
+
+                # --- Roll the complication die (independent of success die) ---
+                offerer_rep_for_comp = int(_jobs_faction_rep(fresh).get(job.offered_by, 0))
+                comp_chance = _jobs_complication_chance(
+                    int(job.tier), int(getattr(fresh, "heat", 0) or 0), offerer_rep_for_comp
+                )
+                comp_event = _jobs_roll_complication(int(job.tier), comp_chance, rng)
+                comp_id = ""
+                comp_meaningful = False
+
+                # --- pre_roll: mutate difficulty or short-circuit outcome ---
+                forced_outcome = None
+                if comp_event and comp_event.get("phase") == "pre_roll":
+                    effective_difficulty, forced_outcome = _jobs_apply_pre_roll(
+                        comp_event, effective_difficulty, send_total
+                    )
+                    comp_id = comp_event["id"]
+                    comp_meaningful = True
+
+                # --- Success die ---
+                if forced_outcome == "near_miss":
+                    outcome_dict = {
+                        "outcome": "near_miss",
+                        "roll": 0.0,
+                        "success_chance": _jobs_success_chance(send_total, effective_difficulty, rep_bonus_now),
+                        "cats_destroyed": _jobs_select_near_miss_casualties(send_state, rng),
+                    }
+                else:
+                    outcome_dict = _jobs_resolve_outcome_with_rep(
+                        send_total, effective_difficulty, dict(send_state), rep_bonus_now, rng
+                    )
+
+                # --- post_roll: mutate reward or downgrade outcome, add heat ---
+                reward_snapshot = _jobs_coerce_dict(job.reward_snapshot)
+                if comp_event and comp_event.get("phase") == "post_roll":
+                    outcome_dict, reward_snapshot, comp_extra_heat, fired = _jobs_apply_post_roll(
+                        comp_event, outcome_dict, reward_snapshot, int(job.tier), dict(send_state), rng
+                    )
+                    if fired:
+                        comp_id = comp_event["id"]
+                        comp_meaningful = True
+                        committed_heat_cost += comp_extra_heat
+
+                # Persist the (possibly-mutated) reward + heat back onto the job
+                # so _jobs_apply_outcome grants the modified values.
+                job.reward_snapshot = reward_snapshot
+                job.heat_cost = committed_heat_cost
+                job.complication = comp_id if comp_meaningful else ""
+
+                # --- aftermath: persist to profile for next commit ---
+                if comp_event and comp_event.get("phase") == "aftermath":
+                    _jobs_apply_aftermath(comp_event, fresh)
+                    job.complication = comp_event["id"]
+                    comp_meaningful = True
 
                 job.send_snapshot = dict(send_state)
                 job.send_total = send_total
                 job.state = "committed"
                 job.committed_at = int(time.time())
+                # Also remember the effective_difficulty actually faced (handy
+                # for the result screen narrative).
+                if not isinstance(job.rep_changes, dict):
+                    job.rep_changes = {}
 
                 await _jobs_apply_outcome(fresh, job, outcome_dict, rng)
 

@@ -109,5 +109,118 @@
   },
   "narrative_pools_big_score": [
     "I've been waiting to ask you this since I met you. Wilson's eGirl vault. I tried in '08. You're the one who's going to do it for me."
-  ]
+  ],
+  "complications": {
+    "base_chance_by_tier": { "1": 0.05, "2": 0.10, "3": 0.15, "4": 0.25, "5": 0.35 },
+    "heat_modifier": { "low": 0.0, "watching": 0.10, "scrutiny": 0.25 },
+    "rep_discount_per_point": 0.004,
+    "rep_discount_cap": 0.40,
+    "sloppy_target_default_pack_tier_by_tier": {
+      "2": "wooden",
+      "3": "stone",
+      "4": "bronze",
+      "5": "silver"
+    }
+  },
+  "complication_pools": {
+    "1": [
+      { "id": "easy_mark", "weight": 100, "phase": "post_roll" }
+    ],
+    "2": [
+      { "id": "cat_police_raid", "weight": 25, "phase": "post_roll", "heat_bonus": 30 },
+      { "id": "double_cross",    "weight": 15, "phase": "post_roll" },
+      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
+      { "id": "easy_mark",       "weight": 20, "phase": "post_roll" },
+      { "id": "found_a_stash",   "weight": 12, "phase": "post_roll" },
+      { "id": "sloppy_target",   "weight": 8,  "phase": "post_roll" },
+      { "id": "witness",         "weight": 10, "phase": "aftermath", "difficulty_mult": 1.20 },
+      { "id": "loose_end",       "weight": 5,  "phase": "aftermath", "heat_bonus": 10 }
+    ],
+    "3": [
+      { "id": "cat_police_raid", "weight": 22, "phase": "post_roll", "heat_bonus": 30 },
+      { "id": "rival_crew",      "weight": 20, "phase": "pre_roll",  "wall_fraction": 0.40 },
+      { "id": "double_cross",    "weight": 12, "phase": "post_roll" },
+      { "id": "boss_arrives",    "weight": 13, "phase": "pre_roll",  "difficulty_mult": 1.40 },
+      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
+      { "id": "easy_mark",       "weight": 10, "phase": "post_roll" },
+      { "id": "found_a_stash",   "weight": 8,  "phase": "post_roll" },
+      { "id": "sloppy_target",   "weight": 5,  "phase": "post_roll" },
+      { "id": "witness",         "weight": 3,  "phase": "aftermath", "difficulty_mult": 1.20 },
+      { "id": "loose_end",       "weight": 2,  "phase": "aftermath", "heat_bonus": 10 }
+    ],
+    "4": [
+      { "id": "cat_police_raid", "weight": 20, "phase": "post_roll", "heat_bonus": 30 },
+      { "id": "rival_crew",      "weight": 22, "phase": "pre_roll",  "wall_fraction": 0.40 },
+      { "id": "double_cross",    "weight": 13, "phase": "post_roll" },
+      { "id": "boss_arrives",    "weight": 18, "phase": "pre_roll",  "difficulty_mult": 1.40 },
+      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
+      { "id": "easy_mark",       "weight": 7,  "phase": "post_roll" },
+      { "id": "found_a_stash",   "weight": 7,  "phase": "post_roll" },
+      { "id": "sloppy_target",   "weight": 5,  "phase": "post_roll" },
+      { "id": "witness",         "weight": 2,  "phase": "aftermath", "difficulty_mult": 1.20 },
+      { "id": "loose_end",       "weight": 1,  "phase": "aftermath", "heat_bonus": 10 }
+    ],
+    "5": [
+      { "id": "cat_police_raid", "weight": 10, "phase": "post_roll", "heat_bonus": 30 },
+      { "id": "rival_crew",      "weight": 25, "phase": "pre_roll",  "wall_fraction": 0.40 },
+      { "id": "double_cross",    "weight": 18, "phase": "post_roll" },
+      { "id": "boss_arrives",    "weight": 25, "phase": "pre_roll",  "difficulty_mult": 1.40 },
+      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
+      { "id": "easy_mark",       "weight": 5,  "phase": "post_roll" },
+      { "id": "found_a_stash",   "weight": 5,  "phase": "post_roll" },
+      { "id": "sloppy_target",   "weight": 2,  "phase": "post_roll" }
+    ]
+  },
+  "complication_flavor": {
+    "cat_police_raid": [
+      "Sirens. Lots of them. The crew runs but the heat clings.",
+      "Cat Police were a block ahead the whole time. You barely make it back to the hideout.",
+      "Someone tipped off the precinct. The papers will run this tomorrow."
+    ],
+    "rival_crew": [
+      "A second crew is already on the mark. You have to push through them to get anywhere.",
+      "Halfway through, you find out you weren't the only operator hired tonight.",
+      "Another outfit's runners block the alley. They didn't expect you either."
+    ],
+    "double_cross": [
+      "Half the haul never makes it back. The offerer's people have light fingers.",
+      "When the cats come home, some of them are already 'reassigned'.",
+      "You count the take twice. It still comes out short."
+    ],
+    "boss_arrives": [
+      "Then *they* show up. Personally. The job just got harder.",
+      "The target's boss isn't supposed to be here tonight. They are.",
+      "An unmarked car. A familiar silhouette. The room recalibrates."
+    ],
+    "informant": [
+      "Someone in the crew was wearing a wire. You realize this far too late.",
+      "The mark knew you were coming. They were just polite about it.",
+      "It was a setup. Not a great one, but enough."
+    ],
+    "easy_mark": [
+      "The mark wasn't paying attention. Nobody was. You walk out with everything.",
+      "A door was unlocked that shouldn't have been. The take is double.",
+      "Sometimes the job just goes right. The take comes home heavy."
+    ],
+    "found_a_stash": [
+      "On the way out, one of the crew kicks open a cabinet you weren't told about.",
+      "A side stash the mark didn't know was missing. You take it too.",
+      "There's an extra crate by the door. It's yours now."
+    ],
+    "sloppy_target": [
+      "The mark had keys to a *different* stash. You take that instead.",
+      "The cats they were guarding turn out to be the wrong cats. The container, though…",
+      "You leave with a sealed pack instead of the cats. Worth more, maybe."
+    ],
+    "witness": [
+      "Someone saw the crew leave. They'll talk. The next job will be harder.",
+      "A doorman makes eye contact. They didn't move. They didn't have to.",
+      "The neighborhood is awake now. Word travels."
+    ],
+    "loose_end": [
+      "You leave a thread loose. The Cat Police will pick at it.",
+      "A cat got separated. They'll find their way home, but not before someone asks questions.",
+      "Something small went wrong. It'll cost you on the next run."
+    ]
+  }
 }

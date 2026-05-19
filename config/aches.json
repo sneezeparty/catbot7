@@ -132,5 +132,25 @@
   "lost_it_all": {"title": "Empty Hands", "description": "lose 100 cats to failed jobs (lifetime)", "is_hidden": true, "category": "Hidden", "xp": 350},
   "the_house_wins": {"title": "Lucky", "description": "win a job with success chance ≤ 25%", "is_hidden": true, "category": "Hidden", "xp": 400},
   "the_house_loses": {"title": "Unlucky", "description": "lose a job with success chance ≥ 80%", "is_hidden": true, "category": "Hidden", "xp": 200},
-  "got_out_alive": {"title": "Bailed", "description": "survive 10 near-misses", "is_hidden": true, "category": "Hidden", "xp": 300}
+  "got_out_alive": {"title": "Bailed", "description": "survive 10 near-misses", "is_hidden": true, "category": "Hidden", "xp": 300},
+
+  "whiskers_first":  {"title": "Whiskers's Right Hand", "description": "complete your first job for Whiskers",   "is_hidden": false, "category": "Commands", "xp": 300},
+  "lucian_jr_first": {"title": "Junior's Crew",         "description": "complete your first job for Lucian Jr",  "is_hidden": false, "category": "Commands", "xp": 300},
+  "jinx_first":      {"title": "Vibes Confirmed",       "description": "complete your first job for Jinx",       "is_hidden": false, "category": "Commands", "xp": 300},
+  "jeremy_first":    {"title": "On The Books",          "description": "complete your first job for Jeremy",     "is_hidden": false, "category": "Commands", "xp": 300},
+  "lucian_sr_first": {"title": "The Don's Errand",      "description": "complete your first job for Lucian Sr",  "is_hidden": false, "category": "Commands", "xp": 350},
+  "sofia_first":     {"title": "Sofia's Favorite",      "description": "complete your first job for Sofia",      "is_hidden": false, "category": "Commands", "xp": 350},
+
+  "first_failure":   {"title": "Blood On My Hands",     "description": "lose an entire crew on a job",                                         "is_hidden": false, "category": "Cat Hunt", "xp": 250},
+  "wise_guy":        {"title": "Wise Guy",              "description": "complete 10 jobs for the mafia",                                       "is_hidden": false, "category": "Cat Hunt", "xp": 400},
+
+  "heavy_crew":           {"title": "Heavy Crew",           "description": "send 100 or more cats on a single job",                            "is_hidden": false, "category": "Hard", "xp": 400},
+  "bringing_the_big_guns":{"title": "Bringing The Big Guns","description": "send a Legendary or rarer cat on a job",                          "is_hidden": false, "category": "Hard", "xp": 400},
+  "top_shelf":            {"title": "Top Shelf",            "description": "send an eGirl on a job. she'll handle it.",                       "is_hidden": false, "category": "Hard", "xp": 600},
+  "lone_wolf":            {"title": "Lone Wolf",            "description": "succeed on a job with a single cat sent",                          "is_hidden": false, "category": "Hard", "xp": 500},
+  "diverse_crew":         {"title": "Five-of-a-Kind",       "description": "send 5 or more distinct cat rarities on a single job",            "is_hidden": false, "category": "Hard", "xp": 450},
+
+  "first_complication": {"title": "Things Happen",  "description": "experience your first job complication",                                  "is_hidden": true, "category": "Hidden", "xp": 200},
+  "easy_money":         {"title": "Easy Money",     "description": "get hit by the Easy Mark complication. lucky.",                           "is_hidden": true, "category": "Hidden", "xp": 250},
+  "stone_cold":         {"title": "Stone Cold",     "description": "commit a job at exactly 0 heat. nobody's watching.",                      "is_hidden": true, "category": "Hidden", "xp": 350}
 }

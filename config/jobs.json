@@ -44,15 +44,15 @@
       "reward_recipes": {
         "2": [
           { "weight": 50, "coins": [180, 350], "cats": {"Good": 1} },
-          { "weight": 30, "coins": [200, 380], "cats": {"Rare": 1} },
+          { "weight": 25, "coins": [200, 380], "cats": {"Rare": 1} },
           { "weight": 15, "coins": [150, 300], "cats": {"Nice": 1, "Good": 1} },
-          { "weight": 5,  "coins": [250, 400], "cats": {"Rare": 1}, "pack": "wooden" }
+          { "weight": 10, "coins": [250, 400], "cats": {"Rare": 1}, "pack": "wooden" }
         ],
         "3": [
           { "weight": 45, "coins": [700, 1200], "cats": {"Epic": 1} },
-          { "weight": 30, "coins": [500, 900],  "cats": {"Rare": 3} },
+          { "weight": 25, "coins": [500, 900],  "cats": {"Rare": 3} },
           { "weight": 15, "coins": [800, 1300], "cats": {"Rare": 2, "Epic": 1} },
-          { "weight": 10, "coins": [600, 1000], "cats": {"Epic": 1}, "pack": "stone" }
+          { "weight": 15, "coins": [600, 1000], "cats": {"Epic": 1}, "pack": "stone" }
         ],
         "4": [
           { "weight": 40, "coins": [3000, 4500], "cats": {"Ultimate": 1} },
@@ -73,13 +73,15 @@
       "reward_bias": "standard",
       "reward_recipes": {
         "1": [
-          { "weight": 70, "coins": [80, 150] },
-          { "weight": 30, "coins": [60, 120], "cats": {"Nice": 1} }
+          { "weight": 35, "coins": [80, 150] },
+          { "weight": 35, "coins": [60, 120], "cats": {"Nice": 1} },
+          { "weight": 20, "coins": [70, 140], "cats": {"Fine": 1, "Nice": 1} },
+          { "weight": 10, "coins": [80, 150], "cats": {"Fine": 1}, "pack": "wooden" }
         ],
         "2": [
           { "weight": 55, "coins": [220, 380], "cats": {"Nice": 1} },
-          { "weight": 30, "coins": [180, 320], "cats": {"Good": 1} },
-          { "weight": 15, "coins": [200, 350], "cats": {"Good": 1}, "pack": "stone" }
+          { "weight": 25, "coins": [180, 320], "cats": {"Good": 1} },
+          { "weight": 20, "coins": [200, 350], "cats": {"Good": 1}, "pack": "stone" }
         ]
       }
     },
@@ -93,21 +95,23 @@
       "reward_bias": "coin_heavy",
       "reward_recipes": {
         "1": [
-          { "weight": 60, "coins": [90, 150] },
-          { "weight": 35, "coins": [70, 130], "cats": {"Fine": 2} },
-          { "weight": 5,  "coins": [100, 150], "cats": {"Nice": 1} }
+          { "weight": 20, "coins": [90, 150] },
+          { "weight": 50, "coins": [70, 130], "cats": {"Fine": 2} },
+          { "weight": 20, "coins": [100, 150], "cats": {"Nice": 1} },
+          { "weight": 10, "coins": [80, 140], "cats": {"Fine": 1}, "pack": "wooden" }
         ],
         "2": [
-          { "weight": 55, "coins": [250, 400] },
-          { "weight": 30, "coins": [200, 350], "cats": {"Nice": 1} },
-          { "weight": 12, "coins": [220, 380], "cats": {"Good": 1} },
-          { "weight": 3,  "coins": [180, 300], "cats": {"Rare": 1} }
+          { "weight": 20, "coins": [250, 400] },
+          { "weight": 40, "coins": [200, 350], "cats": {"Nice": 1} },
+          { "weight": 22, "coins": [220, 380], "cats": {"Good": 1} },
+          { "weight": 8,  "coins": [180, 300], "cats": {"Rare": 1} },
+          { "weight": 10, "coins": [240, 380], "cats": {"Nice": 1}, "pack": "wooden" }
         ],
         "3": [
-          { "weight": 60, "coins": [900, 1500] },
-          { "weight": 25, "coins": [700, 1200], "cats": {"Rare": 1} },
-          { "weight": 10, "coins": [600, 1100], "cats": {"Epic": 1} },
-          { "weight": 5,  "coins": [800, 1300], "cats": {"Rare": 2}, "pack": "wooden" }
+          { "weight": 25, "coins": [900, 1500] },
+          { "weight": 40, "coins": [700, 1200], "cats": {"Rare": 1} },
+          { "weight": 20, "coins": [600, 1100], "cats": {"Epic": 1} },
+          { "weight": 15, "coins": [800, 1300], "cats": {"Rare": 2}, "pack": "wooden" }
         ]
       }
     },
@@ -121,9 +125,9 @@
       "reward_bias": "coins_only",
       "reward_recipes": {
         "2": [
-          { "weight": 50, "coins": [280, 400] },
-          { "weight": 35, "coins": [220, 360] },
-          { "weight": 15, "coins": [200, 350], "pack": "stone" }
+          { "weight": 60, "coins": [280, 400] },
+          { "weight": 25, "coins": [200, 350], "pack": "stone" },
+          { "weight": 15, "coins": [220, 360], "cats": {"Good": 1} }
         ]
       }
     },
@@ -138,15 +142,17 @@
       "ally_protection_threshold": 50,
       "reward_recipes": {
         "2": [
-          { "weight": 45, "coins": [100, 200], "cats": {"Trash": 1} },
-          { "weight": 35, "coins": [150, 250], "cats": {"Superior": 1} },
-          { "weight": 20, "coins": [80, 180],  "cats": {"Legendary": 1} }
+          { "weight": 40, "coins": [100, 200], "cats": {"Trash": 1} },
+          { "weight": 30, "coins": [150, 250], "cats": {"Superior": 1} },
+          { "weight": 20, "coins": [80, 180],  "cats": {"Legendary": 1} },
+          { "weight": 10, "coins": [120, 220], "cats": {"Superior": 1}, "pack": "stone" }
         ],
         "3": [
-          { "weight": 40, "coins": [500, 900],  "cats": {"Superior": 2} },
+          { "weight": 35, "coins": [500, 900],  "cats": {"Superior": 2} },
           { "weight": 30, "coins": [400, 800],  "cats": {"Legendary": 1} },
-          { "weight": 20, "coins": [600, 1000], "cats": {"Trash": 2, "Legendary": 1} },
-          { "weight": 10, "coins": [300, 600],  "cats": {"Legendary": 2} }
+          { "weight": 15, "coins": [600, 1000], "cats": {"Trash": 2, "Legendary": 1} },
+          { "weight": 10, "coins": [300, 600],  "cats": {"Legendary": 2} },
+          { "weight": 10, "coins": [500, 900],  "cats": {"Legendary": 1}, "pack": "bronze" }
         ]
       }
     },
@@ -162,8 +168,8 @@
       "reward_recipes": {
         "3": [
           { "weight": 40, "coins": [700, 1200], "cats": {"Epic": 1} },
-          { "weight": 30, "coins": [500, 900],  "cats": {"Rare": 2} },
-          { "weight": 20, "coins": [400, 700],  "cats": {"Epic": 1}, "pack": "stone" },
+          { "weight": 25, "coins": [500, 900],  "cats": {"Rare": 2} },
+          { "weight": 25, "coins": [400, 700],  "cats": {"Epic": 1}, "pack": "stone" },
           { "weight": 10, "coins": [600, 1100], "cats": {"Epic": 2} }
         ],
         "4": [

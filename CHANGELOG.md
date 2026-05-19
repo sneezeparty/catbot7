@@ -4,6 +4,23 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.151919052026]
+
+### Added
+- **16 new job achievements.** Six per-NPC "first job" aches (Whiskers's Right Hand, Junior's Crew, Vibes Confirmed, On The Books, The Don's Errand, Sofia's Favorite — fire on first successful job for each NPC). Plus Blood On My Hands (first total wipe), Wise Guy (10 jobs completed), Heavy Crew (send 100+ cats), Bringing The Big Guns (send a Legendary+), Top Shelf (send an eGirl — 600 XP), Lone Wolf (succeed with 1 cat), Five-of-a-Kind (5 distinct rarities), Things Happen (first complication), Easy Money (first easy_mark proc), Stone Cold (commit at heat 0). Crew-flex aches fire on any outcome; outcome aches fire on the relevant outcome only.
+- **Three new Cat Store battlepass quests** in the `extra` pool: `store_buy` (buy a cat • 240-300 XP), `store_sell` (sell a cat • 220-280 XP), `store_spree` (spend 5,000+ coins on a single store purchase • 320-400 XP). Wired into the buy/sell modals via `progress(...)` calls.
+
+### Changed
+- **Reward recipe rebalance — more cats and packs, in-character.** Per-NPC bumps so the "coins + cats/pack" rate goes from ~75% to ~88% overall, and the pack-anywhere rate from ~11% to ~18%. Per-NPC notes: Whiskers T2 pack 5→10% / T3 pack 10→15%; Lucian Jr T1 pack 0→10% + cat rate 30→65% (he grabs an extra crate dad doesn't know about); Jinx T1-3 now has packs at 10-15% and cats at 70-80% (her first pack drops); Jeremy T2 stays mostly coin (60%) but gains a 25% Stone pack and a 15% Good-cat tail (the laundering "gratuity"); Lucian Sr T2-3 gets first packs at 10% (Stone at T2, Bronze at T3 — old crates from his prime); Sofia T3 pack 20→25%. Jeremy still reads as the coin guy; the cat-flavored NPCs still pay cats. See `docs/design/jobs.md` for recipe philosophy.
+- **`job_easy` quest progress lowered from 2 → 1.** Title updated to "Complete a job for the mafia." Pairs with the daily 3-job cap so a single job-day still satisfies the quest.
+- **Daily-cap gate moved earlier.** Clicking Accept on a job offer now rechecks the daily commit count BEFORE the public Accept embed posts. If you're at 3/3 you see an ephemeral "come back tomorrow" — no public announcement of a job you can't actually run. Accept buttons on the board also render gray with "Daily limit hit" when at cap.
+
+### Removed
+- **`/store` slash command removed.** It was a 3-line upstream stub linking to `catbot.shop` (the public bot's monetization endpoint), useless for self-hosted. `/catstore`, the actual in-bot cat marketplace, is unaffected.
+
+### Fixed
+- **`achemb` no longer crashes when called with `"reply"` send_type on an Interaction object.** `do_funny` (button-click handler) was passing an Interaction to `achemb(message, "curious", "reply")`, which then tried `message.reply()` — only valid on `discord.Message`. Direct fix: `do_funny` now uses `"followup"`. Defensive guard: `achemb` falls back to followup with a warning log when `reply` is requested on a non-Message object.
+
 ## [0.0.5.142819052026]
 
 ### Added

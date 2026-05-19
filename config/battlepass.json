@@ -2820,16 +2820,37 @@
       },
       "job_easy": {
         "emoji": "📋",
-        "title": "Complete 2 jobs of any tier",
+        "title": "Complete a job for the mafia",
         "xp_min": 200,
         "xp_max": 280,
-        "progress": 2
+        "progress": 1
       },
       "job_hard": {
         "emoji": "🎯",
         "title": "Complete a Tier 4+ job",
         "xp_min": 360,
         "xp_max": 420,
+        "progress": 1
+      },
+      "store_buy": {
+        "emoji": "🛒",
+        "title": "Buy a cat from the Cat Store",
+        "xp_min": 240,
+        "xp_max": 300,
+        "progress": 1
+      },
+      "store_sell": {
+        "emoji": "💸",
+        "title": "Sell a cat to the Cat Store",
+        "xp_min": 220,
+        "xp_max": 280,
+        "progress": 1
+      },
+      "store_spree": {
+        "emoji": "🪙",
+        "title": "Spend 5,000+ coins on a single Cat Store purchase",
+        "xp_min": 320,
+        "xp_max": 400,
         "progress": 1
       }
     },

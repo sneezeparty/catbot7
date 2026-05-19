@@ -1670,6 +1670,60 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
     if hostile_count >= 5:
         profile.unlock_ach("outlaw")
 
+    # --- Extended job achievements (per-NPC firsts, crew flexes, etc.) ---
+
+    # Per-NPC first success — one-time per (player, NPC). Six aches total.
+    NPC_FIRST_ACHES = {
+        "whiskers":  "whiskers_first",
+        "lucian_jr": "lucian_jr_first",
+        "jinx":      "jinx_first",
+        "jeremy":    "jeremy_first",
+        "lucian_sr": "lucian_sr_first",
+        "sofia":     "sofia_first",
+    }
+    if outcome == "success" and job.offered_by in NPC_FIRST_ACHES:
+        profile.unlock_ach(NPC_FIRST_ACHES[job.offered_by])
+
+    # First total wipe (the spiritual partner of first_job, which fires on
+    # first SUCCESS). Triggers when jobs_failed has just been bumped to 1.
+    if outcome == "total_failure" and int(getattr(profile, "jobs_failed", 0) or 0) == 1:
+        profile.unlock_ach("first_failure")
+
+    # Milestone: 10 successful jobs.
+    if outcome == "success" and int(getattr(profile, "jobs_completed", 0) or 0) >= 10:
+        profile.unlock_ach("wise_guy")
+
+    # Crew composition (outcome-independent — these fire on any commit). The
+    # send_snapshot was set right before this function was called.
+    send_snap = _jobs_coerce_dict(job.send_snapshot)
+    total_sent = sum(int(c or 0) for c in send_snap.values())
+    distinct_rarities = sum(1 for c in send_snap.values() if int(c or 0) > 0)
+
+    if total_sent >= 100:
+        profile.unlock_ach("heavy_crew")
+    if distinct_rarities >= 5:
+        profile.unlock_ach("diverse_crew")
+    if any(t in LEGENDARY_PLUS for t, c in send_snap.items() if int(c or 0) > 0):
+        profile.unlock_ach("bringing_the_big_guns")
+    if int(send_snap.get("eGirl", 0) or 0) > 0:
+        profile.unlock_ach("top_shelf")
+
+    # Lone wolf — succeed on a 1-cat send.
+    if outcome == "success" and total_sent == 1:
+        profile.unlock_ach("lone_wolf")
+
+    # Stone cold — committed at exactly 0 heat (pre-application; prior_heat
+    # was captured at the top of this function before _jobs_apply_commit_heat).
+    if prior_heat == 0:
+        profile.unlock_ach("stone_cold")
+
+    # Complication-driven aches.
+    comp_id = (_jobs_col(job, "complication", "") or "").strip()
+    if comp_id:
+        profile.unlock_ach("first_complication")
+        if comp_id == "easy_mark":
+            profile.unlock_ach("easy_money")
+
 
 def _jobs_start_of_utc_day(now: int) -> int:
     """Unix epoch for 00:00 UTC of the day containing `now`."""
@@ -2530,7 +2584,14 @@ async def achemb(message, ach_id, send_type, author_string=None):
         if send_type == "ephemeral":
             result = await message.followup.send(embed=embed, ephemeral=True)
         if send_type == "reply" and do:
-            result = await message.reply(embed=embed)
+            # `reply` only exists on discord.Message; Interactions don't have it.
+            # Fall back to followup so callers that mistakenly pass an Interaction
+            # don't lose the ach embed (just logged loudly the first time).
+            if hasattr(message, "reply"):
+                result = await message.reply(embed=embed)
+            else:
+                logging.warning("achemb: 'reply' send_type used on a non-Message object for %s — falling back to followup", ach_id)
+                result = await message.followup.send(embed=embed, ephemeral=not do)
         if send_type == "send" and do:
             result = await message.channel.send(embed=embed)
         if send_type == "followup":
@@ -2968,7 +3029,9 @@ async def do_funny(message):
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     user.funny += 1
     await user.save()
-    await achemb(message, "curious", "reply")
+    # `message` is an Interaction here, not a discord.Message — use "followup"
+    # (Interactions don't have .reply()).
+    await achemb(message, "curious", "followup")
     if user.funny >= 50:
         await achemb(message, "its_not_working", "followup")
 
@@ -6754,11 +6817,6 @@ You currently have **{user.rain_minutes:,}** minutes of rains{server_rains}.""",
     await message.response.send_message(embed=embed, view=view)
 
 
-@bot.tree.command(description="Buy Cat Rains!")
-async def store(message: discord.Interaction):
-    await message.response.send_message("☔ Cat rains make cats spawn instantly! Make your server active, get more cats and have fun!\n<https://catbot.shop>")
-
-
 if config.DONOR_CHANNEL_ID:
 
     @bot.tree.command(description="(SUPPORTER) Get a cosmetic custom cat! (non-tradeable, doesn't count towards anything)")
@@ -8294,6 +8352,14 @@ async def catstore(message: discord.Interaction):
             ):
                 await achemb(interaction, "catstore_collector", "followup")
 
+            # Battlepass quest progress — buy + (conditional) spree.
+            try:
+                await progress(interaction, profile, "store_buy")
+                if total_cost >= 5000:
+                    await progress(interaction, profile, "store_spree")
+            except Exception:
+                logging.exception("catstore: BP progress (buy) failed")
+
             await gen_detail(interaction, self.cat_type, use_followup=False)
 
     class SellModal(Modal):
@@ -8348,6 +8414,13 @@ async def catstore(message: discord.Interaction):
                 last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,} (full value)"
             if not profile.has_ach("catstore_first_sell"):
                 await achemb(interaction, "catstore_first_sell", "followup")
+
+            # Battlepass quest progress — sell.
+            try:
+                await progress(interaction, profile, "store_sell")
+            except Exception:
+                logging.exception("catstore: BP progress (sell) failed")
+
             await gen_detail(interaction, self.cat_type, use_followup=False)
 
     # ----- callbacks wired to buttons -----
@@ -8687,7 +8760,12 @@ async def jobs(message: discord.Interaction):
                 f"🚨 Heat cost: +{row.heat_cost}"
             )
 
-            accept_btn = Button(label="Accept", style=ButtonStyle.green, custom_id=f"jobs_accept_{row.id}")
+            at_cap = today_count >= JOBS_MAX_DAILY_COMMITS
+            accept_btn = Button(
+                label="Daily limit hit" if at_cap else "Accept",
+                style=ButtonStyle.gray if at_cap else ButtonStyle.green,
+                custom_id=f"jobs_accept_{row.id}",
+            )
             accept_btn.callback = make_on_accept(int(row.id))
             decline_btn = Button(label="Decline", style=ButtonStyle.gray, custom_id=f"jobs_decline_{row.id}")
             decline_btn.callback = make_on_decline(int(row.id))
@@ -8937,6 +9015,22 @@ async def jobs(message: discord.Interaction):
 
     def make_on_accept(job_id: int):
         async def cb(interaction: discord.Interaction):
+            # Daily cap check BEFORE anything else — including the public embed.
+            # If we're at cap, the player can't actually commit, so we shouldn't
+            # let them publicly "accept" a job they can't follow through on.
+            now_check = int(time.time())
+            today_count = await _jobs_commits_today(
+                int(message.user.id), int(message.guild.id), now_check
+            )
+            if today_count >= JOBS_MAX_DAILY_COMMITS:
+                day_end = _jobs_start_of_utc_day(now_check) + 86400
+                await interaction.response.send_message(
+                    f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
+                    f"Resets <t:{day_end}:R>. Come back tomorrow.",
+                    ephemeral=True,
+                )
+                return
+
             mode["screen"] = "send"
             mode["job_id"] = job_id
             send_state.clear()

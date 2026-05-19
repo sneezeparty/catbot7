@@ -1,0 +1,60 @@
+{#
+  Inline form for the probability block.
+  probability keys: k, floor, ceiling, near_miss_band
+  Target: #jobs-probability
+#}
+<div id="jobs-probability" class="{% if just_saved %}just-saved{% endif %}">
+  {% if editing %}
+    <form id="jobs-prob-form"
+          hx-post="/jobs/probability"
+          hx-target="#jobs-probability"
+          hx-swap="outerHTML">
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th title="Sigmoid steepness — higher k = sharper success cliff. Range (0, 10].">k</th>
+          <th title="Minimum success chance regardless of how weak your crew is. [0, 1]">Floor</th>
+          <th title="Maximum success chance regardless of how strong your crew is. [0, 1]">Ceiling</th>
+          <th title="Width of the near-miss band above the fail threshold. [0, 1]">Near-miss band</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><input class="numeric" name="k" value="{{ probability.get('k', 2.5) }}" style="width:6em" step="0.1"></td>
+          <td><input class="numeric" name="floor" value="{{ probability.get('floor', 0.05) }}" style="width:6em" step="0.01"></td>
+          <td><input class="numeric" name="ceiling" value="{{ probability.get('ceiling', 0.95) }}" style="width:6em" step="0.01"></td>
+          <td><input class="numeric" name="near_miss_band" value="{{ probability.get('near_miss_band', 0.10) }}" style="width:6em" step="0.01"></td>
+          <td class="actions">
+            <button class="btn btn-primary" type="submit">Save</button>
+            <button class="btn btn-ghost" type="button"
+                    hx-get="/jobs/probability/cancel"
+                    hx-target="#jobs-probability"
+                    hx-swap="outerHTML">Cancel</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    </form>
+  {% else %}
+    <table class="editor-table">
+      <thead>
+        <tr><th>k</th><th>Floor</th><th>Ceiling</th><th>Near-miss band</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="numeric">{{ probability.get('k', '—') }}</td>
+          <td class="numeric">{{ probability.get('floor', '—') }}</td>
+          <td class="numeric">{{ probability.get('ceiling', '—') }}</td>
+          <td class="numeric">{{ probability.get('near_miss_band', '—') }}</td>
+          <td class="actions">
+            <button class="btn" type="button"
+                    hx-get="/jobs/probability/edit"
+                    hx-target="#jobs-probability"
+                    hx-swap="outerHTML">Edit</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  {% endif %}
+</div>

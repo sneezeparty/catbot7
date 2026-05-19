@@ -328,7 +328,24 @@ CREATE TABLE public.profile (
     extra_reward smallint DEFAULT 0 NOT NULL,
     catch_streak smallint DEFAULT 0 NOT NULL,
     casino_progress_temp smallint DEFAULT 0 NOT NULL,
-    catnip_xp_awarded smallint DEFAULT 0 NOT NULL
+    catnip_xp_awarded smallint DEFAULT 0 NOT NULL,
+    heat integer DEFAULT 0 NOT NULL,
+    heat_last_decay bigint DEFAULT 0 NOT NULL,
+    faction_rep jsonb DEFAULT '{}'::jsonb NOT NULL,
+    jobs_completed integer DEFAULT 0 NOT NULL,
+    jobs_failed integer DEFAULT 0 NOT NULL,
+    jobs_near_missed integer DEFAULT 0 NOT NULL,
+    cats_lost_to_jobs integer DEFAULT 0 NOT NULL,
+    job_coins_won bigint DEFAULT 0 NOT NULL,
+    biggest_score_value integer DEFAULT 0 NOT NULL,
+    big_score_season integer DEFAULT -1 NOT NULL,
+    big_score_wins integer DEFAULT 0 NOT NULL,
+    big_score_perk_unlocked boolean DEFAULT false NOT NULL,
+    whiskers_favor_active boolean DEFAULT false NOT NULL,
+    whiskers_favor_season integer DEFAULT -1 NOT NULL,
+    jobs_send_screen_seen boolean DEFAULT false NOT NULL,
+    tutorial_errand_complete boolean DEFAULT false NOT NULL,
+    perks_suspended_until bigint DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -501,6 +518,48 @@ ALTER TABLE public.pricehistory_id_seq OWNER TO cat_bot;
 ALTER SEQUENCE public.pricehistory_id_seq OWNED BY public.pricehistory.id;
 
 
+CREATE TABLE public.jobinstance (
+    id bigint NOT NULL,
+    template_id text DEFAULT ''::text NOT NULL,
+    user_id bigint NOT NULL,
+    guild_id bigint NOT NULL,
+    category text DEFAULT 'hit'::text NOT NULL,
+    tier integer NOT NULL,
+    offered_by text NOT NULL,
+    target_faction text DEFAULT ''::text NOT NULL,
+    difficulty integer NOT NULL,
+    send_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    send_total integer DEFAULT 0 NOT NULL,
+    success_chance real DEFAULT 0 NOT NULL,
+    roll real DEFAULT 0 NOT NULL,
+    outcome text DEFAULT ''::text NOT NULL,
+    cats_destroyed jsonb DEFAULT '{}'::jsonb NOT NULL,
+    state text NOT NULL,
+    narrative text DEFAULT ''::text NOT NULL,
+    reward_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    rep_changes jsonb DEFAULT '{}'::jsonb NOT NULL,
+    heat_cost integer DEFAULT 0 NOT NULL,
+    offered_at bigint NOT NULL,
+    expires_at bigint NOT NULL,
+    resolved_at bigint DEFAULT 0 NOT NULL,
+    committed_at bigint DEFAULT 0 NOT NULL
+);
+
+ALTER TABLE public.jobinstance OWNER TO cat_bot;
+
+CREATE SEQUENCE public.jobinstance_id_seq
+    AS bigint
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER TABLE public.jobinstance_id_seq OWNER TO cat_bot;
+
+ALTER SEQUENCE public.jobinstance_id_seq OWNED BY public.jobinstance.id;
+
+
 ALTER TABLE ONLY public.prism ALTER COLUMN id SET DEFAULT nextval('public.prism_id_seq'::regclass);
 
 ALTER TABLE ONLY public.profile ALTER COLUMN id SET DEFAULT nextval('public.profile_id_seq'::regclass);
@@ -512,6 +571,8 @@ ALTER TABLE ONLY public.order ALTER COLUMN id SET DEFAULT nextval('public.order_
 ALTER TABLE ONLY public.pricehistory ALTER COLUMN id SET DEFAULT nextval('public.pricehistory_id_seq'::regclass);
 
 ALTER TABLE ONLY public.portfoliohistory ALTER COLUMN id SET DEFAULT nextval('public.portfoliohistory_id_seq'::regclass);
+
+ALTER TABLE ONLY public.jobinstance ALTER COLUMN id SET DEFAULT nextval('public.jobinstance_id_seq'::regclass);
 
 
 ALTER TABLE ONLY public.channel
@@ -544,6 +605,9 @@ ALTER TABLE ONLY public.portfoliohistory
 ALTER TABLE ONLY public.reward
     ADD CONSTRAINT reward_pkey PRIMARY KEY (ticker);
 
+ALTER TABLE ONLY public.jobinstance
+    ADD CONSTRAINT jobinstance_pkey PRIMARY KEY (id);
+
 
 CREATE INDEX idx_guild_id ON public.profile USING btree (guild_id);
 
@@ -566,6 +630,10 @@ CREATE INDEX idx_slot_wins_partial ON public.profile (slot_wins) WHERE slot_wins
 CREATE INDEX idx_gambles_partial ON public.profile (gambles) WHERE gambles > 0;
 
 CREATE INDEX idx_yet_to_spawn ON public.channel (yet_to_spawn);
+
+CREATE INDEX jobinstance_active ON public.jobinstance (user_id, guild_id, state);
+
+CREATE INDEX jobinstance_expiry ON public.jobinstance (expires_at) WHERE state = 'offered';
 
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;

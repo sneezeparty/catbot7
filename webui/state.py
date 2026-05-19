@@ -50,6 +50,14 @@ def get_tuning():
     return getattr(config, "tuning", {})
 
 
+def get_jobs():
+    return getattr(config, "jobs", {})
+
+
+def get_jobs_help():
+    return getattr(config, "jobs_help", {})
+
+
 def get_hard_restart_time() -> float:
     return getattr(config, "HARD_RESTART_TIME", 0) or 0
 
@@ -108,6 +116,8 @@ __all__ = [
     "get_battle",
     "get_catnip",
     "get_tuning",
+    "get_jobs",
+    "get_jobs_help",
     "get_hard_restart_time",
     "get_soft_restart_time",
     "mark_dirty",

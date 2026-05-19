@@ -1,0 +1,132 @@
+{#
+  Inline form for the rep block.
+  Scalar fields + per-tier rep gain/loss tables.
+  Target: #jobs-rep
+#}
+{% set scalar_fields = [
+  ("offerer_bonus_per_point",           "Offerer bonus / point",          "Per-rep-point success bonus; cap set below"),
+  ("offerer_bonus_cap",                 "Offerer bonus cap",              "Max bonus applied from rep with an NPC (e.g. 0.12 = +12%)"),
+  ("target_difficulty_per_negative_point", "Target difficulty / neg point", "Extra difficulty per point of negative rep with a target"),
+  ("target_difficulty_cap",             "Target difficulty cap",          "Max extra difficulty from negative rep (e.g. 0.25 = +25%)"),
+  ("unlock_threshold",                  "Unlock threshold",               "Rep score to unlock special NPC perks (e.g. 100)"),
+  ("refuse_threshold",                  "Refuse threshold",               "Rep score below which an NPC refuses to offer work"),
+  ("hostile_threshold",                 "Hostile threshold",              "Rep score below which a target is considered hostile"),
+  ("failure_penalty",                   "Failure penalty",                "Rep lost on a job failure (applied to patron)"),
+  ("premium_reward_bonus_at_100",       "Premium reward bonus @100",      "Reward multiplier bonus when rep is maxed"),
+  ("hostile_target_heat_discount",      "Hostile target heat discount",   "Heat discount when hitting a hostile target"),
+  ("slot_weight_at_50",                 "Slot weight at 50 rep",          "Board slot selection weight bias at +50 rep"),
+] %}
+<div id="jobs-rep" class="{% if just_saved %}just-saved{% endif %}">
+  {% if editing %}
+    <form id="jobs-rep-form"
+          hx-post="/jobs/rep"
+          hx-target="#jobs-rep"
+          hx-swap="outerHTML">
+    <h3 class="subsection">Scalar knobs</h3>
+    <table class="editor-table">
+      <thead><tr><th>Field</th><th>Value</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for fname, label, desc in scalar_fields %}
+          <tr>
+            <td><span class="name">{{ label }}</span></td>
+            <td><input class="numeric" name="{{ fname }}"
+                       value="{{ rep.get(fname, '') }}" style="width:8em"></td>
+            <td><span class="muted">{{ desc }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3 class="subsection">Per-tier rep gain</h3>
+    <table class="editor-table">
+      <thead>
+        <tr>
+          {% for tk in tier_keys %}<th>Tier {{ tk }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {% for tk in tier_keys %}
+            <td>
+              <input class="numeric" name="tier_rep_gain_{{ tk }}"
+                     value="{{ rep.get('tier_rep_gain', {}).get(tk, '') }}" style="width:5em">
+            </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="subsection">Per-tier rep loss</h3>
+    <table class="editor-table">
+      <thead>
+        <tr>
+          {% for tk in tier_keys %}<th>Tier {{ tk }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {% for tk in tier_keys %}
+            <td>
+              <input class="numeric" name="tier_rep_loss_{{ tk }}"
+                     value="{{ rep.get('tier_rep_loss', {}).get(tk, '') }}" style="width:5em">
+            </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="actions" style="margin-top:var(--sp-3)">
+      <button class="btn btn-primary" type="submit">Save all</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/jobs/rep/cancel"
+              hx-target="#jobs-rep"
+              hx-swap="outerHTML">Cancel</button>
+    </div>
+    </form>
+  {% else %}
+    <h3 class="subsection">Scalar knobs</h3>
+    <table class="editor-table">
+      <thead><tr><th>Field</th><th>Value</th><th>Description</th></tr></thead>
+      <tbody>
+        {% for fname, label, desc in scalar_fields %}
+          <tr>
+            <td><span class="name">{{ label }}</span></td>
+            <td class="numeric">{{ rep.get(fname, '—') }}</td>
+            <td><span class="muted">{{ desc }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3 class="subsection">Per-tier rep gain / loss</h3>
+    <table class="editor-table">
+      <thead>
+        <tr>
+          <th>Tier</th>
+          {% for tk in tier_keys %}<th>{{ tk }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="muted">gain</span></td>
+          {% for tk in tier_keys %}
+            <td class="numeric">{{ rep.get('tier_rep_gain', {}).get(tk, '—') }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><span class="muted">loss</span></td>
+          {% for tk in tier_keys %}
+            <td class="numeric">{{ rep.get('tier_rep_loss', {}).get(tk, '—') }}</td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="actions" style="margin-top:var(--sp-3)">
+      <button class="btn" type="button"
+              hx-get="/jobs/rep/edit"
+              hx-target="#jobs-rep"
+              hx-swap="outerHTML">Edit all</button>
+    </div>
+  {% endif %}
+</div>

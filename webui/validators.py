@@ -147,6 +147,105 @@ def validate_catnip_perk(weight: int, values: list) -> str | None:
     return None
 
 
+def validate_jobs_send_power(cat_type: str, value: int) -> str | None:
+    if value < 0:
+        return f"send_power[{cat_type}] must be >= 0 (got {value})"
+    return None
+
+
+def validate_jobs_probability(k: float, floor: float, ceiling: float, near_miss_band: float) -> str | None:
+    if k <= 0 or k > 10:
+        return f"k must be in (0, 10] (got {k})"
+    if not (0.0 <= floor <= 1.0):
+        return f"floor must be in [0, 1] (got {floor})"
+    if not (0.0 <= ceiling <= 1.0):
+        return f"ceiling must be in [0, 1] (got {ceiling})"
+    if floor >= ceiling:
+        return f"floor must be < ceiling (floor={floor}, ceiling={ceiling})"
+    if not (0.0 <= near_miss_band <= 1.0):
+        return f"near_miss_band must be in [0, 1] (got {near_miss_band})"
+    return None
+
+
+def validate_jobs_tuning(field: str, value: int | float) -> str | None:
+    non_negative_int = {
+        "offer_refresh_window_seconds", "decline_cooldown_seconds",
+        "max_concurrent_offers", "cancel_grace_seconds",
+        "pinch_threshold", "pinch_lockout_seconds",
+    }
+    non_negative = {
+        "heat_decay_per_hour", "pinch_reset_heat",
+    }
+    if field in non_negative_int:
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return f"jobs.tuning.{field} must be a non-negative integer (got {value!r})"
+    elif field in non_negative:
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            return f"jobs.tuning.{field} must be >= 0 (got {value!r})"
+    return None
+
+
+def validate_jobs_tier(
+    name: str,
+    diff_lo: int, diff_hi: int,
+    coin_lo: int, coin_hi: int,
+    heat: int,
+    min_catnip_level: int,
+) -> str | None:
+    if not name.strip():
+        return "tier name cannot be empty"
+    if diff_lo < 0:
+        return f"difficulty_range[0] must be >= 0 (got {diff_lo})"
+    if diff_hi < diff_lo:
+        return f"difficulty_range[1] must be >= difficulty_range[0] ({diff_lo}), got {diff_hi}"
+    if coin_lo < 0:
+        return f"reward_coin_range[0] must be >= 0 (got {coin_lo})"
+    if coin_hi < coin_lo:
+        return f"reward_coin_range[1] must be >= reward_coin_range[0] ({coin_lo}), got {coin_hi}"
+    if heat < 0:
+        return f"heat must be >= 0 (got {heat})"
+    if min_catnip_level < 0:
+        return f"min_catnip_level must be >= 0 (got {min_catnip_level})"
+    return None
+
+
+def validate_jobs_npc(
+    display_name: str,
+    min_hire_level: int,
+    reward_mult: float,
+    heat_mult: float,
+) -> str | None:
+    if not display_name.strip():
+        return "display_name cannot be empty"
+    if min_hire_level < 0:
+        return f"min_hire_level must be >= 0 (got {min_hire_level})"
+    if reward_mult <= 0:
+        return f"reward_mult must be > 0 (got {reward_mult})"
+    if heat_mult <= 0:
+        return f"heat_mult must be > 0 (got {heat_mult})"
+    return None
+
+
+def validate_jobs_rep(field: str, value: float) -> str | None:
+    unit_fraction_fields = {
+        "offerer_bonus_per_point", "offerer_bonus_cap",
+        "target_difficulty_per_negative_point", "target_difficulty_cap",
+        "premium_reward_bonus_at_100", "hostile_target_heat_discount",
+    }
+    if field in unit_fraction_fields:
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            return f"rep.{field} must be >= 0 (got {value!r})"
+    return None
+
+
+def validate_jobs_help_page(title: str, body: str, min_level_to_see: int) -> str | None:
+    if not title.strip():
+        return "title cannot be empty"
+    if min_level_to_see < 0:
+        return f"min_level_to_see must be >= 0 (got {min_level_to_see})"
+    return None
+
+
 def validate_catnip_level(
     duration: int,
     cost: int,

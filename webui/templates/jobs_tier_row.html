@@ -1,0 +1,48 @@
+{% set row_id = "tier-" ~ tier_key %}
+<tr id="{{ row_id }}" class="{% if editing %}editing{% endif %}{% if just_saved %} just-saved{% endif %}">
+  <td class="numeric">{{ tier_key }}</td>
+  {% if editing %}
+    <td><input name="name" value="{{ tier.name }}" form="{{ row_id }}-form"></td>
+    <td>
+      <input class="numeric" name="diff_lo" value="{{ tier.difficulty_range[0] }}"
+             form="{{ row_id }}-form" style="width:5em" min="0">
+      –
+      <input class="numeric" name="diff_hi" value="{{ tier.difficulty_range[1] }}"
+             form="{{ row_id }}-form" style="width:5em" min="0">
+    </td>
+    <td>
+      <input class="numeric" name="coin_lo" value="{{ tier.reward_coin_range[0] }}"
+             form="{{ row_id }}-form" style="width:6em" min="0">
+      –
+      <input class="numeric" name="coin_hi" value="{{ tier.reward_coin_range[1] }}"
+             form="{{ row_id }}-form" style="width:6em" min="0">
+    </td>
+    <td><input class="numeric" name="heat" value="{{ tier.heat }}"
+               form="{{ row_id }}-form" style="width:5em" min="0"></td>
+    <td><input class="numeric" name="min_catnip_level" value="{{ tier.min_catnip_level }}"
+               form="{{ row_id }}-form" style="width:5em" min="0"></td>
+    <td class="actions">
+      <form id="{{ row_id }}-form"
+            hx-post="/jobs/tier/{{ tier_key }}"
+            hx-target="#{{ row_id }}"
+            hx-swap="outerHTML"></form>
+      <button class="btn btn-primary" type="submit" form="{{ row_id }}-form">Save</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/jobs/tier/{{ tier_key }}/cancel"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Cancel</button>
+    </td>
+  {% else %}
+    <td>{{ tier.name }}</td>
+    <td class="numeric">{{ tier.difficulty_range[0] }} – {{ tier.difficulty_range[1] }}</td>
+    <td class="numeric">{{ tier.reward_coin_range[0] }} – {{ tier.reward_coin_range[1] }}</td>
+    <td class="numeric">{{ tier.heat }}</td>
+    <td class="numeric">{{ tier.min_catnip_level }}</td>
+    <td class="actions">
+      <button class="btn" type="button"
+              hx-get="/jobs/tier/{{ tier_key }}/edit"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Edit</button>
+    </td>
+  {% endif %}
+</tr>

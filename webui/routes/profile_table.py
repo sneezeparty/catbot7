@@ -73,6 +73,19 @@ INT_FIELDS = [
     "bounty_total_three",
     "bounty_total_bonus",
     "reroll_level",
+    # Jobs / Mafia Killings
+    "heat",                   # current heat level; admin may reset to 0
+    "perks_suspended_until",  # unix ts; set to 0 to lift a Pinch early
+    "big_score_season",       # season number of last Big Score attempt
+    "big_score_wins",         # all-time Big Score successes
+    "whiskers_favor_season",  # season number when Whiskers Favor was granted
+    # Jobs stat counters — useful for admin review but not typical edit targets
+    "jobs_completed",
+    "jobs_failed",
+    "jobs_near_missed",
+    "cats_lost_to_jobs",
+    "job_coins_won",
+    "biggest_score_value",
     # Cat counters
     "cat_Fine",
     "cat_Nice",
@@ -125,6 +138,11 @@ BOOL_FIELDS = [
     "bounty_hunter",
     "bounty_lord",
     "cookiesclicked",
+    # Jobs / Mafia Killings
+    "big_score_perk_unlocked",   # whether the permanent Big Score spawn perk has fired
+    "whiskers_favor_active",     # whether a Whiskers Favor is currently pending use
+    "jobs_send_screen_seen",     # UX: has the player seen the send screen intro?
+    "tutorial_errand_complete",  # UX: has the tutorial errand been completed?
 ]
 
 # JSONB list columns — view-only (no edit route; freeform JSONB editing is
@@ -133,6 +151,7 @@ JSONB_FIELDS = [
     "unlocked_aches",           # JSONB list of achievement IDs ever unlocked
     "discovered_cats",          # JSONB list of rarity names ever owned (catstore/catch)
     "store_purchased_rarities", # JSONB list of rarity names ever bought from /catstore
+    "faction_rep",              # JSONB dict[npc_key -> int]; per-NPC reputation (jobs system)
 ]
 
 

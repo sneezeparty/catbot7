@@ -22,11 +22,13 @@
     ("tuning",         "/tuning",      "Tuning",     "✦"),
     ("battlepass",     "/battlepass",  "Battlepass", "▦"),
     ("catnip",         "/catnip",      "Catnip",     "✿"),
+    ("jobs",           "/jobs",        "Jobs",       "◈"),
+    ("jobs_help",      "/jobs/help",   "Jobs Help",  "◉"),
     ("commands",       "/commands",    "Commands",   "❯"),
-    ("server_table",   "/db/server",   "Servers",    "◉"),
+    ("server_table",   "/db/server",   "Servers",    "◎"),
     ("channel_table",  "/db/channel",  "Channels",   "◐"),
     ("profile_table",  "/db/profile",  "Profiles",   "◍"),
-    ("user_table",     "/db/user",     "Users",      "◎"),
+    ("user_table",     "/db/user",     "Users",      "○"),
     ("prism_table",    "/db/prism",    "Prisms",     "◇"),
     ("order_table",    "/db/order",    "Orders",     "⇅")
   ] %}
@@ -41,7 +43,7 @@
 
     <div class="sidebar-section-label">Configure</div>
     <nav class="sidebar-nav">
-      {% for slug, href, label, glyph in sections[:5] %}
+      {% for slug, href, label, glyph in sections[:7] %}
         <a class="sidebar-link {% if active_section == slug %}active{% endif %}" href="{{ href }}">
           <span class="sidebar-glyph" aria-hidden="true">{{ glyph }}</span>
           <span>{{ label }}</span>
@@ -51,7 +53,7 @@
 
     <div class="sidebar-section-label">Database</div>
     <nav class="sidebar-nav">
-      {% for slug, href, label, glyph in sections[5:] %}
+      {% for slug, href, label, glyph in sections[7:] %}
         <a class="sidebar-link {% if active_section == slug %}active{% endif %}" href="{{ href }}">
           <span class="sidebar-glyph" aria-hidden="true">{{ glyph }}</span>
           <span>{{ label }}</span>

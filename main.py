@@ -49,7 +49,7 @@ import config
 import graph
 import msg2img
 from catpg import RawSQL, pool, transaction
-from database import Channel, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User, _coerce_array
+from database import Channel, JobInstance, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User, _coerce_array
 
 try:
     import exportbackup  # type: ignore
@@ -273,6 +273,12 @@ with open("config/catnip.json", "r", encoding="utf-8") as f:
 with open("config/tuning.json", "r", encoding="utf-8") as f:
     config.tuning = json.load(f)
 
+with open("config/jobs.json", "r", encoding="utf-8") as f:
+    config.jobs = json.load(f)
+
+with open("config/jobs_help.json", "r", encoding="utf-8") as f:
+    config.jobs_help = json.load(f)
+
 # Named aliases for tunables. Refreshed on every module reload via the
 # json.load above. Edits to config/tuning.json apply on next cat!restart.
 QUEST_COOLDOWN = config.tuning["quest_cooldown_seconds"]
@@ -294,6 +300,16 @@ SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
 PACK_DROP_CHANCE_ON_CATCH = config.tuning["pack_drop_chance_on_catch"]
 PACK_TIER_WEIGHTS = config.tuning["pack_tier_weights"]
 STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
+
+# Jobs / Mafia Killings. Loaded from config/jobs.json above; re-read here on every
+# module reload so cat!restart picks up edits to send power, tiers, NPCs, etc.
+JOBS_SEND_POWER = config.jobs["send_power"]
+JOBS_PROB = config.jobs["probability"]
+JOBS_TUNING = config.jobs["tuning"]
+JOBS_TIERS = config.jobs["tiers"]
+JOBS_NPCS = config.jobs["npcs"]
+JOBS_BIG_SCORE = config.jobs["big_score"]
+JOBS_REP = config.jobs["rep"]
 
 # Data-driven achievement trigger engine. Reads `trigger` blocks from
 # ach_list and fires them on matching events. Hardcoded `achemb()` call
@@ -584,6 +600,964 @@ def store_sell_price(cat_type: str, catnip_level: int) -> int:
     value = cat_value(cat_type)
     pct = store_sell_pct(catnip_level)
     return max(1, value * pct // 100)
+
+
+# ---------------------------------------------------------------------------
+# Jobs / Mafia Killings — Phase 1 helpers (offer-board generation, read-only).
+# Commit/resolve paths land in Phase 2; rep + heat math wires up in Phases 3-4.
+# ---------------------------------------------------------------------------
+
+JOBS_OFFER_REFRESH = JOBS_TUNING["offer_refresh_window_seconds"]
+JOBS_MAX_SLOTS = JOBS_TUNING["max_concurrent_offers"]
+
+
+def _jobs_window_index(now: int) -> int:
+    """Hard global window. All players share the same boundary every 6h —
+    deterministic-seed acceptance follows from this."""
+    return now // JOBS_OFFER_REFRESH
+
+
+def _jobs_window_bounds(window_idx: int) -> tuple[int, int]:
+    return window_idx * JOBS_OFFER_REFRESH, (window_idx + 1) * JOBS_OFFER_REFRESH
+
+
+def _jobs_seed_rng(user_id: int, guild_id: int, window_idx: int, salt: str = "") -> random.Random:
+    """Per-(user,guild,window) RNG. `salt` derives independent streams per
+    slot so reshuffling slot 1 doesn't ripple into slot 2."""
+    seed = f"jobs:{user_id}:{guild_id}:{window_idx}:{salt}"
+    digest = hashlib.sha256(seed.encode()).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def _jobs_npc_display(key: str) -> str:
+    npc = JOBS_NPCS.get(key)
+    if npc:
+        return npc.get("display_name", key.replace("_", " ").title())
+    targets = config.jobs.get("targets_only", {})
+    t = targets.get(key)
+    if t:
+        return t.get("display_name", key.replace("_", " ").title())
+    return key.replace("_", " ").title()
+
+
+def _jobs_faction_rep(profile: Profile) -> dict:
+    """`faction_rep` is JSONB OBJECT. Return a plain dict, never None."""
+    raw = getattr(profile, "faction_rep", None)
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw) or {}
+        except (ValueError, TypeError):
+            return {}
+    return dict(raw)
+
+
+def _jobs_eligible_npcs(catnip_level: int, faction_rep: dict) -> list[str]:
+    """NPCs willing to hire this player. Honors min_hire_level + refusal
+    threshold from rep."""
+    refuse = JOBS_REP["refuse_threshold"]
+    out = []
+    for key, npc in JOBS_NPCS.items():
+        if catnip_level < npc.get("min_hire_level", 1):
+            continue
+        if faction_rep.get(key, 0) < refuse:
+            continue
+        out.append(key)
+    return out
+
+
+def _jobs_eligible_tiers(npc_key: str, catnip_level: int) -> list[int]:
+    npc = JOBS_NPCS[npc_key]
+    out = []
+    for t in npc.get("tiers_offered", []):
+        gate = JOBS_TIERS.get(str(t), {}).get("min_catnip_level", 0)
+        if catnip_level >= gate:
+            out.append(int(t))
+    return out
+
+
+def _jobs_pick_tier(npc_key: str, catnip_level: int, rng: random.Random) -> int | None:
+    tiers = _jobs_eligible_tiers(npc_key, catnip_level)
+    if not tiers:
+        return None
+    top = max(tiers)
+    # Weight 2 for the highest unlocked tier ("favors player rank"), 1 for the
+    # rest. Keeps the "rank gates are availability, not lockouts" rule.
+    weights = [2 if t == top else 1 for t in tiers]
+    return rng.choices(tiers, weights=weights, k=1)[0]
+
+
+def _jobs_pick_target(npc_key: str, catnip_level: int, faction_rep: dict, rng: random.Random) -> str | None:
+    """Returns the target faction key, or None to signal "reroll this slot"."""
+    npc = JOBS_NPCS[npc_key]
+    hires = npc.get("hires_against", [])
+    if not hires:
+        return None
+
+    if "dynamic_higher_rank" in hires:
+        # Lucian Sr's vendetta mechanic.
+        ally_threshold = npc.get("ally_protection_threshold", 50)
+        candidates = []
+        targets_only = config.jobs.get("targets_only", {})
+        for key, other in JOBS_NPCS.items():
+            if key == npc_key:
+                continue
+            if other.get("min_hire_level", 0) <= catnip_level:
+                continue
+            if faction_rep.get(key, 0) >= ally_threshold:
+                continue
+            candidates.append(key)
+        for key, t in targets_only.items():
+            min_lvl = t.get("min_catnip_level", 0)
+            if min_lvl <= catnip_level:
+                continue
+            if faction_rep.get(key, 0) >= ally_threshold:
+                continue
+            candidates.append(key)
+        if not candidates:
+            return None
+        return rng.choice(candidates)
+
+    return rng.choice(hires)
+
+
+def _jobs_pick_narrative(npc_key: str, target_key: str | None, rng: random.Random, *, pool_key: str | None = None) -> str:
+    pools = config.jobs.get("narrative_pools", {})
+    key = pool_key or npc_key
+    pool = pools.get(key) or [f"{_jobs_npc_display(npc_key)} has a job for you."]
+    line = rng.choice(pool)
+    if "{target}" in line:
+        target_display = _jobs_npc_display(target_key) if target_key else "them"
+        line = line.replace("{target}", target_display)
+    return line
+
+
+def _jobs_resolve_difficulty(tier: int, target_key: str | None, faction_rep: dict, rng: random.Random) -> int:
+    lo, hi = JOBS_TIERS[str(tier)]["difficulty_range"]
+    base = rng.randint(lo, hi)
+    if target_key is not None:
+        neg = -min(0, faction_rep.get(target_key, 0))
+        bump = min(JOBS_REP["target_difficulty_cap"], neg * JOBS_REP["target_difficulty_per_negative_point"])
+        return math.ceil(base * (1 + bump))
+    return base
+
+
+def _jobs_default_cat_reward(tier: int, rng: random.Random) -> dict[str, int]:
+    """Pre-bias tier defaults. Phase 2 will grant these verbatim from the
+    persisted reward_snapshot, so getting this right matters now."""
+    if tier == 1:
+        return {}
+    if tier == 2:
+        # 1 Uncommon, occasional Rare.
+        return rng.choices(
+            [{"Nice": 1}, {"Good": 1}, {"Rare": 1}],
+            weights=[3, 3, 1],
+            k=1,
+        )[0]
+    if tier == 3:
+        # 1 Epic, or 2-3 Rares.
+        return rng.choice([{"Epic": 1}, {"Rare": 2}, {"Rare": 3}])
+    if tier == 4:
+        # 1-2 Ultimates, or 1 Legendary + significant coins.
+        return rng.choices(
+            [{"Ultimate": 1}, {"Ultimate": 2}, {"Legendary": 1}],
+            weights=[3, 1, 2],
+            k=1,
+        )[0]
+    if tier == 5:
+        return {"eGirl": 3}
+    return {}
+
+
+def _jobs_apply_reward_bias(reward: dict, bias: str, rng: random.Random) -> dict:
+    coins = reward["coins"]
+    cats = reward["cats"]
+    if bias == "standard":
+        pass
+    elif bias == "coins_only":
+        coins += sum(cat_value(t) * c for t, c in cats.items())
+        cats = {}
+    elif bias == "coin_heavy":
+        coins = round(coins * 1.3)
+        cats = {t: max(0, c * 7 // 10) for t, c in cats.items()}
+        cats = {t: c for t, c in cats.items() if c > 0}
+    elif bias == "cat_heavy":
+        coins = coins * 7 // 10
+        cats = {t: math.ceil(c * 1.3) for t, c in cats.items()}
+    elif bias == "mid_rare_cats":
+        total = sum(cats.values())
+        replacement = rng.choice(["Trash", "Superior", "Legendary"])
+        cats = {replacement: total} if total else {}
+    return {"coins": coins, "cats": cats}
+
+
+def _jobs_resolve_reward(tier: int, npc_key: str, rng: random.Random) -> dict:
+    npc = JOBS_NPCS[npc_key]
+    lo, hi = JOBS_TIERS[str(tier)]["reward_coin_range"]
+    coins_base = rng.randint(lo, hi)
+    cats_base = _jobs_default_cat_reward(tier, rng)
+    mult = npc.get("reward_mult", 1.0)
+    reward = {
+        "coins": math.ceil(coins_base * mult),
+        "cats": {t: math.ceil(c * mult) for t, c in cats_base.items()},
+    }
+    bias = npc.get("reward_bias", "standard")
+    return _jobs_apply_reward_bias(reward, bias, rng)
+
+
+def _jobs_heat_scrutiny_mult(heat: int) -> float:
+    if heat >= 71:
+        return 1.25
+    if heat >= 31:
+        return 1.10
+    return 1.0
+
+
+def _jobs_resolve_heat_cost(tier: int, npc_key: str, current_heat: int) -> int:
+    base = JOBS_TIERS[str(tier)]["heat"]
+    npc = JOBS_NPCS[npc_key]
+    heat = base * npc.get("heat_mult", 1.0) * _jobs_heat_scrutiny_mult(current_heat)
+    return max(0, math.ceil(heat))
+
+
+def _jobs_category_for(npc_key: str, tier: int) -> str:
+    """Hits = coin-paying destructive low-tier. Heists = cat-paying acquisition."""
+    if npc_key == "jeremy":
+        return "hit"
+    if npc_key == "sofia":
+        return "heist"
+    return "hit" if tier <= 2 else "heist"
+
+
+def _jobs_template_id(window_idx: int, slot_idx: int, npc: str, tier: int) -> str:
+    return f"w{window_idx}:s{slot_idx}:{npc}:t{tier}"
+
+
+def _jobs_try_pick_slot(eligible_npcs: list[str], rng: random.Random, catnip_level: int, faction_rep: dict, current_heat: int) -> dict | None:
+    """Up to 5 attempts to land on a valid (npc, tier, target). Returns the
+    raw offer dict ready for DB insert, sans book-keeping columns."""
+    attempts = list(eligible_npcs)
+    rng.shuffle(attempts)
+    for npc_key in attempts[:5]:
+        tier = _jobs_pick_tier(npc_key, catnip_level, rng)
+        if tier is None:
+            continue
+        target = _jobs_pick_target(npc_key, catnip_level, faction_rep, rng)
+        if target is None:
+            continue
+        difficulty = _jobs_resolve_difficulty(tier, target, faction_rep, rng)
+        reward = _jobs_resolve_reward(tier, npc_key, rng)
+        heat_cost = _jobs_resolve_heat_cost_with_rep(tier, npc_key, current_heat, target, faction_rep)
+        narrative = _jobs_pick_narrative(npc_key, target, rng)
+        return {
+            "category": _jobs_category_for(npc_key, tier),
+            "tier": tier,
+            "offered_by": npc_key,
+            "target_faction": target or "",
+            "difficulty": difficulty,
+            "narrative": narrative,
+            "reward_snapshot": reward,
+            "heat_cost": heat_cost,
+        }
+    return None
+
+
+def _jobs_build_tutorial_offer(rng: random.Random, current_heat: int) -> dict:
+    """Lv2-3 single-slot errand from Lucian Jr. Always tier 1 hit on
+    Whiskers's outfit. Narrative comes from the dedicated 'tutorial' pool."""
+    target = "whiskers"
+    tier = 1
+    npc = "lucian_jr"
+    difficulty = _jobs_resolve_difficulty(tier, target, {}, rng)
+    reward = _jobs_resolve_reward(tier, npc, rng)
+    heat_cost = _jobs_resolve_heat_cost(tier, npc, current_heat)
+    narrative = _jobs_pick_narrative(npc, target, rng, pool_key="tutorial")
+    return {
+        "category": "hit",
+        "tier": tier,
+        "offered_by": npc,
+        "target_faction": target,
+        "difficulty": difficulty,
+        "narrative": narrative,
+        "reward_snapshot": reward,
+        "heat_cost": heat_cost,
+    }
+
+
+def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 0) -> list[dict]:
+    """Returns a list of 0/1/3 offer dicts ready for DB insert. Deterministic
+    in (user_id, guild_id, window_idx) — calling twice returns the same set."""
+    level = int(getattr(profile, "catnip_level", 0) or 0)
+    rep = _jobs_faction_rep(profile)
+    current_heat = int(getattr(profile, "heat", 0) or 0)
+    user_id = int(profile.user_id)
+    guild_id = int(profile.guild_id)
+
+    if level < 2:
+        return []
+
+    if level < 4:
+        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt="tutorial")
+        offer = _jobs_build_tutorial_offer(rng, current_heat)
+        offer["_slot_idx"] = 0
+        offer["_template_id"] = _jobs_template_id(window_idx, 0, offer["offered_by"], offer["tier"])
+        return [offer]
+
+    out = []
+    big_score_eligible = _jobs_big_score_available(profile, user_season)
+    for slot_idx in range(JOBS_MAX_SLOTS):
+        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt=f"slot:{slot_idx}")
+        if slot_idx == 0 and big_score_eligible:
+            picked = _jobs_build_big_score_offer(rng, user_season, rep)
+        else:
+            eligible = _jobs_eligible_npcs(level, rep)
+            if not eligible:
+                continue
+            picked = _jobs_try_pick_slot(eligible, rng, level, rep, current_heat)
+            if picked is None:
+                continue
+        picked["_slot_idx"] = slot_idx
+        picked["_template_id"] = _jobs_template_id(window_idx, slot_idx, picked["offered_by"], picked["tier"])
+        out.append(picked)
+    return out
+
+
+async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
+    """SELECT-then-INSERT idempotent refresh. Returns the JobInstance rows for
+    the current window, sorted by slot_idx encoded in template_id."""
+    window_idx = _jobs_window_index(now)
+    win_start, win_end = _jobs_window_bounds(window_idx)
+    existing = await JobInstance.collect(
+        "user_id = $1 AND guild_id = $2 AND state = 'offered' AND offered_at >= $3 AND offered_at < $4",
+        int(profile.user_id),
+        int(profile.guild_id),
+        win_start,
+        win_end,
+    )
+    existing_templates = {row.template_id for row in existing}
+
+    # Big Score's once-per-season gate. `season` lives on Profile (per-server),
+    # not on User — Cat Bot tracks BP seasons per-(user, guild).
+    try:
+        season = int(profile.season or 0)
+    except KeyError:
+        season = 0
+    desired = _jobs_generate_offers(profile, window_idx, user_season=season)
+    new_rows = []
+    for offer in desired:
+        if offer["_template_id"] in existing_templates:
+            continue
+        new_row = await JobInstance.create(
+            template_id=offer["_template_id"],
+            user_id=int(profile.user_id),
+            guild_id=int(profile.guild_id),
+            category=offer["category"],
+            tier=offer["tier"],
+            offered_by=offer["offered_by"],
+            target_faction=offer["target_faction"],
+            difficulty=offer["difficulty"],
+            send_snapshot={},
+            send_total=0,
+            success_chance=0.0,
+            roll=0.0,
+            outcome="",
+            cats_destroyed={},
+            state="offered",
+            narrative=offer["narrative"],
+            reward_snapshot=offer["reward_snapshot"],
+            rep_changes={},
+            heat_cost=offer["heat_cost"],
+            offered_at=now,
+            expires_at=win_end,
+            resolved_at=0,
+            committed_at=0,
+        )
+        new_rows.append(new_row)
+
+    all_rows = list(existing) + new_rows
+    # Stable order: parse slot_idx from template_id ("w<W>:s<S>:...").
+    def _slot_key(row):
+        try:
+            return int(row.template_id.split(":")[1][1:])
+        except Exception:
+            return 99
+    all_rows.sort(key=_slot_key)
+    return all_rows
+
+
+def _jobs_reward_summary(reward: dict) -> str:
+    coins = int(reward.get("coins", 0))
+    cats = reward.get("cats", {}) or {}
+    parts = []
+    if coins:
+        parts.append(f"🪙 {coins:,}")
+    for t, c in cats.items():
+        emoji = get_emoji(t.lower()) if t else ""
+        parts.append(f"{c}× {emoji} {t}".strip())
+    return "  ·  ".join(parts) if parts else "—"
+
+
+# ---------------------------------------------------------------------------
+# Jobs / Mafia Killings — Phase 2: send/commit/resolve.
+# ---------------------------------------------------------------------------
+
+JOBS_CANCEL_GRACE = JOBS_TUNING.get("cancel_grace_seconds", 30)
+JOBS_DIMINISHING_ALPHA = float(JOBS_TUNING.get("diminishing_returns_alpha", 0.75))
+
+
+def _jobs_coerce_dict(value) -> dict:
+    """JSONB columns sometimes arrive as strings; normalize to dict."""
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value) or {}
+        except (ValueError, TypeError):
+            return {}
+    return dict(value)
+
+
+def _jobs_success_chance(send_total: int, difficulty: int, offerer_rep_bonus: float = 0.0) -> float:
+    """Sigmoid of (ratio - 1.0), shifted by rep bonus, clamped to [floor, ceiling]."""
+    ratio = send_total / max(1, difficulty)
+    k = JOBS_PROB["k"]
+    raw = 1 / (1 + math.exp(-k * (ratio - 1)))
+    return max(JOBS_PROB["floor"], min(JOBS_PROB["ceiling"], raw + offerer_rep_bonus))
+
+
+def _jobs_offerer_rep_bonus(npc_key: str, faction_rep: dict) -> float:
+    """+0.075% per point with the offerer, capped at ±12%."""
+    rep = faction_rep.get(npc_key, 0)
+    bonus = rep * JOBS_REP["offerer_bonus_per_point"]
+    cap = JOBS_REP["offerer_bonus_cap"]
+    return max(-cap, min(cap, bonus))
+
+
+def _jobs_effective_sp_for_type(cat_type: str, count: int) -> float:
+    """Diminishing returns per type: contribution = sp_per × count^α (α<1).
+    Penalizes mono-rarity stacking; mixed crews are barely affected since the
+    penalty applies to each type's count independently."""
+    n = int(count or 0)
+    if n <= 0:
+        return 0.0
+    sp_per = JOBS_SEND_POWER.get(cat_type, 0)
+    if sp_per == 0:
+        return 0.0
+    return sp_per * (n ** JOBS_DIMINISHING_ALPHA)
+
+
+def _jobs_send_total(send: dict) -> int:
+    return int(round(sum(_jobs_effective_sp_for_type(t, c) for t, c in send.items())))
+
+
+def _jobs_send_count(send: dict) -> int:
+    return sum(int(c or 0) for c in send.values())
+
+
+def _jobs_feel_label(chance: float) -> tuple[str, int]:
+    if chance <= 0.20:
+        return "Suicide mission", Colors.red
+    if chance <= 0.40:
+        return "Risky", Colors.red
+    if chance <= 0.60:
+        return "Coin flip", Colors.brown
+    if chance <= 0.80:
+        return "Good odds", Colors.green
+    return "Lock", Colors.green
+
+
+def _jobs_gauge(chance: float, width: int = 18) -> str:
+    filled = max(0, min(width, int(round(chance * width))))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _jobs_select_near_miss_casualties(send: dict, rng: random.Random) -> dict:
+    """Random by count. Half (rounded up) of sent cats are destroyed."""
+    flat: list[str] = []
+    for t, c in send.items():
+        flat.extend([t] * int(c))
+    total = len(flat)
+    if total == 0:
+        return {}
+    rng.shuffle(flat)
+    n_lost = math.ceil(total / 2)
+    out: dict = {}
+    for t in flat[:n_lost]:
+        out[t] = out.get(t, 0) + 1
+    return out
+
+
+def _jobs_resolve_outcome(send_total: int, difficulty: int, send: dict, rng: random.Random) -> dict:
+    return _jobs_resolve_outcome_with_rep(send_total, difficulty, send, 0.0, rng)
+
+
+def _jobs_resolve_outcome_with_rep(send_total: int, difficulty: int, send: dict, rep_bonus: float, rng: random.Random) -> dict:
+    chance = _jobs_success_chance(send_total, difficulty, rep_bonus)
+    r = rng.random()
+    band = JOBS_PROB["near_miss_band"]
+    if r < chance:
+        outcome, destroyed = "success", {}
+    elif r < chance + band:
+        outcome, destroyed = "near_miss", _jobs_select_near_miss_casualties(send, rng)
+    else:
+        outcome, destroyed = "total_failure", dict(send)
+    return {"outcome": outcome, "roll": float(r), "success_chance": float(chance), "cats_destroyed": destroyed}
+
+
+def _jobs_add_cat(profile: Profile, cat_type: str, count: int) -> None:
+    """Safely increment a cat column. No-op if column doesn't exist."""
+    if count == 0 or cat_type not in type_dict:
+        return
+    col = f"cat_{cat_type}"
+    try:
+        cur = int(profile[col] or 0)
+    except KeyError:
+        return
+    profile[col] = max(0, cur + count)
+
+
+def _jobs_subtract_cat(profile: Profile, cat_type: str, count: int) -> bool:
+    """Subtract from a cat column. Returns False if insufficient (no mutation)."""
+    if count == 0 or cat_type not in type_dict:
+        return True
+    col = f"cat_{cat_type}"
+    try:
+        cur = int(profile[col] or 0)
+    except KeyError:
+        return False
+    if cur < count:
+        return False
+    profile[col] = cur - count
+    return True
+
+
+async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: random.Random) -> None:
+    """Apply outcome side-effects on profile + job. Caller saves both."""
+    outcome = outcome_dict["outcome"]
+    job.outcome = outcome
+    job.roll = outcome_dict["roll"]
+    job.success_chance = outcome_dict["success_chance"]
+    job.cats_destroyed = outcome_dict["cats_destroyed"]
+
+    # Heat — applies + may trigger the Pinch (Cat Police Station) at >=100.
+    prior_heat = int(getattr(profile, "heat", 0) or 0)
+    prior_suspended = int(getattr(profile, "perks_suspended_until", 0) or 0)
+    prior_big_score_season = int(getattr(profile, "big_score_season", -1) or -1)
+    prior_big_score_wins = int(getattr(profile, "big_score_wins", 0) or 0)
+    prior_big_score_perk = bool(getattr(profile, "big_score_perk_unlocked", False))
+    pinched = _jobs_apply_commit_heat(profile, int(job.heat_cost or 0), int(time.time()))
+
+    # Rep — per-tier swing. Big Score uses fixed swings from JOBS_BIG_SCORE.
+    rep = _jobs_faction_rep(profile)
+    is_big_score = int(job.tier or 0) == 5
+    if is_big_score:
+        rep_block = JOBS_BIG_SCORE.get("rep_changes", {})
+        if outcome == "success":
+            rep_delta = {k: int(v) for k, v in (rep_block.get("success") or {}).items()}
+        else:
+            rep_delta = {k: int(v) for k, v in (rep_block.get("failure") or {}).items()}
+        for k, v in rep_delta.items():
+            rep[k] = rep.get(k, 0) + v
+    else:
+        offerer_gain = JOBS_REP["tier_rep_gain"].get(str(job.tier), 0)
+        target_loss = JOBS_REP["tier_rep_loss"].get(str(job.tier), 0)
+        failure_penalty = JOBS_REP["failure_penalty"]
+        if outcome == "success":
+            rep[job.offered_by] = rep.get(job.offered_by, 0) + offerer_gain
+            if job.target_faction:
+                rep[job.target_faction] = rep.get(job.target_faction, 0) + target_loss
+            rep_delta = {job.offered_by: offerer_gain}
+            if job.target_faction:
+                rep_delta[job.target_faction] = target_loss
+        else:
+            rep[job.offered_by] = rep.get(job.offered_by, 0) + failure_penalty
+            rep_delta = {job.offered_by: failure_penalty}
+    profile.faction_rep = rep
+    job.rep_changes = {
+        "applied": rep_delta,
+        "outcome": outcome,
+        "pinched": pinched,
+        "prior_heat": prior_heat,
+        "prior_suspended_until": prior_suspended,
+        "prior_big_score_season": prior_big_score_season,
+        "prior_big_score_wins": prior_big_score_wins,
+        "prior_big_score_perk_unlocked": prior_big_score_perk,
+    }
+
+    # Big Score: regardless of outcome the season is consumed.
+    reward = _jobs_coerce_dict(job.reward_snapshot)
+    if is_big_score:
+        season = int(reward.get("_season", 0) or 0)
+        profile.big_score_season = season
+
+    # Lifetime counters + reward grant
+    if outcome == "success":
+        profile.jobs_completed = int(getattr(profile, "jobs_completed", 0) or 0) + 1
+        coin_reward = int(reward.get("coins", 0) or 0)
+        if coin_reward:
+            profile.coins = int(getattr(profile, "coins", 0) or 0) + coin_reward
+        for t, c in (reward.get("cats") or {}).items():
+            _jobs_add_cat(profile, t, int(c or 0))
+            await mark_discovered(profile, t)
+        profile.job_coins_won = int(getattr(profile, "job_coins_won", 0) or 0) + coin_reward
+        haul = coin_reward + sum(cat_value(t) * int(c or 0) for t, c in (reward.get("cats") or {}).items())
+        if haul > int(getattr(profile, "biggest_score_value", 0) or 0):
+            profile.biggest_score_value = haul
+        # Big Score: bump win counter, grant the one-time perk on first win.
+        if is_big_score:
+            profile.big_score_wins = int(getattr(profile, "big_score_wins", 0) or 0) + 1
+            if reward.get("perk") == "big_score" and not bool(getattr(profile, "big_score_perk_unlocked", False)):
+                profile.big_score_perk_unlocked = True
+    elif outcome == "near_miss":
+        profile.jobs_near_missed = int(getattr(profile, "jobs_near_missed", 0) or 0) + 1
+        # Big Score near-miss consolation: 5,000 coins + half cats already returned.
+        if is_big_score:
+            consolation = int(reward.get("_near_miss_coins", 0) or 0)
+            if consolation:
+                profile.coins = int(getattr(profile, "coins", 0) or 0) + consolation
+                profile.job_coins_won = int(getattr(profile, "job_coins_won", 0) or 0) + consolation
+    else:
+        profile.jobs_failed = int(getattr(profile, "jobs_failed", 0) or 0) + 1
+
+    destroyed_total = sum(int(c or 0) for c in (outcome_dict["cats_destroyed"] or {}).values())
+    if destroyed_total:
+        profile.cats_lost_to_jobs = int(getattr(profile, "cats_lost_to_jobs", 0) or 0) + destroyed_total
+
+    # Phase 6 achievement unlocks. Silent — players see them in /achievements.
+    chance = float(outcome_dict.get("success_chance") or 0)
+    target_rep_after = int(rep.get(job.target_faction, 0)) if job.target_faction else 0
+
+    if outcome == "success":
+        if int(getattr(profile, "jobs_completed", 0) or 0) == 1:
+            profile.unlock_ach("first_job")
+        if is_big_score:
+            profile.unlock_ach("egirl_job")
+        if chance > 0 and chance <= 0.25:
+            profile.unlock_ach("the_house_wins")
+        if job.target_faction and target_rep_after < -50:
+            profile.unlock_ach("vendetta")
+        # Bucketed counters (no dedicated columns — derive from jobs_completed
+        # + category at unlock time). Slight approximation: counts all-time
+        # successful jobs of the category, not just hits/heists specifically.
+        completed = int(getattr(profile, "jobs_completed", 0) or 0)
+        if job.category == "hit" and completed >= 25:
+            profile.unlock_ach("hit_man")
+        if job.category == "heist" and completed >= 10:
+            profile.unlock_ach("cat_burglar")
+    else:
+        if chance >= 0.80:
+            profile.unlock_ach("the_house_loses")
+        if outcome == "near_miss":
+            near_count = int(getattr(profile, "jobs_near_missed", 0) or 0)
+            if near_count >= 10:
+                profile.unlock_ach("got_out_alive")
+
+    if pinched:
+        profile.unlock_ach("feds")
+
+    if int(getattr(profile, "cats_lost_to_jobs", 0) or 0) >= 100:
+        profile.unlock_ach("lost_it_all")
+
+    if int(rep.get("whiskers", 0)) >= 100:
+        profile.unlock_ach("whiskers_pet")
+
+    hostile_count = sum(1 for v in rep.values() if int(v) < -25)
+    if hostile_count >= 5:
+        profile.unlock_ach("outlaw")
+
+
+async def _jobs_reverse_commit(profile: Profile, job, send: dict) -> None:
+    """Inverse of escrow + _jobs_apply_outcome. Used by the cancel-grace path
+    to put the player back where they were before clicking Send Crew."""
+    outcome = job.outcome or ""
+
+    # Inventory: on success, the original sent cats returned + reward cats were
+    # granted — so reverse: remove reward cats; sent count unchanged from
+    # pre-escrow. On near-miss: survivors were re-added; destroyed weren't.
+    # On total_failure: nothing was re-added.
+    if outcome == "success":
+        reward = _jobs_coerce_dict(job.reward_snapshot)
+        for t, c in (reward.get("cats") or {}).items():
+            _jobs_subtract_cat(profile, t, int(c or 0))
+        coin_reward = int(reward.get("coins", 0) or 0)
+        if coin_reward:
+            profile.coins = int(getattr(profile, "coins", 0) or 0) - coin_reward
+        profile.job_coins_won = max(0, int(getattr(profile, "job_coins_won", 0) or 0) - coin_reward)
+    elif outcome == "near_miss":
+        # Destroyed cats need to come back (survivors already re-credited at commit time).
+        for t, c in _jobs_coerce_dict(job.cats_destroyed).items():
+            _jobs_add_cat(profile, t, int(c or 0))
+    else:  # total_failure: all sent were destroyed
+        for t, c in send.items():
+            _jobs_add_cat(profile, t, int(c or 0))
+
+    # Heat — restore prior values when available (cancel after a pinch needs
+    # this; the heat reset to 30 isn't a simple subtract of heat_cost).
+    rep_changes = _jobs_coerce_dict(job.rep_changes)
+    if "prior_heat" in rep_changes:
+        profile.heat = int(rep_changes["prior_heat"] or 0)
+    else:
+        profile.heat = max(0, int(getattr(profile, "heat", 0) or 0) - int(job.heat_cost or 0))
+    if "prior_suspended_until" in rep_changes:
+        profile.perks_suspended_until = int(rep_changes["prior_suspended_until"] or 0)
+
+    # Big Score: restore season + win counter + perk unlock flag.
+    if "prior_big_score_season" in rep_changes:
+        profile.big_score_season = int(rep_changes["prior_big_score_season"] or -1)
+    if "prior_big_score_wins" in rep_changes:
+        profile.big_score_wins = int(rep_changes["prior_big_score_wins"] or 0)
+    if "prior_big_score_perk_unlocked" in rep_changes:
+        profile.big_score_perk_unlocked = bool(rep_changes["prior_big_score_perk_unlocked"])
+
+    # Big Score consolation coins on near-miss: subtract them back out.
+    if int(job.tier or 0) == 5 and job.outcome == "near_miss":
+        reward_snap = _jobs_coerce_dict(job.reward_snapshot)
+        consolation = int(reward_snap.get("_near_miss_coins", 0) or 0)
+        if consolation:
+            profile.coins = max(0, int(getattr(profile, "coins", 0) or 0) - consolation)
+            profile.job_coins_won = max(0, int(getattr(profile, "job_coins_won", 0) or 0) - consolation)
+
+    # Rep
+    rep = _jobs_faction_rep(profile)
+    for k, delta in rep_changes.get("applied", {}).items():
+        rep[k] = rep.get(k, 0) - int(delta or 0)
+    profile.faction_rep = rep
+
+    # Counters
+    if outcome == "success":
+        profile.jobs_completed = max(0, int(getattr(profile, "jobs_completed", 0) or 0) - 1)
+    elif outcome == "near_miss":
+        profile.jobs_near_missed = max(0, int(getattr(profile, "jobs_near_missed", 0) or 0) - 1)
+    else:
+        profile.jobs_failed = max(0, int(getattr(profile, "jobs_failed", 0) or 0) - 1)
+    destroyed_total = sum(int(c or 0) for c in _jobs_coerce_dict(job.cats_destroyed).values())
+    profile.cats_lost_to_jobs = max(0, int(getattr(profile, "cats_lost_to_jobs", 0) or 0) - destroyed_total)
+
+    # Job back to offered
+    job.state = "offered"
+    job.outcome = ""
+    job.roll = 0.0
+    job.success_chance = 0.0
+    job.cats_destroyed = {}
+    job.send_snapshot = {}
+    job.send_total = 0
+    job.committed_at = 0
+    job.resolved_at = 0
+    job.rep_changes = {}
+
+
+def _jobs_cancel_grace_remaining(job) -> int:
+    """Seconds left in the cancel-grace window. 0 if locked."""
+    if not job.committed_at:
+        return 0
+    elapsed = int(time.time()) - int(job.committed_at)
+    return max(0, JOBS_CANCEL_GRACE - elapsed)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: heat decay + Cat Police Station pinch.
+# ---------------------------------------------------------------------------
+
+JOBS_PINCH_THRESHOLD = JOBS_TUNING.get("pinch_threshold", 100)
+JOBS_PINCH_LOCKOUT = JOBS_TUNING.get("pinch_lockout_seconds", 43200)
+JOBS_PINCH_RESET = JOBS_TUNING.get("pinch_reset_heat", 30)
+JOBS_HEAT_DECAY_PER_HOUR = JOBS_TUNING.get("heat_decay_per_hour", 2)
+
+
+def _jobs_catnip_active(profile: Profile, now: int | None = None) -> bool:
+    now = now if now is not None else int(time.time())
+    return int(getattr(profile, "catnip_active", 0) or 0) > now
+
+
+def _jobs_apply_heat_decay(profile: Profile, now: int | None = None) -> int:
+    """Lazy decay. -2 heat per hour since last decay, paused while catnip is
+    active. Returns the (possibly updated) heat value. Caller still has to
+    save profile if anything else changed."""
+    now = now if now is not None else int(time.time())
+    last = int(getattr(profile, "heat_last_decay", 0) or 0)
+    current = int(getattr(profile, "heat", 0) or 0)
+    if last <= 0 or current <= 0 or _jobs_catnip_active(profile, now):
+        profile.heat_last_decay = now
+        return current
+    hours = max(0.0, (now - last) / 3600.0)
+    if hours <= 0:
+        return current
+    decay = int(JOBS_HEAT_DECAY_PER_HOUR * hours)
+    if decay <= 0:
+        return current
+    new_heat = max(0, current - decay)
+    profile.heat = new_heat
+    profile.heat_last_decay = now
+    return new_heat
+
+
+def _jobs_perks_suspended(profile: Profile, now: int | None = None) -> bool:
+    """True while the Cat Police lockout is in effect. Catnip perks treat the
+    player as if catnip were inactive while this returns True."""
+    now = now if now is not None else int(time.time())
+    return int(getattr(profile, "perks_suspended_until", 0) or 0) > now
+
+
+def _jobs_apply_commit_heat(profile: Profile, heat_cost: int, now: int) -> bool:
+    """Apply heat cost from a job commit. If the threshold is crossed, fire
+    the pinch: reset to 30, set the perk-suspension timestamp. Returns True
+    iff the player got pinched this commit."""
+    prior = int(getattr(profile, "heat", 0) or 0)
+    new_heat = prior + max(0, int(heat_cost or 0))
+    if new_heat >= JOBS_PINCH_THRESHOLD:
+        profile.heat = JOBS_PINCH_RESET
+        profile.perks_suspended_until = now + JOBS_PINCH_LOCKOUT
+        profile.heat_last_decay = now
+        return True
+    profile.heat = min(JOBS_PINCH_THRESHOLD - 1, new_heat)
+    profile.heat_last_decay = now
+    return False
+
+
+def _jobs_resolve_heat_cost_with_rep(tier: int, npc_key: str, current_heat: int, target_key: str | None, faction_rep: dict) -> int:
+    """As _jobs_resolve_heat_cost, but applies the hostile-target discount
+    when rep with the target is at or below the hostile threshold."""
+    base = _jobs_resolve_heat_cost(tier, npc_key, current_heat)
+    if not target_key:
+        return base
+    rep = int(faction_rep.get(target_key, 0))
+    if rep <= JOBS_REP.get("hostile_threshold", -75):
+        discount = JOBS_REP.get("hostile_target_heat_discount", 0.25)
+        return max(0, math.ceil(base * (1 - discount)))
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: The Big Score (Tier 5 capstone, once per battlepass season).
+# ---------------------------------------------------------------------------
+
+
+def _jobs_big_score_available(profile: Profile, user_season: int) -> bool:
+    """At Lv10+, once per battlepass season, the Big Score appears in slot 1."""
+    min_lvl = JOBS_BIG_SCORE.get("min_catnip_level", 10)
+    if int(getattr(profile, "catnip_level", 0) or 0) < min_lvl:
+        return False
+    return int(getattr(profile, "big_score_season", -1) or -1) != int(user_season)
+
+
+def _jobs_build_big_score_offer(rng: random.Random, user_season: int, faction_rep: dict) -> dict:
+    """Construct the Tier 5 Big Score offer. Patron Whiskers, target Wilson,
+    fixed difficulty 800, fixed reward 3 eGirls + 15k coins + perk flag.
+    Heat is always +100 — that commit auto-pinches."""
+    pool = config.jobs.get("narrative_pools_big_score") or [
+        "Whiskers comes to you with the heist he tried in '08 and couldn't pull off."
+    ]
+    narrative = rng.choice(pool)
+    bs = JOBS_BIG_SCORE
+    reward_block = bs.get("reward", {"eGirl": 3, "coins": 15000, "perk": "big_score"})
+    coin_reward = int(reward_block.get("coins", 0))
+    cat_reward = {k: int(v) for k, v in reward_block.items() if k not in ("coins", "perk")}
+    reward_snapshot = {
+        "coins": coin_reward,
+        "cats": cat_reward,
+        "perk": reward_block.get("perk"),
+        "_near_miss_coins": int(bs.get("near_miss_consolation_coins", 0)),
+        "_season": int(user_season),
+        "_big_score": True,
+    }
+    # Difficulty bump from negative Wilson rep applies normally.
+    base_difficulty = int(bs.get("difficulty", 800))
+    neg = -min(0, int(faction_rep.get("wilson", 0)))
+    bump = min(JOBS_REP["target_difficulty_cap"], neg * JOBS_REP["target_difficulty_per_negative_point"])
+    difficulty = math.ceil(base_difficulty * (1 + bump))
+    return {
+        "category": "heist",
+        "tier": 5,
+        "offered_by": bs.get("patron_npc", "whiskers"),
+        "target_faction": bs.get("target_npc", "wilson"),
+        "difficulty": difficulty,
+        "narrative": narrative,
+        "reward_snapshot": reward_snapshot,
+        "heat_cost": int(bs.get("heat_cost", 100)),
+    }
+
+
+def _jobs_is_big_score(job_or_reward) -> bool:
+    if hasattr(job_or_reward, "tier"):
+        return int(getattr(job_or_reward, "tier", 0) or 0) == 5
+    return bool(_jobs_coerce_dict(job_or_reward).get("_big_score"))
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: paginated /jobs help.
+# ---------------------------------------------------------------------------
+
+
+def _jobs_help_pages_for(profile: Profile) -> list[dict]:
+    """Pages the player is allowed to see, filtered by catnip level. Returns
+    a new list of dicts with each page's title + body, indexed in spec order."""
+    level = int(getattr(profile, "catnip_level", 0) or 0)
+    pages = config.jobs_help.get("pages", [])
+    return [p for p in pages if level >= int(p.get("min_level_to_see", 0))]
+
+
+def _jobs_help_index_by_title(profile: Profile, title_substr: str) -> int:
+    """Find the page index in the level-filtered list that contains `title_substr`
+    (case-insensitive). 0 if not found — caller lands on page 1 instead."""
+    pages = _jobs_help_pages_for(profile)
+    needle = title_substr.lower()
+    for i, p in enumerate(pages):
+        if needle in p.get("title", "").lower():
+            return i
+    return 0
+
+
+async def _jobs_send_help(interaction: discord.Interaction, profile: Profile, start_page: int = 0) -> None:
+    """Render paginated help in a fresh ephemeral followup. Prev/Next buttons
+    walk through the pages the player's level unlocks."""
+    pages = _jobs_help_pages_for(profile)
+    if not pages:
+        await interaction.response.send_message("No help available yet.", ephemeral=True)
+        return
+    page_idx = max(0, min(len(pages) - 1, int(start_page)))
+
+    async def render(target_interaction: discord.Interaction, idx: int, is_initial: bool):
+        page = pages[idx]
+        items: list = [
+            f"## 💡 Jobs Help — {page['title']}",
+            f"-# Page {idx + 1} / {len(pages)}",
+            Separator(),
+            page["body"],
+        ]
+        prev_btn = Button(label="← Prev", style=ButtonStyle.gray, custom_id="jobshelp_prev", disabled=idx == 0)
+        next_btn = Button(label="Next →", style=ButtonStyle.gray, custom_id="jobshelp_next", disabled=idx >= len(pages) - 1)
+
+        async def on_prev(intr: discord.Interaction):
+            await render(intr, idx - 1, is_initial=False)
+
+        async def on_next(intr: discord.Interaction):
+            await render(intr, idx + 1, is_initial=False)
+
+        prev_btn.callback = on_prev
+        next_btn.callback = on_next
+        items.append(ActionRow(prev_btn, next_btn))
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        container = Container(*items)
+        try:
+            container.accent_color = Colors.brown
+        except Exception:
+            pass
+        view.add_item(container)
+
+        if is_initial:
+            await target_interaction.response.send_message(view=view, ephemeral=True)
+        elif target_interaction.response.is_done():
+            await target_interaction.edit_original_response(view=view)
+        else:
+            await target_interaction.response.edit_message(view=view)
+
+    await render(interaction, page_idx, is_initial=True)
 
 
 async def mark_discovered(profile: Profile, cat_type: str) -> None:
@@ -2283,6 +3257,17 @@ async def background_loop():
             pass
         await reminder.delete()
 
+    # Jobs: flip expired offers. Audit trail is preserved (state='expired'
+    # instead of delete); jobinstance_expiry partial index makes this O(few).
+    try:
+        async with transaction() as conn:
+            await conn.execute(
+                "UPDATE jobinstance SET state = 'expired' WHERE state = 'offered' AND expires_at < $1",
+                int(time.time()),
+            )
+    except Exception:
+        logging.exception("jobs: expired-offer sweep failed")
+
     # db backups
     if config.BACKUP_ID:
         backupchannel = bot.get_partial_messageable(config.BACKUP_ID)
@@ -2959,6 +3944,11 @@ async def on_message(message: discord.Message):
                             user.catnip_active = 1
                             suffix_string += f"\n{get_emoji('catnip_disabled')} Your catnip expired! Run /catnip to get more."
                         perks = []
+                    elif _jobs_perks_suspended(user):
+                        # Cat Police lockout — catnip's active but perks are
+                        # suspended until perks_suspended_until.
+                        suffix_string += f"\n🚓 Your perks are suspended by the Cat Police until <t:{int(user.perks_suspended_until)}:R>."
+                        perks = []
                     else:
                         perks = user.perks
                     perks_info = catnip_list["perks"]
@@ -3043,6 +4033,14 @@ async def on_message(message: discord.Message):
                     # Bait & Switch: roll the chance now, fire the respawn after
                     # channel state has been persisted (see post-save hook below).
                     if respawn_chance > 0 and random.random() * 100 < respawn_chance and channel.cat_rains == 0:
+                        do_respawn = True
+
+                # Big Score perk: permanent +5% spawn-extra in this server.
+                # Survives catnip expiry and pinch lockout — it's not a catnip
+                # perk, it's a reward for clearing the Tier 5 capstone.
+                if not do_respawn and bool(getattr(user, "big_score_perk_unlocked", False)) and channel.cat_rains == 0:
+                    bs_chance = JOBS_BIG_SCORE.get("perk_spawn_extra_bonus", 0.05) * 100
+                    if random.random() * 100 < bs_chance:
                         do_respawn = True
                         suffix_string += f"\n{get_emoji('catnip')} Bait & Switch! Another cat appears..."
                         if not user.has_ach("bait_switch_proc"):
@@ -7269,6 +8267,671 @@ async def catstore(message: discord.Interaction):
     await gen_main(message, use_followup=True)
 
 
+@bot.tree.command(description="take contracts from the cat mafia")
+async def jobs(message: discord.Interaction):
+    """Cat Mafia jobs board. Multi-screen flow:
+       board → send screen → result (with 30s cancel grace).
+    Acceptance criterion of Phase 1 (deterministic window seeding) is preserved;
+    Phase 2 adds the commit path with atomic escrow + roll + reward grant."""
+    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+
+    # ----- closure state -----
+    mode: dict = {"screen": "board", "job_id": None}
+    send_state: dict = {}  # cat_type -> count being sent
+    last_toast: list[str] = []  # one short status line carried across renders
+
+    async def _attach_view(interaction: discord.Interaction, view, use_followup: bool):
+        """Render the view via the right channel depending on what's already
+        happened to this interaction. Use_followup is True only for the entry
+        point (where we deferred before any user action). Otherwise: if the
+        interaction has been responded to (e.g. via defer), edit the original;
+        else edit the message the button lives on."""
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        elif interaction.response.is_done():
+            await interaction.edit_original_response(view=view)
+        else:
+            await interaction.response.edit_message(view=view)
+
+    async def show_board(interaction: discord.Interaction, use_followup: bool = False):
+        await profile.refresh_from_db()
+        now = int(time.time())
+        # Lazy heat decay on every board open.
+        _jobs_apply_heat_decay(profile, now)
+        level = int(profile.catnip_level or 0)
+
+        async def _say(text: str):
+            if use_followup:
+                await interaction.followup.send(text, ephemeral=True)
+            elif interaction.response.is_done():
+                await interaction.edit_original_response(content=text, view=None)
+            else:
+                await interaction.response.edit_message(content=text, view=None)
+
+        if level < 2:
+            await _say("You're not in the family yet. Catch more cats and climb the catnip ranks — "
+                       "you can start running errands at Lv2.")
+            return
+
+        offers = await _jobs_refresh_offers_if_needed(profile, now)
+        if not offers:
+            await _say("the family doesn't want anything to do with you right now. "
+                       "lay low, fix your reputation, and check back later.")
+            return
+
+        rank_name = catnip_list["levels"][level]["name"] if level < len(catnip_list["levels"]) else "?"
+        window_idx = _jobs_window_index(now)
+        _, win_end = _jobs_window_bounds(window_idx)
+        heat = int(getattr(profile, "heat", 0) or 0)
+        heat_band = "🟢" if heat <= 30 else ("🟡" if heat <= 70 else "🔴")
+        suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
+        pinch_active = suspended_until > now
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## 📋 Jobs Board",
+            f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  Refreshes <t:{win_end}:R>",
+        ]
+        if pinch_active:
+            items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
+        if level < 4:
+            items.append("-# *Tutorial errand only. Reach Capo (Lv4) for the full board.*")
+        for line in last_toast:
+            items.append(line)
+        last_toast.clear()
+
+        for row in offers:
+            reward = _jobs_coerce_dict(row.reward_snapshot)
+            tier_info = JOBS_TIERS.get(str(row.tier), {})
+            tier_name = tier_info.get("name", f"Tier {row.tier}")
+            category_label = row.category.title() if row.category else ""
+            section_body = (
+                f"*{row.narrative}*\n"
+                f"🎯 Target: **{_jobs_npc_display(row.target_faction)}**\n"
+                f"💪 Difficulty: **{row.difficulty} SP**\n"
+                f"💰 Reward: {_jobs_reward_summary(reward)}\n"
+                f"🚨 Heat cost: +{row.heat_cost}"
+            )
+
+            accept_btn = Button(label="Accept", style=ButtonStyle.green, custom_id=f"jobs_accept_{row.id}")
+            accept_btn.callback = make_on_accept(int(row.id))
+            decline_btn = Button(label="Decline", style=ButtonStyle.gray, custom_id=f"jobs_decline_{row.id}")
+            decline_btn.callback = make_on_decline(int(row.id))
+
+            items.append(
+                Section(
+                    f"### {_jobs_npc_display(row.offered_by)}  ·  Tier {row.tier} ({tier_name})  ·  {category_label}",
+                    section_body,
+                    Thumbnail(
+                        f"https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/"
+                        f"refs/heads/main/images/spawn/fine_cat.png"
+                    ),
+                ),
+            )
+            items.append(ActionRow(accept_btn, decline_btn))
+
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_help")
+        help_btn.callback = on_help
+        items.append(ActionRow(help_btn))
+
+        container = Container(*items)
+        try:
+            container.accent_color = Colors.brown
+        except Exception:
+            pass
+        view.add_item(container)
+        await _attach_view(interaction, view, use_followup)
+
+    async def show_send(interaction: discord.Interaction):
+        await profile.refresh_from_db()
+        job = await JobInstance.get_or_none(id=mode["job_id"])
+        if not job or job.state != "offered" or int(job.user_id) != int(message.user.id):
+            mode["screen"] = "board"
+            send_state.clear()
+            last_toast.append("⚠️ That offer is no longer available.")
+            await show_board(interaction)
+            return
+
+        send_total = _jobs_send_total(send_state)
+        rep_bonus = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(profile))
+        chance = _jobs_success_chance(send_total, job.difficulty, rep_bonus)
+        ratio = send_total / max(1, job.difficulty)
+        near_miss_band = JOBS_PROB["near_miss_band"]
+        feel, color = _jobs_feel_label(chance)
+        gauge = _jobs_gauge(chance)
+        near_miss_chance = max(0.0, min(near_miss_band, JOBS_PROB["ceiling"] - chance))
+        wipe_chance = max(0.0, 1.0 - chance - near_miss_chance)
+        sent_count = _jobs_send_count(send_state)
+        expected_loss_sp = 0
+        if sent_count:
+            avg_sp = send_total / max(1, sent_count)
+            losses = wipe_chance * sent_count + near_miss_chance * math.ceil(sent_count / 2)
+            expected_loss_sp = round(losses * avg_sp)
+
+        tier_info = JOBS_TIERS.get(str(job.tier), {})
+        tier_name = tier_info.get("name", f"Tier {job.tier}")
+        crew_lines = []
+        for t in cattypes:
+            c = int(send_state.get(t, 0) or 0)
+            if c <= 0:
+                continue
+            sp_each = JOBS_SEND_POWER.get(t, 0)
+            raw_sp = sp_each * c
+            eff_sp = int(round(_jobs_effective_sp_for_type(t, c)))
+            emoji = get_emoji(t.lower() + "cat") or get_emoji(t.lower()) or ""
+            # Show effective SP with the raw value in parens when they differ
+            # (i.e. count > 1 — the diminishing-returns dampening kicked in).
+            sp_str = f"{eff_sp} SP" if eff_sp == raw_sp else f"{eff_sp} SP  (raw {raw_sp})"
+            crew_lines.append(f"{c:>3} × {emoji} {t}{' ' * max(0, 18 - len(t))} {sp_str}")
+        if not crew_lines:
+            crew_lines.append("(no cats in crew yet)")
+
+        reward = _jobs_coerce_dict(job.reward_snapshot)
+
+        items: list = [
+            f"## 🎯 {_jobs_npc_display(job.offered_by)} — Tier {job.tier} ({tier_name})",
+            f"*{job.narrative}*",
+            f"🎯 Target: **{_jobs_npc_display(job.target_faction)}**",
+            Separator(),
+            "**👥 Your Crew**",
+            "```\n" + "\n".join(crew_lines) + f"\nTotal: {send_total} SP\n```",
+            f"💪 Difficulty: **{job.difficulty} SP**  ·  Ratio: **{ratio:.2f}×**",
+            f"📊 Success Chance: **{chance * 100:.0f}%**",
+            f"`{gauge}` {feel}",
+            f"💰 Reward (success): {_jobs_reward_summary(reward)}",
+            f"🩹 Near-miss ({near_miss_chance * 100:.0f}%): half your crew survives, no reward",
+            f"💀 Total failure ({wipe_chance * 100:.0f}%): all cats destroyed",
+        ]
+        if sent_count:
+            items.append(f"📉 Expected loss: ~{expected_loss_sp} SP across many attempts")
+        items.append(f"🚨 Heat cost: +{job.heat_cost}")
+        for line in last_toast:
+            items.append(line)
+        last_toast.clear()
+
+        add_btn = Button(label="➕ Add", style=ButtonStyle.green, custom_id="jobs_send_add")
+        add_btn.callback = on_send_add
+        remove_btn = Button(label="➖ Remove", style=ButtonStyle.gray, custom_id="jobs_send_remove")
+        remove_btn.callback = on_send_remove
+        remove_btn.disabled = sent_count == 0
+        reset_btn = Button(label="Reset", style=ButtonStyle.gray, custom_id="jobs_send_reset")
+        reset_btn.callback = on_send_reset
+        reset_btn.disabled = sent_count == 0
+        send_btn = Button(
+            label="Send Crew" if sent_count else "Add cats first",
+            style=ButtonStyle.green,
+            custom_id="jobs_send_commit",
+        )
+        send_btn.callback = on_send_commit
+        cancel_btn = Button(label="← Back", style=ButtonStyle.red, custom_id="jobs_send_back")
+        cancel_btn.callback = on_send_back
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_send_help")
+        help_btn.callback = on_help
+
+        items.append(ActionRow(add_btn, remove_btn, reset_btn))
+        items.append(ActionRow(send_btn, cancel_btn, help_btn))
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        container = Container(*items)
+        try:
+            container.accent_color = color
+        except Exception:
+            pass
+        view.add_item(container)
+        await _attach_view(interaction, view, use_followup=False)
+
+    async def show_result(interaction: discord.Interaction):
+        logging.info("jobs: show_result entry job_id=%s", mode.get("job_id"))
+        await profile.refresh_from_db()
+        job = await JobInstance.get_or_none(id=mode["job_id"])
+        logging.info("jobs: show_result fetched job=%s outcome=%s state=%s",
+                     getattr(job, "id", None) if job else None,
+                     getattr(job, "outcome", None) if job else None,
+                     getattr(job, "state", None) if job else None)
+        if not job or int(job.user_id) != int(message.user.id):
+            mode["screen"] = "board"
+            await show_board(interaction)
+            return
+
+        outcome = job.outcome
+        send_snapshot = _jobs_coerce_dict(job.send_snapshot)
+        cats_destroyed = _jobs_coerce_dict(job.cats_destroyed)
+        reward = _jobs_coerce_dict(job.reward_snapshot)
+        sent_count = _jobs_send_count(send_snapshot)
+        destroyed_count = _jobs_send_count(cats_destroyed)
+        survived = sent_count - destroyed_count
+
+        if outcome == "success":
+            header = "## ✅ Success"
+            outcome_color = Colors.green
+            body_lines = [
+                f"All {sent_count} cats came home.",
+                f"💰 Reward: {_jobs_reward_summary(reward)}",
+            ]
+        elif outcome == "near_miss":
+            header = "## 🩹 Near-miss"
+            outcome_color = Colors.brown
+            body_lines = [
+                f"You got out, but **{destroyed_count}** cats didn't.",
+                f"Survivors returned: {survived}.",
+                "No reward this time.",
+            ]
+        else:
+            header = "## 💀 Total failure"
+            outcome_color = Colors.red
+            body_lines = [
+                f"The whole crew is gone. **{sent_count}** cats lost.",
+                "No reward.",
+            ]
+
+        grace_left = _jobs_cancel_grace_remaining(job)
+        items: list = [
+            header,
+            f"Rolled **{job.roll * 100:.1f}%** vs threshold **{job.success_chance * 100:.0f}%**",
+            Separator(),
+            *body_lines,
+            Separator(),
+            f"🚨 Heat: +{job.heat_cost}",
+        ]
+        if destroyed_count:
+            lost_summary = ", ".join(f"{c}× {t}" for t, c in cats_destroyed.items())
+            items.append(f"💀 Lost: {lost_summary}")
+        # Pinch follow-up — only shown on the commit that crossed the threshold.
+        rep_changes = _jobs_coerce_dict(job.rep_changes)
+        if rep_changes.get("pinched"):
+            suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
+            items.append(
+                f"\n🚓 **Pinched.** Your heat hit 100. The Cat Police caught up with your crew.\n"
+                f"Catnip perks are suspended until <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
+            )
+
+        cancel_btn = Button(
+            label=f"Undo ({grace_left}s)" if grace_left > 0 else "Undo (locked)",
+            style=ButtonStyle.red,
+            custom_id="jobs_result_cancel",
+        )
+        cancel_btn.callback = on_result_cancel
+        cancel_btn.disabled = grace_left <= 0
+        back_btn = Button(label="📋 Back to board", style=ButtonStyle.gray, custom_id="jobs_result_back")
+        back_btn.callback = on_result_back
+        result_help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_result_help")
+        result_help_btn.callback = on_help
+        items.append(ActionRow(cancel_btn, back_btn, result_help_btn))
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        container = Container(*items)
+        try:
+            container.accent_color = outcome_color
+        except Exception:
+            pass
+        view.add_item(container)
+        logging.info("jobs: show_result about to send view (items=%d)", len(items))
+        await _attach_view(interaction, view, use_followup=False)
+        logging.info("jobs: show_result view sent")
+
+    # ----- callback factories -----
+
+    def make_on_accept(job_id: int):
+        async def cb(interaction: discord.Interaction):
+            mode["screen"] = "send"
+            mode["job_id"] = job_id
+            send_state.clear()
+            await show_send(interaction)
+        return cb
+
+    def make_on_decline(job_id: int):
+        async def cb(interaction: discord.Interaction):
+            job = await JobInstance.get_or_none(id=job_id)
+            if job and job.state == "offered" and int(job.user_id) == int(message.user.id):
+                job.state = "declined"
+                await job.save()
+                last_toast.append(f"-# Declined offer from {_jobs_npc_display(job.offered_by)}.")
+            await show_board(interaction)
+        return cb
+
+    async def on_help(interaction: discord.Interaction):
+        """Board/Send help button → paginated help. Jumps to the most relevant
+        page for the current screen; falls back to page 1 if not found."""
+        if mode.get("screen") == "send":
+            start = _jobs_help_index_by_title(profile, "sending")
+        elif mode.get("screen") == "result":
+            start = _jobs_help_index_by_title(profile, "three outcomes")
+        else:
+            start = 0
+        await _jobs_send_help(interaction, profile, start_page=start)
+
+    # ----- send screen modals + callbacks -----
+
+    class AddCatsModal(Modal):
+        def __init__(self):
+            super().__init__(title="Add cats to crew", timeout=VIEW_TIMEOUT)
+            self.rarity = TextInput(
+                label="Rarity (e.g. Fine, Legendary)",
+                style=discord.TextStyle.short,
+                required=True,
+                min_length=1,
+                max_length=20,
+                placeholder="Fine",
+            )
+            self.count = TextInput(
+                label="How many?",
+                style=discord.TextStyle.short,
+                required=True,
+                min_length=1,
+                max_length=6,
+                placeholder="1",
+            )
+            self.add_item(self.rarity)
+            self.add_item(self.count)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            t = self.rarity.value.strip()
+            t_normalized = next((x for x in cattypes if x.lower() == t.lower()), None)
+            if t_normalized is None:
+                last_toast.append(f"⚠️ Unknown rarity: {t}")
+                await show_send(interaction)
+                return
+            try:
+                c = int(self.count.value)
+                if c <= 0:
+                    raise ValueError
+            except Exception:
+                last_toast.append("⚠️ Count must be a positive integer.")
+                await show_send(interaction)
+                return
+            await profile.refresh_from_db()
+            owned = int(profile[f"cat_{t_normalized}"] or 0)
+            in_crew = int(send_state.get(t_normalized, 0) or 0)
+            available = owned - in_crew
+            if available <= 0:
+                last_toast.append(f"⚠️ No spare {t_normalized} cats to send.")
+                await show_send(interaction)
+                return
+            actual = min(c, available)
+            send_state[t_normalized] = in_crew + actual
+            logging.info("jobs: added %d× %s to send (total now %s)",
+                         actual, t_normalized, dict(send_state))
+            if actual < c:
+                last_toast.append(f"-# Added {actual}× {t_normalized} (only {available} available).")
+            await show_send(interaction)
+
+    class RemoveCatsModal(Modal):
+        def __init__(self):
+            super().__init__(title="Remove cats from crew", timeout=VIEW_TIMEOUT)
+            self.rarity = TextInput(
+                label="Rarity",
+                style=discord.TextStyle.short,
+                required=True,
+                min_length=1,
+                max_length=20,
+            )
+            self.count = TextInput(
+                label="How many? (use 'all' to remove all)",
+                style=discord.TextStyle.short,
+                required=True,
+                min_length=1,
+                max_length=6,
+            )
+            self.add_item(self.rarity)
+            self.add_item(self.count)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            t = self.rarity.value.strip()
+            t_normalized = next((x for x in cattypes if x.lower() == t.lower()), None)
+            if t_normalized is None or t_normalized not in send_state:
+                last_toast.append(f"⚠️ {t} is not in your crew.")
+                await show_send(interaction)
+                return
+            val = self.count.value.strip().lower()
+            if val == "all":
+                send_state.pop(t_normalized, None)
+            else:
+                try:
+                    c = int(val)
+                    if c <= 0:
+                        raise ValueError
+                except Exception:
+                    last_toast.append("⚠️ Count must be a positive integer or 'all'.")
+                    await show_send(interaction)
+                    return
+                new_val = max(0, int(send_state[t_normalized]) - c)
+                if new_val == 0:
+                    send_state.pop(t_normalized, None)
+                else:
+                    send_state[t_normalized] = new_val
+            await show_send(interaction)
+
+    async def on_send_add(interaction: discord.Interaction):
+        await interaction.response.send_modal(AddCatsModal())
+
+    async def on_send_remove(interaction: discord.Interaction):
+        await interaction.response.send_modal(RemoveCatsModal())
+
+    async def on_send_reset(interaction: discord.Interaction):
+        send_state.clear()
+        await show_send(interaction)
+
+    async def on_send_back(interaction: discord.Interaction):
+        mode["screen"] = "board"
+        send_state.clear()
+        await show_board(interaction)
+
+    async def on_send_commit(interaction: discord.Interaction):
+        logging.info("jobs: send_commit fired (user=%s job=%s send=%s)",
+                     message.user.id, mode.get("job_id"), dict(send_state))
+        if not send_state:
+            await interaction.response.send_message("Add at least one cat first.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        # Atomic: lock profile, lock offer (FOR UPDATE), verify inventory, escrow,
+        # roll, apply outcome. The whole thing in one transaction.
+        try:
+            async with transaction() as conn:
+                fresh = await Profile.get_or_create(
+                    connection=conn,
+                    user_id=int(message.user.id),
+                    guild_id=int(message.guild.id),
+                )
+                job = await JobInstance.get_or_none(id=mode["job_id"])
+                if not job or job.state != "offered" or int(job.user_id) != int(message.user.id):
+                    last_toast.append("⚠️ That offer is no longer available.")
+                    mode["screen"] = "board"
+                    send_state.clear()
+                    await show_board(interaction)
+                    return
+
+                for t, c in send_state.items():
+                    if int(fresh[f"cat_{t}"] or 0) < c:
+                        last_toast.append(f"⚠️ Not enough {t} cats.")
+                        await show_send(interaction)
+                        return
+
+                # Escrow: decrement first. Survivors get re-added below per outcome.
+                for t, c in send_state.items():
+                    if not _jobs_subtract_cat(fresh, t, int(c)):
+                        last_toast.append(f"⚠️ Escrow failed on {t}.")
+                        await show_send(interaction)
+                        return
+
+                send_total = _jobs_send_total(send_state)
+                rep_bonus_now = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(fresh))
+                rng = random.Random()
+                outcome_dict = _jobs_resolve_outcome_with_rep(send_total, int(job.difficulty), dict(send_state), rep_bonus_now, rng)
+
+                job.send_snapshot = dict(send_state)
+                job.send_total = send_total
+                job.state = "committed"
+                job.committed_at = int(time.time())
+
+                await _jobs_apply_outcome(fresh, job, outcome_dict, rng)
+
+                # Re-credit surviving cats. (Success returns the entire send;
+                # near-miss returns send-minus-destroyed; total failure returns none.)
+                if outcome_dict["outcome"] == "success":
+                    for t, c in send_state.items():
+                        _jobs_add_cat(fresh, t, int(c))
+                elif outcome_dict["outcome"] == "near_miss":
+                    destroyed = outcome_dict["cats_destroyed"]
+                    for t, c in send_state.items():
+                        survived_c = int(c) - int(destroyed.get(t, 0))
+                        if survived_c > 0:
+                            _jobs_add_cat(fresh, t, survived_c)
+
+                job.state = "resolved"
+                job.resolved_at = int(time.time())
+                logging.info("jobs: pre-save outcome=%s job_id=%s", outcome_dict["outcome"], job.id)
+                await job.save()
+                logging.info("jobs: job.save() ok")
+                await fresh.save()
+                logging.info("jobs: fresh.save() ok")
+                # NOTE: don't refresh the outer `profile` reference here.
+                # catpg's refresh_from_db calls _get() with no connection, which
+                # auto-applies FOR UPDATE and tries to relock the profile row —
+                # but `conn` already holds that lock, causing a self-deadlock.
+                # show_result() does its own refresh outside this block.
+        except Exception:
+            logging.exception("jobs: commit transaction failed")
+            last_toast.append("⚠️ Something went wrong. Your cats are safe — try again.")
+            try:
+                await show_send(interaction)
+            except Exception:
+                logging.exception("jobs: show_send after commit-failure also failed")
+            return
+
+        logging.info("jobs: transaction committed cleanly")
+
+        # Battlepass extra-quest progress for jobs. Only successful resolutions
+        # count toward the BP quests; near-miss/wipe don't progress them.
+        try:
+            committed_job = await JobInstance.get_or_none(id=mode["job_id"])
+            if committed_job and committed_job.outcome == "success":
+                try:
+                    await progress(interaction, profile, "job_easy")
+                except Exception:
+                    logging.exception("jobs: job_easy progress failed")
+                if int(committed_job.tier or 0) >= 4:
+                    try:
+                        await progress(interaction, profile, "job_hard")
+                    except Exception:
+                        logging.exception("jobs: job_hard progress failed")
+        except Exception:
+            logging.exception("jobs: post-commit BP progress wrapper failed")
+
+        logging.info("jobs: about to call show_result")
+        mode["screen"] = "result"
+        try:
+            await show_result(interaction)
+            logging.info("jobs: show_result returned")
+        except Exception:
+            logging.exception("jobs: show_result failed")
+
+    async def on_result_cancel(interaction: discord.Interaction):
+        await interaction.response.defer()
+        try:
+            async with transaction() as conn:
+                fresh = await Profile.get_or_create(
+                    connection=conn,
+                    user_id=int(message.user.id),
+                    guild_id=int(message.guild.id),
+                )
+                job = await JobInstance.get_or_none(id=mode["job_id"])
+                if not job or int(job.user_id) != int(message.user.id):
+                    last_toast.append("⚠️ That job is gone.")
+                    mode["screen"] = "board"
+                    send_state.clear()
+                    await show_board(interaction)
+                    return
+                if _jobs_cancel_grace_remaining(job) <= 0:
+                    last_toast.append("⚠️ Roll is locked — too late to undo.")
+                    await show_result(interaction)
+                    return
+                send_snapshot = _jobs_coerce_dict(job.send_snapshot)
+                await _jobs_reverse_commit(fresh, job, send_snapshot)
+                await job.save()
+                await fresh.save()
+                # See note in on_send_commit: skipping profile.refresh_from_db()
+                # inside the transaction to avoid the FOR UPDATE self-deadlock.
+        except Exception:
+            logging.exception("jobs: cancel-grace reverse failed")
+            last_toast.append("⚠️ Undo failed. Try again.")
+            await show_result(interaction)
+            return
+
+        send_state.clear()
+        mode["screen"] = "board"
+        last_toast.append("-# Undid the commit. The offer is back on your board.")
+        await show_board(interaction)
+
+    async def on_result_back(interaction: discord.Interaction):
+        mode["screen"] = "board"
+        send_state.clear()
+        await show_board(interaction)
+
+    # ----- entry point -----
+    await message.response.defer(ephemeral=True)
+    await show_board(message, use_followup=True)
+
+
+@bot.tree.command(description="view your reputation with the cat mafia families")
+async def rep(message: discord.Interaction):
+    """Per-server reputation with each Mafia NPC. Built up by completing
+    contracts for them, tanked by working against them. Effects: offerer rep
+    boosts success chance up to ±12%; target rep tunes difficulty up to +25%."""
+    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+    rep_data = _jobs_faction_rep(profile)
+    refuse = JOBS_REP["refuse_threshold"]
+    hostile = JOBS_REP["hostile_threshold"]
+    unlock = JOBS_REP["unlock_threshold"]
+
+    rows = []
+    for key, npc in JOBS_NPCS.items():
+        score = int(rep_data.get(key, 0))
+        name = npc.get("display_name", key)
+        if score >= unlock:
+            band = "🌟 Premium"
+        elif score >= 50:
+            band = "💚 Friendly"
+        elif score > refuse:
+            band = "—"
+        elif score > hostile:
+            band = "🚫 Refuses"
+        else:
+            band = "🔥 Hostile"
+        rows.append(f"`{score:>+5}`  **{name}**  {band}")
+    # Also show top targets they're notable against:
+    for key, t in config.jobs.get("targets_only", {}).items():
+        if key == "commoners":
+            continue
+        score = int(rep_data.get(key, 0))
+        name = t.get("display_name", key)
+        rows.append(f"`{score:>+5}`  *{name}* (target)")
+
+    body = "\n".join(rows) if rows else "No reputation yet."
+
+    async def on_rep_help(interaction: discord.Interaction):
+        await _jobs_send_help(interaction, profile, start_page=_jobs_help_index_by_title(profile, "reputation"))
+
+    help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobsrep_help")
+    help_btn.callback = on_rep_help
+
+    view = LayoutView(timeout=VIEW_TIMEOUT)
+    container = Container(
+        "## 🤝 Reputation",
+        "Per-server. Built up by working *for* an NPC, tanked by working *against* one.",
+        Separator(),
+        body,
+        Separator(),
+        f"-# Refusal threshold: {refuse}  ·  Hostile: {hostile}  ·  Unlock: +{unlock}",
+        ActionRow(help_btn),
+    )
+    try:
+        container.accent_color = Colors.brown
+    except Exception:
+        pass
+    view.add_item(container)
+    await message.response.send_message(view=view, ephemeral=True)
+
+
 @bot.tree.command(description="cat prisms are a special power up")
 @discord.app_commands.describe(person="Person to view the prisms of")
 async def prism(message: discord.Interaction, person: Optional[discord.User]):
@@ -10735,7 +12398,7 @@ async def catch(message: discord.Interaction, msg: discord.Message):
 @discord.app_commands.autocomplete(cat_type=lb_type_autocomplete)
 async def leaderboards(
     message: discord.Interaction,
-    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia"]],
+    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia", "Heists", "Job Coins", "Biggest Score"]],
     cat_type: Optional[str],
     locked: Optional[bool],
 ):
@@ -10864,6 +12527,30 @@ async def leaderboards(
                 ["user_id", "catnip_level"], "guild_id = $1 AND catnip_level > 0 ORDER BY catnip_level DESC", message.guild.id
             )
             final_value = "catnip_level"
+        elif type == "Heists":
+            unit = "jobs"
+            result = await Profile.collect_limit(
+                ["user_id", "jobs_completed"],
+                "guild_id = $1 AND jobs_completed > 0 ORDER BY jobs_completed DESC",
+                message.guild.id,
+            )
+            final_value = "jobs_completed"
+        elif type == "Job Coins":
+            unit = "coins"
+            result = await Profile.collect_limit(
+                ["user_id", "job_coins_won"],
+                "guild_id = $1 AND job_coins_won > 0 ORDER BY job_coins_won DESC",
+                message.guild.id,
+            )
+            final_value = "job_coins_won"
+        elif type == "Biggest Score":
+            unit = "value"
+            result = await Profile.collect_limit(
+                ["user_id", "biggest_score_value"],
+                "guild_id = $1 AND biggest_score_value > 0 ORDER BY biggest_score_value DESC",
+                message.guild.id,
+            )
+            final_value = "biggest_score_value"
         else:
             # qhar
             raise ValueError("Invalid leaderboard type")
@@ -11042,6 +12729,9 @@ async def leaderboards(
             "Coins": "🪙",
             "Prisms": get_emoji("prism"),
             "Mafia": get_emoji("catnip"),
+            "Heists": "🏆",
+            "Job Coins": "💰",
+            "Biggest Score": "💎",
         }
         options = [Option(label=k, emoji=v) for k, v in emojied_options.items()]
         lb_select = Select(

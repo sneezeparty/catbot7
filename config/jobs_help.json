@@ -1,0 +1,49 @@
+{
+  "pages": [
+    {
+      "title": "What are jobs?",
+      "min_level_to_see": 0,
+      "body": "The cat mafia hands out contracts. You take a job, send cats as your crew, and roll the dice. Win, and your cats come home plus a reward. Lose, and your crew is destroyed.\n\nEach NPC has their own jobs. **Whiskers** is reliable. **Jinx** keeps things low-heat. **Sofia** pays big in cats. **Jeremy** pays in coins. **Lucian Sr** sends you against higher-ranks. Each has trade-offs.\n\nHigher mafia rank unlocks bigger jobs with bigger payouts. At Lv10 (El Patrón), Whiskers offers you **The Big Score** — Wilson's eGirl vault — once per battlepass season."
+    },
+    {
+      "title": "Send Power (SP) and how sending works",
+      "min_level_to_see": 2,
+      "body": "**SP (Send Power)** is a per-rarity number that decides how much a cat contributes to a job. It is *not* the same as the cat's trade value — it's a separate game-balance number that compresses the high end on purpose, so sending a stack of Fines stays viable.\n\n**Send Power per rarity:**\n```\nFine       1     Brave      18    Mythic    52    Real      115\nNice       2     Rickroll   22    8bit      61    Ultimate  140\nGood       3     Reverse    26    Corrupt   71    eGirl     180\nRare       5     Superior   31    Professor 83\nWild       7     Trash      37    Divine    97\nBaby       9     Legendary  44\nEpic      12\nSus       15\n```\n\n**Diminishing returns per rarity.** The more cats of the *same* rarity you stack in one send, the less effective each one becomes. Formula: `effective_SP = base_SP × count^0.75`. The penalty applies to each rarity independently, so **mixing rarities preserves full efficiency**.\n\n```\nCount of one rarity → effective multiplier\n   1   → 1.00×\n   5   → 0.67×\n  10   → 0.56×\n  50   → 0.38×\n 100   → 0.32×\n1000   → 0.18×\n```\nSo 100 Fines contribute about 32 SP, not 100. To make a 500-SP wall with pure Fines you'd need ~30,000. Bringing 4 Ultimates + 30 Fines reaches the same wall with no penalty to either rarity (since counts are small).\n\nThe send screen shows the effective SP per row, with the raw number in parens when dampening kicked in.\n\n**How a job's odds are decided:**\nEach job has a **Difficulty** (a target SP). Your **Ratio** is your crew's total effective SP divided by Difficulty.\n\n```\nRatio 0.25 →  14%  Suicide mission\nRatio 0.50 →  22%  Long shot\nRatio 0.75 →  35%  Risky\nRatio 1.00 →  50%  Even money\nRatio 1.25 →  65%  Decent\nRatio 1.50 →  73%  Good odds\nRatio 2.00 →  82%  Strong\nRatio 2.50 →  90%  Excellent\nRatio 3.00+→  95%  Lock (ceiling)\n```\nThere is **no 100%** — the chance is capped at 95%."
+    },
+    {
+      "title": "The three outcomes",
+      "min_level_to_see": 2,
+      "body": "When you commit, the bot rolls once. The roll lands in one of three bands:\n\n- **Success** — your cats come home, you get the reward.\n- **Near-miss** — a narrow 10pp band right above your success threshold. Half your crew survives (random pick by count). No reward. Failure rep.\n- **Total failure** — anything beyond the near-miss band. All cats destroyed.\n\n**Near-miss is rare relief, not consolation.** Most failures are total wipes. Plan accordingly.\n\nAfter you click **Send Crew**, you have a 30-second window to **Undo**. After that the roll is locked."
+    },
+    {
+      "title": "Reputation",
+      "min_level_to_see": 4,
+      "body": "Reputation is **per-server, per-NPC**. Every NPC tracks how you've treated them: complete a job *for* them and your rep with them rises; complete a job *against* their faction and your rep with that target tanks. A failed job (near-miss or wipe) costs an additional -2 rep with the offerer.\n\n**Rep gain/loss per tier completed:**\n```\nTier 1:  +3 offerer  /  -5 target\nTier 2:  +5 offerer  /  -8 target\nTier 3:  +8 offerer  / -12 target\nTier 4: +12 offerer  / -20 target\nT5 Big Score:  +20 Whiskers / -50 Wilson on success\n```\n\n**Mechanical effects:**\n- **Offerer rep** boosts success chance by **+0.075% per point**, cap **±12%**. Whiskers at +100 = +7.5% success on his jobs.\n- **Target rep (negative)** adds **+0.5% difficulty per point**, cap **+25%**. Wilson at -100 = ×1.25 SP wall on his jobs.\n- **Below -25** with an NPC: they **refuse** to offer you work. Their slot rerolls.\n- **At or below -75**: target is **hostile**. Heat costs against them drop by 25%.\n\n**Threshold unlocks (Whiskers and Sofia only):**\n- **Whiskers ≥ +100** — **Favor.** Once per battlepass season, your next pack-open upgrades by one tier (Wooden → Stone, etc.).\n- **Sofia ≥ +100** — **Premium menu.** When she rolls onto your board, she offers her highest-tier-available job.\n\n**General band effects:**\n- ≥ +50: NPC's slot weighting increases (you see them more often).\n- +50 to -25: normal.\n- Rep does **not decay**. It's a record, not a mood.\n\nRun `/rep` to see your standing with everyone."
+    },
+    {
+      "title": "Heat",
+      "min_level_to_see": 4,
+      "body": "**Heat** is the cat mafia equivalent of being on the cops' radar. Every job you commit adds heat — **whether you succeed or fail.** Heat doesn't care if the op worked; the mafia made noise.\n\n**Base heat cost by tier** (before multipliers):\n```\nTier 1 (Errand)        +0\nTier 2 (Casual)        +8\nTier 3 (Professional) +15\nTier 4 (High-Stakes)  +25\nTier 5 (Big Score)   +100  (auto-pinch on resolve)\n```\nNPCs apply their own multiplier on top. Jinx: ×0.7 (cheap). Lucian Jr: ×1.15. Sofia: ×1.1. Whiskers: ×0.9. Hostile targets (rep ≤ -75) give you a 25% heat discount.\n\n**Decay:** Heat drops by **2 per hour**, automatically — *but the decay pauses while your catnip session is active*. So running catnip + jobs both at once self-limits via the heat clock.\n\n**Threshold bands:**\n```\n  0–30   🟢 Clean.    No effect.\n 31–70   🟡 Watched.  Heat cost +10%.\n 71–99   🔴 Hot.      Heat cost +25%.\n   100   🚓 PINCHED.\n```\n\n**The Pinch (heat hits 100):**\n- The Cat Police catch up with your crew.\n- **Catnip perks suspended for 12 hours** (Snowballer, Bait & Switch, pack-drops, double-chance, *all of them*).\n- Heat resets to 30 immediately.\n- Achievement `feds` unlocks.\n\nThe Big Score's +100 heat means **every** Big Score commit pinches you. That's part of the cost.\n\n**How to manage heat:** rotate to a Jinx job (low heat_mult) when you're in the 70+ band, or just stop running jobs for a few hours and let decay catch up. Heat is the brake the system applies to a streaking player; it self-limits without you doing anything."
+    },
+    {
+      "title": "The NPCs",
+      "min_level_to_see": 4,
+      "body": "Each NPC has a niche. Trade-offs in parentheses are which stat suffers.\n\n- **Whiskers** — reliable, low-heat. Good default.\n- **Lucian Jr** — big rewards, but high heat. Low tiers only.\n- **Jinx** — very low heat. *(Lower rewards.)*\n- **Jeremy** — pays in coins, more of them. *(No cat rewards.)*\n- **Lucian Sr** — vendetta jobs against higher-ranked NPCs. Mid-rare cat rewards.\n- **Sofia** — best cat hauls at top tiers. *(Higher heat.)*\n\nBailey, Wilson, and Lalo **never offer jobs** — they exist to be hit."
+    },
+    {
+      "title": "The Big Score",
+      "min_level_to_see": 8,
+      "body": "At Lv10, Whiskers offers you the heist of a lifetime: **Wilson's eGirl vault**.\n\nOne shot per battlepass season. Difficulty **800 SP** — you'll be putting your rarest cats on the line.\n\n**Reward (success):** 3 eGirls, 15,000 coins, and a permanent **+5% spawn-extra** perk in this server (one-time unlock — subsequent wins don't restack the perk, just give you the loot).\n\n**Near-miss:** half your crew + 5,000 consolation coins.\n\n**Total failure:** the whole crew, gone.\n\nHeat: +100 (auto-pinch). Whether you win or lose, you're getting visited by the Cat Police."
+    },
+    {
+      "title": "Quickstart cheat sheet",
+      "min_level_to_see": 2,
+      "body": "1. At Lv2, do your tutorial errand from Lucian Jr.\n2. At Lv4, the full board opens. Start with **Whiskers Tier 2** jobs — reliable, low risk.\n3. Build Whiskers rep. At +100 he'll start giving you Favors.\n4. Watch your heat. If you're at 70+, take a **Jinx** job to cool off.\n5. At Lv6+, **Sofia** becomes the best source of mid-rare cats.\n6. At Lv10, save up for **The Big Score**. You'll want ~5-6 Ultimates or 4 eGirls minimum."
+    },
+    {
+      "title": "Glossary",
+      "min_level_to_see": 0,
+      "body": "- **SP (Send Power)** — per-rarity game-balance number. Distinct from trade value.\n- **Ratio** — your crew's total SP divided by the job's difficulty. Feeds the success-chance sigmoid.\n- **Near-miss** — narrow 10pp failure band where half your crew survives.\n- **Rep** — per-NPC reputation, per-server. Built by working *for* an NPC, tanked by working *against* one.\n- **Heat** — accumulating attention from the Cat Police. Decays at 2/hour, paused during catnip.\n- **Pinch** — heat hitting 100. Triggers the Cat Police Station event (catnip perks suspended 12h, heat reset to 30).\n- **Favor** — Whiskers's +100 unlock. Once per season, your next pack-open upgrades by a tier.\n- **The Big Score** — the once-per-season Tier 5 capstone at Lv10."
+    }
+  ]
+}

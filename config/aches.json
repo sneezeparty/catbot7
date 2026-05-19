@@ -118,5 +118,19 @@
   "challenge_first": {"title": "Challenge Accepted", "description": "complete a battlepass challenge quest for the first time", "is_hidden": false, "category": "Commands", "xp": 350},
   "bait_switch_proc": {"title": "Bait Master", "description": "trigger the Bait & Switch catnip perk", "is_hidden": true, "category": "Hidden", "xp": 200},
   "snowballer_max": {"title": "Avalanche", "description": "reach a 30-stack on the Snowballer catnip perk", "is_hidden": true, "category": "Hidden", "xp": 400},
-  "bp_xp_proc": {"title": "Cram Session", "description": "trigger the Battlepass Booster catnip perk", "is_hidden": true, "category": "Hidden", "xp": 200}
+  "bp_xp_proc": {"title": "Cram Session", "description": "trigger the Battlepass Booster catnip perk", "is_hidden": true, "category": "Hidden", "xp": 200},
+
+  "first_job": {"title": "Made Man", "description": "complete your first job for the cat mafia", "is_hidden": false, "category": "Commands", "xp": 300},
+  "hit_man": {"title": "Wet Work", "description": "complete 25 hits (tier 1-2 jobs)", "is_hidden": false, "category": "Hard", "xp": 400},
+  "cat_burglar": {"title": "Cat Burglar", "description": "complete 10 heists (tier 3+ jobs)", "is_hidden": false, "category": "Hard", "xp": 400},
+  "vendetta": {"title": "Vendetta", "description": "complete a job targeting a faction at rep < -50", "is_hidden": true, "category": "Hidden", "xp": 350},
+  "whiskers_pet": {"title": "Family", "description": "reach Whiskers rep ≥ +100", "is_hidden": false, "category": "Hard", "xp": 500},
+  "outlaw": {"title": "Five-Family Problem", "description": "have 5 NPCs at rep < -25 at the same time", "is_hidden": true, "category": "Hidden", "xp": 500},
+  "feds": {"title": "Pinched", "description": "trigger the Cat Police Station event (heat 100)", "is_hidden": true, "category": "Hidden", "xp": 300},
+  "clean_record": {"title": "Discreet", "description": "complete 20 jobs without heat ever exceeding 30", "is_hidden": true, "category": "Hidden", "xp": 450},
+  "egirl_job": {"title": "The Big Score", "description": "successfully complete The Big Score", "is_hidden": false, "category": "Hard", "xp": 750},
+  "lost_it_all": {"title": "Empty Hands", "description": "lose 100 cats to failed jobs (lifetime)", "is_hidden": true, "category": "Hidden", "xp": 350},
+  "the_house_wins": {"title": "Lucky", "description": "win a job with success chance ≤ 25%", "is_hidden": true, "category": "Hidden", "xp": 400},
+  "the_house_loses": {"title": "Unlucky", "description": "lose a job with success chance ≥ 80%", "is_hidden": true, "category": "Hidden", "xp": 200},
+  "got_out_alive": {"title": "Bailed", "description": "survive 10 near-misses", "is_hidden": true, "category": "Hidden", "xp": 300}
 }

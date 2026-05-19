@@ -157,3 +157,7 @@ class PortfolioHistory(catpg.Model):
 
 class Reward(catpg.Model):
     _primary_key = "ticker"
+
+
+class JobInstance(catpg.Model):
+    pass

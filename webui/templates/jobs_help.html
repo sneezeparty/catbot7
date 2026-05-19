@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "config / jobs_help.json" %}
+  {% set heading = "Jobs Help Pages" %}
+  {% set lede    = "Paginated in-Discord help text for /jobs help. Edit title, body (Markdown), and the minimum mafia level required to see each page." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Edits to <code>config/jobs_help.json</code> apply on next <strong>Reload Bot</strong>.
+    Body text is rendered as Discord Markdown in-game. To add or remove pages, edit the
+    JSON directly and reload. <code>min_level_to_see</code> is inclusive — a player at
+    exactly that level will see the page.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <table class="editor-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Title</th>
+        <th>Min level</th>
+        <th>Body preview</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for page in pages %}
+        {% set i = loop.index0 %}
+        {% include "jobs_help_page_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

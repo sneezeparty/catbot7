@@ -161,6 +161,20 @@ SECTIONS: dict[str, dict] = {
             ("profile.discovered_cats", "main.mark_discovered() — written on every cat acquisition; used by /catstore to show owned-vs-not UI"),
             ("profile.store_purchased_rarities", "main.mark_store_purchased() + catstore_collector ach — must contain all type_dict keys for achievement to fire"),
             ("profile.store_purchased_rarities", "config/aches.json:catstore_collector — award fires when len(set(store_purchased_rarities)) == len(type_dict)"),
+            # --- jobs / mafia killings columns (added phase 8) ---
+            # heat — current heat level; in INT_FIELDS (admin may reset to 0 to spare a player a Pinch)
+            # heat_last_decay — internal unix ts for decay bookkeeping; NOT in edit whitelist
+            # faction_rep — JSONB dict[npc_key -> int]; in JSONB_FIELDS (view only)
+            # jobs_completed/failed/near_missed/cats_lost_to_jobs/job_coins_won/biggest_score_value — stat counters; in INT_FIELDS for admin visibility
+            # big_score_season — last season number a Big Score was attempted; INT_FIELDS
+            # big_score_wins — all-time Big Score successes; INT_FIELDS
+            # big_score_perk_unlocked — permanent spawn perk granted by Big Score win; BOOL_FIELDS
+            # whiskers_favor_active / whiskers_favor_season — Whiskers Favor state; BOOL_FIELDS / INT_FIELDS
+            # jobs_send_screen_seen / tutorial_errand_complete — UX flags; BOOL_FIELDS
+            # perks_suspended_until — unix ts; set 0 in INT_FIELDS to lift Pinch early
+            ("profile.heat", "main._jobs_* helpers — written on every job submission; decays hourly"),
+            ("profile.faction_rep", "main._jobs_faction_rep() — per-NPC rep dict; updated on job success/failure"),
+            ("profile.perks_suspended_until", "main._jobs_pinch() — catnip perks suspended for 12h after Pinch; set 0 to lift"),
         ],
     },
     "user_table": {
@@ -174,6 +188,117 @@ SECTIONS: dict[str, dict] = {
         "routes": ["GET /db/prism"],
         "templates": ["db_prism.html"],
         "references": [],
+    },
+    "jobs": {
+        "source": ["config/jobs.json"],
+        "schema": {
+            "send_power": "dict[cat_type_str, int] — SP per rarity",
+            "probability": "{k:float, floor:float, ceiling:float, near_miss_band:float}",
+            "tuning": (
+                "{offer_refresh_window_seconds, decline_cooldown_seconds, "
+                "max_concurrent_offers, cancel_grace_seconds, heat_decay_per_hour, "
+                "pinch_threshold, pinch_lockout_seconds, pinch_reset_heat}"
+            ),
+            "tiers": "dict['1'..'5', {name, difficulty_range[lo,hi], reward_coin_range[lo,hi], heat, min_catnip_level}]",
+            "npcs": (
+                "dict[key, {display_name, min_hire_level, tiers_offered[], hires_against[], "
+                "reward_mult, heat_mult, reward_bias, rep_unlock_at_100?, ally_protection_threshold?}]"
+            ),
+            "targets_only": "dict[key, {display_name, min_catnip_level, owns_egirl_vault?}]",
+            "big_score": (
+                "{difficulty, patron_npc, target_npc, reward{eGirl,coins,perk}, "
+                "near_miss_consolation_coins, heat_cost, rep_changes{success,failure}, "
+                "once_per_season, perk_one_time_only, perk_spawn_extra_bonus}"
+            ),
+            "rep": (
+                "{offerer_bonus_per_point, offerer_bonus_cap, target_difficulty_per_negative_point, "
+                "target_difficulty_cap, unlock_threshold, refuse_threshold, hostile_threshold, "
+                "tier_rep_gain{}, tier_rep_loss{}, failure_penalty, premium_reward_bonus_at_100, "
+                "hostile_target_heat_discount, slot_weight_at_50}"
+            ),
+            "narrative_pools": "dict[npc_key, list[str]]",
+            "narrative_pools_big_score": "list[str]",
+        },
+        "routes": [
+            "GET /jobs",
+            # send_power
+            "GET /jobs/sp/{cat_type}/edit",
+            "GET /jobs/sp/{cat_type}/cancel",
+            "POST /jobs/sp/{cat_type}",
+            # probability
+            "GET /jobs/probability/edit",
+            "GET /jobs/probability/cancel",
+            "POST /jobs/probability",
+            # tuning
+            "GET /jobs/tuning/edit",
+            "GET /jobs/tuning/cancel",
+            "POST /jobs/tuning",
+            # tiers
+            "GET /jobs/tier/{tier}/edit",
+            "GET /jobs/tier/{tier}/cancel",
+            "POST /jobs/tier/{tier}",
+            # npcs
+            "GET /jobs/npc/{npc}/edit",
+            "GET /jobs/npc/{npc}/cancel",
+            "POST /jobs/npc/{npc}",
+            # big_score
+            "GET /jobs/big_score/edit",
+            "GET /jobs/big_score/cancel",
+            "POST /jobs/big_score",
+            # rep
+            "GET /jobs/rep/edit",
+            "GET /jobs/rep/cancel",
+            "POST /jobs/rep",
+            # narrative
+            "GET /jobs/narrative/{npc}/edit",
+            "GET /jobs/narrative/{npc}/cancel",
+            "POST /jobs/narrative/{npc}",
+        ],
+        "templates": [
+            "jobs.html",
+            "jobs_sp_row.html",
+            "jobs_probability_form.html",
+            "jobs_tuning_form.html",
+            "jobs_tier_row.html",
+            "jobs_npc_row.html",
+            "jobs_big_score_form.html",
+            "jobs_rep_form.html",
+            "jobs_narrative_row.html",
+        ],
+        "references": [
+            # NPC tiers_offered must reference keys in tiers — checked at save time (hard block)
+            ("npcs.<key>.tiers_offered", "tiers keys — save blocked if unknown tier number"),
+            # hires_against: NPC/target keys or magic strings — soft warning only
+            ("npcs.<key>.hires_against", "npcs/targets_only keys or 'dynamic_higher_rank'/'commoners' — soft warning"),
+            # big_score patron/target referential integrity — checked at save time (hard block)
+            ("big_score.patron_npc", "npcs keys — save blocked if key missing"),
+            ("big_score.target_npc", "npcs or targets_only keys — save blocked if key missing"),
+            # rep tier tables must match tier keys — enforced by iterating tier_keys at save time
+            ("rep.tier_rep_gain keys", "tiers keys — form fields generated from tier_keys list"),
+            ("rep.tier_rep_loss keys", "tiers keys — form fields generated from tier_keys list"),
+            # send_power keys are the same as catnip type_dict keys in tuning.json
+            ("send_power keys", "tuning.type_dict keys (main.JOBS_SEND_POWER) — adding a new rarity requires both"),
+            # profile columns holding job state — read-only in current webui scope
+            ("profile.job_heat", "main._jobs_* helpers — written every job submission"),
+            ("profile.job_rep_*", "main._jobs_faction_rep() — per-NPC rep stored as JSONB; not in webui edit whitelist"),
+        ],
+    },
+    "jobs_help": {
+        "source": ["config/jobs_help.json"],
+        "schema": {
+            "pages": "list[{title:str, body:str (Discord Markdown), min_level_to_see:int}]",
+        },
+        "routes": [
+            "GET /jobs/help",
+            "GET /jobs/help/{i}/edit",
+            "GET /jobs/help/{i}/cancel",
+            "POST /jobs/help/{i}",
+        ],
+        "templates": ["jobs_help.html", "jobs_help_page_row.html"],
+        "references": [
+            # min_level_to_see is compared against profile.catnip_level at render time
+            ("pages[i].min_level_to_see", "profile.catnip_level — gates page visibility in /jobs help"),
+        ],
     },
     "order_table": {
         "source": ["db:order"],
@@ -212,4 +337,6 @@ TRIGGER_PATHS = [
     "config/battlepass.json",
     "config/catnip.json",
     "config/tuning.json",
+    "config/jobs.json",
+    "config/jobs_help.json",
 ]

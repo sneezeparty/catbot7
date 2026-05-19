@@ -1,0 +1,112 @@
+{
+  "send_power": {
+    "Fine": 1, "Nice": 2, "Good": 3, "Rare": 5, "Wild": 7, "Baby": 9,
+    "Epic": 12, "Sus": 15, "Brave": 18, "Rickroll": 22, "Reverse": 26,
+    "Superior": 31, "Trash": 37, "Legendary": 44, "Mythic": 52,
+    "8bit": 61, "Corrupt": 71, "Professor": 83, "Divine": 97,
+    "Real": 115, "Ultimate": 140, "eGirl": 180
+  },
+  "probability": {
+    "k": 2.5,
+    "floor": 0.05,
+    "ceiling": 0.95,
+    "near_miss_band": 0.10
+  },
+  "tuning": {
+    "offer_refresh_window_seconds": 21600,
+    "decline_cooldown_seconds": 3600,
+    "max_concurrent_offers": 3,
+    "cancel_grace_seconds": 30,
+    "heat_decay_per_hour": 2,
+    "pinch_threshold": 100,
+    "pinch_lockout_seconds": 43200,
+    "pinch_reset_heat": 30,
+    "diminishing_returns_alpha": 0.75
+  },
+  "tiers": {
+    "1": { "name": "Errand",        "difficulty_range": [15, 30],    "reward_coin_range": [50, 150],      "heat": 0,   "min_catnip_level": 2 },
+    "2": { "name": "Casual",        "difficulty_range": [50, 100],   "reward_coin_range": [150, 400],     "heat": 8,   "min_catnip_level": 4 },
+    "3": { "name": "Professional", "difficulty_range": [150, 250],  "reward_coin_range": [500, 1500],    "heat": 15,  "min_catnip_level": 6 },
+    "4": { "name": "High-Stakes",   "difficulty_range": [400, 600],  "reward_coin_range": [2000, 6000],   "heat": 25,  "min_catnip_level": 8 },
+    "5": { "name": "The Big Score", "difficulty_range": [800, 800],  "reward_coin_range": [15000, 15000], "heat": 100, "min_catnip_level": 10 }
+  },
+  "npcs": {
+    "whiskers":  { "display_name": "Whiskers",   "min_hire_level": 1, "tiers_offered": [2, 3, 4], "hires_against": ["bailey", "wilson", "lalo"],   "reward_mult": 1.0,  "heat_mult": 0.9,  "reward_bias": "standard",      "rep_unlock_at_100": "favor" },
+    "lucian_jr": { "display_name": "Lucian Jr",  "min_hire_level": 2, "tiers_offered": [1, 2],    "hires_against": ["whiskers", "sofia", "jinx"],  "reward_mult": 1.3,  "heat_mult": 1.15, "reward_bias": "standard" },
+    "jinx":      { "display_name": "Jinx",       "min_hire_level": 3, "tiers_offered": [1, 2, 3], "hires_against": ["wilson", "sofia"],            "reward_mult": 0.9,  "heat_mult": 0.7,  "reward_bias": "coin_heavy" },
+    "jeremy":    { "display_name": "Jeremy",     "min_hire_level": 4, "tiers_offered": [2],       "hires_against": ["bailey"],                     "reward_mult": 1.2,  "heat_mult": 1.0,  "reward_bias": "coins_only" },
+    "lucian_sr": { "display_name": "Lucian Sr",  "min_hire_level": 5, "tiers_offered": [2, 3],    "hires_against": ["dynamic_higher_rank"],        "reward_mult": 1.0,  "heat_mult": 1.0,  "reward_bias": "mid_rare_cats", "ally_protection_threshold": 50 },
+    "sofia":     { "display_name": "Sofia",      "min_hire_level": 6, "tiers_offered": [3, 4],    "hires_against": ["commoners"],                  "reward_mult": 1.25, "heat_mult": 1.1,  "reward_bias": "cat_heavy",     "rep_unlock_at_100": "premium_menu" }
+  },
+  "targets_only": {
+    "bailey":   { "display_name": "Bailey",     "min_catnip_level": 7 },
+    "wilson":   { "display_name": "Wilson",     "min_catnip_level": 8, "owns_egirl_vault": true },
+    "lalo":     { "display_name": "Lalo",       "min_catnip_level": 9 },
+    "commoners":{ "display_name": "Commoners",  "min_catnip_level": 0 }
+  },
+  "big_score": {
+    "difficulty": 800,
+    "patron_npc": "whiskers",
+    "target_npc": "wilson",
+    "reward": { "eGirl": 3, "coins": 15000, "perk": "big_score" },
+    "near_miss_consolation_coins": 5000,
+    "heat_cost": 100,
+    "rep_changes": { "success": { "whiskers": 20, "wilson": -50 }, "failure": { "whiskers": -5 } },
+    "once_per_season": true,
+    "perk_one_time_only": true,
+    "perk_spawn_extra_bonus": 0.05
+  },
+  "rep": {
+    "offerer_bonus_per_point": 0.00075,
+    "offerer_bonus_cap": 0.12,
+    "target_difficulty_per_negative_point": 0.005,
+    "target_difficulty_cap": 0.25,
+    "unlock_threshold": 100,
+    "refuse_threshold": -25,
+    "hostile_threshold": -75,
+    "tier_rep_gain": { "1": 3, "2": 5, "3": 8, "4": 12, "5": 20 },
+    "tier_rep_loss": { "1": -5, "2": -8, "3": -12, "4": -20, "5": -50 },
+    "failure_penalty": -2,
+    "premium_reward_bonus_at_100": 0.15,
+    "hostile_target_heat_discount": 0.25,
+    "slot_weight_at_50": 1.5
+  },
+  "narrative_pools": {
+    "tutorial": [
+      "Hey kid. I'm Lucian Jr. My dad runs things. I run little things. You wanna run a little thing? Easy money. Just a quick hit on one of Whiskers's runners. He won't even notice.",
+      "Okay listen. Whiskers has a stash. You go get a piece of it. Don't think too hard about it. This is how everyone starts."
+    ],
+    "whiskers": [
+      "Bailey's runner moves Mythics through the docks at dawn. End his shift.",
+      "Wilson is hosting a private auction tonight. The eGirls he's bidding on shouldn't make it to the room.",
+      "Lalo's accountant keeps a ledger of who owes what. The ledger needs to disappear.",
+      "There's a shipment crossing the bay. I want what's in the crates. I don't want what's guarding them."
+    ],
+    "lucian_jr": [
+      "yo my dad doesn't know I'm doing this but Whiskers has a stash and I want it",
+      "Sofia thinks she's hot stuff. Her girls don't need to think that anymore.",
+      "Jinx owes me. Make her pay it or take what she has."
+    ],
+    "jinx": [
+      "bro wilson's been sitting on this stash forever you wanna go get it lmao",
+      "sofia threw shade at me last week. take a couple of her rares as a vibe check",
+      "this isn't even risky for you tbh just walk in there"
+    ],
+    "jeremy": [
+      "Bailey's bagman makes the rounds at the same hour every Tuesday. Pure coin, no cats.",
+      "There's a courier with a satchel. The satchel goes in the river. The contents come to me."
+    ],
+    "lucian_sr": [
+      "{target} has forgotten who built this family. Remind them.",
+      "{target} thinks they're untouchable. Demonstrate otherwise.",
+      "I have a long memory. {target} has a short one. Adjust the balance."
+    ],
+    "sofia": [
+      "Mythics in a vault. The vault is mine if you can get in. Half what you bring out is yours.",
+      "There's a kennel of rares I want. Bring them home alive — well, you know what I mean."
+    ]
+  },
+  "narrative_pools_big_score": [
+    "I've been waiting to ask you this since I met you. Wilson's eGirl vault. I tried in '08. You're the one who's going to do it for me."
+  ]
+}

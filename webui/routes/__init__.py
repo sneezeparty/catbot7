@@ -9,6 +9,8 @@ from webui.routes import (
     channel_table,
     commands,
     dashboard,
+    jobs,
+    jobs_help,
     order_table,
     prism_table,
     profile_table,
@@ -23,6 +25,8 @@ def register(app: web.Application) -> None:
     tuning.register(app)
     battlepass.register(app)
     catnip.register(app)
+    jobs.register(app)
+    jobs_help.register(app)
     commands.register(app)
     server_table.register(app)
     channel_table.register(app)

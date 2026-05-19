@@ -2817,6 +2817,20 @@
         "xp_min": 320,
         "xp_max": 380,
         "progress": 3
+      },
+      "job_easy": {
+        "emoji": "📋",
+        "title": "Complete 2 jobs of any tier",
+        "xp_min": 200,
+        "xp_max": 280,
+        "progress": 2
+      },
+      "job_hard": {
+        "emoji": "🎯",
+        "title": "Complete a Tier 4+ job",
+        "xp_min": 360,
+        "xp_max": 420,
+        "progress": 1
       }
     },
     "challenge": {

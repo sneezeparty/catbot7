@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "config / jobs.json" %}
+  {% set heading = "Jobs / Mafia Killings" %}
+  {% set lede    = "Send Power, probability curve, tiers, NPCs, The Big Score, reputation math, and flavor text." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Edits to <code>config/jobs.json</code> apply on next <strong>Reload Bot</strong>.
+    NPC keys and tier keys are fixed identifiers — renaming them requires a code change in
+    <code>main.py</code> as well. <code>hires_against</code> accepts NPC/target keys or the
+    magic strings <code>dynamic_higher_rank</code> and <code>commoners</code>.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  {% if warnings %}
+  <aside class="help" role="alert" style="border-color:var(--color-warn,#e6ad55)">
+    <strong>Referential warnings (non-blocking):</strong>
+    <ul style="margin:var(--sp-2) 0 0 var(--sp-4)">
+      {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
+  {# ============================================================ send_power #}
+  <h2 class="section">Send Power <span class="heading-count">per-rarity SP</span></h2>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Cat type</th><th>SP</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for cat_type, value in send_power.items() %}
+        {% include "jobs_sp_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ probability #}
+  <h2 class="section">Probability curve</h2>
+  <div id="jobs-probability">
+    {% with editing = false %}
+      {% include "jobs_probability_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ tuning #}
+  <h2 class="section">Tuning knobs</h2>
+  <div id="jobs-tuning">
+    {% with editing = false %}
+      {% include "jobs_tuning_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ tiers #}
+  <h2 class="section">Tiers <span class="heading-count">{{ tiers|length }}</span></h2>
+  <table class="editor-table">
+    <thead>
+      <tr>
+        <th>#</th><th>Name</th>
+        <th>Difficulty range</th><th>Coin reward range</th>
+        <th>Heat</th><th>Min catnip level</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tier_key in tier_keys %}
+        {% set tier = tiers[tier_key] %}
+        {% include "jobs_tier_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ npcs #}
+  <h2 class="section">NPCs <span class="heading-count">{{ npcs|length }}</span></h2>
+  <table class="editor-table">
+    <thead>
+      <tr>
+        <th>Key</th><th>Display name</th><th>Min hire level</th>
+        <th>Tiers offered</th><th>Hires against</th>
+        <th>Reward mult</th><th>Heat mult</th><th>Reward bias</th>
+        <th>Rep unlock @100</th><th>Ally threshold</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for npc_key, npc in npcs.items() %}
+        {% include "jobs_npc_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ targets_only #}
+  <h2 class="section">Targets only <span class="heading-count">read-only</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    These NPCs never offer jobs. Edit <code>config/jobs.json</code> directly to add/remove them.
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Key</th><th>Display name</th><th>Min catnip level</th><th>eGirl vault?</th></tr>
+    </thead>
+    <tbody>
+      {% for key, t in targets_only.items() %}
+        <tr>
+          <td><span class="name">{{ key }}</span></td>
+          <td>{{ t.display_name }}</td>
+          <td class="numeric">{{ t.min_catnip_level }}</td>
+          <td>{% if t.get('owns_egirl_vault') %}✓{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ big_score #}
+  <h2 class="section">The Big Score</h2>
+  <div id="jobs-big-score">
+    {% with editing = false %}
+      {% include "jobs_big_score_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ rep #}
+  <h2 class="section">Reputation math</h2>
+  <div id="jobs-rep">
+    {% with editing = false %}
+      {% include "jobs_rep_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ narrative_pools #}
+  <h2 class="section">Narrative pools</h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    One line per entry. The bot picks a random line for each job offer. Supports <code>{target}</code>
+    placeholder (resolved to the target NPC display name).
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>NPC key</th><th>Entries</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for npc_key, lines in narrative_pools.items() %}
+        {% include "jobs_narrative_row.html" %}
+      {% endfor %}
+      {% set npc_key = "_big_score" %}
+      {% set lines = narrative_pools_big_score %}
+      {% include "jobs_narrative_row.html" %}
+    </tbody>
+  </table>
+
+</section>
+{% endblock %}

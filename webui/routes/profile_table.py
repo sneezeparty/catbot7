@@ -127,6 +127,14 @@ BOOL_FIELDS = [
     "cookiesclicked",
 ]
 
+# JSONB list columns — view-only (no edit route; freeform JSONB editing is
+# too risky for a raw admin form). Shown as pill lists in the profile detail.
+JSONB_FIELDS = [
+    "unlocked_aches",           # JSONB list of achievement IDs ever unlocked
+    "discovered_cats",          # JSONB list of rarity names ever owned (catstore/catch)
+    "store_purchased_rarities", # JSONB list of rarity names ever bought from /catstore
+]
+
 
 async def index(request):
     pool = state.get_pool()
@@ -175,16 +183,29 @@ async def detail(request):
         )
     if row is None:
         return web.Response(status=404)
+    # Deserialize JSONB columns (asyncpg may return them as strings or lists)
+    import json as _json
+    row_dict = dict(row)
+    for jf in JSONB_FIELDS:
+        raw = row_dict.get(jf)
+        if isinstance(raw, str):
+            try:
+                row_dict[jf] = _json.loads(raw)
+            except Exception:
+                row_dict[jf] = []
+        elif raw is None:
+            row_dict[jf] = []
     return aiohttp_jinja2.render_template(
         "db_profile_edit.html",
         request,
         {
             "title": f"Profile {user_id}@{guild_id}",
             "active_section": "profile_table",
-            "row": dict(row),
+            "row": row_dict,
             "int_fields": INT_FIELDS,
             "str_fields": STR_FIELDS,
             "bool_fields": BOOL_FIELDS,
+            "jsonb_fields": JSONB_FIELDS,
         },
     )
 

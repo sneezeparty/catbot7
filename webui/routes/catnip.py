@@ -152,11 +152,13 @@ async def save_level(request):
             r: int(form.get(f"weight_{r}", "0"))
             for r in ("common", "uncommon", "rare", "epic", "legendary")
         }
+        store_discount = int(form.get("store_discount", "0"))
     except ValueError:
         return web.Response(status=400, text="numeric fields invalid")
 
     if err := validators.validate_catnip_level(
-        duration, cost, bounty_difficulty, bounty_amount, bonus, max_amount, weights
+        duration, cost, bounty_difficulty, bounty_amount, bonus, max_amount, weights,
+        store_discount=store_discount,
     ):
         return web.Response(status=400, text=err)
 
@@ -169,6 +171,7 @@ async def save_level(request):
             "bonus": bonus,
             "max_amount": max_amount,
             "weights": weights,
+            "store_discount": store_discount,
         })
         name = (form.get("name") or "").strip()
         if name:

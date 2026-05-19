@@ -106,5 +106,11 @@
   "cat_rain": {"title": "It's Raining Cats", "description": "participate in a cat rain", "is_hidden": true, "category": "Hidden", "xp": 200},
   "mafia_win": {"title": "Mafia Destroyer", "description": "complete the story... more", "is_hidden": true, "category": "Hidden", "xp": 500},
 
-  "thanksforplaying": {"title": "Thanks For Playing", "description": "complete the story", "is_hidden": false, "category": "Cat Hunt", "xp": 500}
+  "thanksforplaying": {"title": "Thanks For Playing", "description": "complete the story", "is_hidden": false, "category": "Cat Hunt", "xp": 500},
+
+  "catstore_first_buy": {"title": "First Purrchase", "description": "buy a cat from the cat store", "is_hidden": false, "category": "Commands", "xp": 250},
+  "catstore_whale": {"title": "Whale Watcher", "description": "spend 10000+ coins in a single cat store transaction", "is_hidden": false, "category": "Commands", "xp": 400},
+  "catstore_collector": {"title": "Compulsive Shopper", "description": "buy at least one of every cat rarity from the store", "is_hidden": true, "category": "Hidden", "xp": 500},
+  "mafia_discount_max": {"title": "Made Man", "description": "buy a cat at maximum mafia discount", "is_hidden": true, "category": "Hidden", "xp": 350},
+  "mafia_tax_payer": {"title": "Sucker", "description": "buy a cat as a Newbie (level 0)", "is_hidden": true, "category": "Hidden", "xp": 200}
 }

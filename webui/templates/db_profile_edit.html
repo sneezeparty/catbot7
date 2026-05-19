@@ -66,6 +66,34 @@
     </tbody>
   </table>
 
+  <h2 class="section">JSONB lists <span class="heading-count">read-only</span></h2>
+  {% set body %}
+    These JSONB columns are shown for inspection only — freeform JSONB editing is not supported via this UI.
+    Use <code>psql</code> for manual corrections. <code>unlocked_aches</code> is the canonical achievements store;
+    <code>discovered_cats</code> tracks rarity names ever owned; <code>store_purchased_rarities</code> backs
+    the <em>Compulsive Shopper</em> achievement.
+  {% endset %}
+  {% include "partials/_help.html" %}
+  <table class="editor-table">
+    <tbody>
+      {% for jf in jsonb_fields %}
+        <tr>
+          <td><span class="name">{{ jf }}</span></td>
+          <td>
+            {% set items = row.get(jf, []) %}
+            {% if items %}
+              {% for item in items %}
+                <span class="pill">{{ item }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="muted">(empty)</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
   <details>
     <summary>All columns <span class="heading-count">{{ row|length }}</span></summary>
     <table class="editor-table">

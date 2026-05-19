@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "db / order" %}
+  {% set heading = "Order book" %}
+  {% set lede    = "Open stock market orders. Read-only." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Read-only. Total open orders: <strong>{{ total }}</strong>.
+    Orders with <code>time = 0</code> are placed by the market-maker bot and are labelled
+    <strong>MM</strong>. They are recreated automatically on the next background-loop tick
+    (~5 min) if deleted — that is intentional.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <h2 class="section">By ticker</h2>
+  <table class="editor-table">
+    <thead><tr><th>Ticker</th><th>Buy orders</th><th>Sell orders</th></tr></thead>
+    <tbody>
+      {% for t in by_ticker %}
+        <tr>
+          <td><span class="name">{{ t.ticker }}</span></td>
+          <td class="numeric">{{ t.buy_count }}</td>
+          <td class="numeric">{{ t.sell_count }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">Open orders <span class="heading-count">{{ rows|length }}{% if total > rows|length %} / {{ total }}{% endif %}</span></h2>
+  {% if total > rows|length %}
+    <p class="muted">Showing first 500 of {{ total }} orders.</p>
+  {% endif %}
+  <table class="editor-table">
+    <thead>
+      <tr>
+        <th>id</th>
+        <th>ticker</th>
+        <th>side</th>
+        <th>qty</th>
+        <th>price</th>
+        <th>user_id</th>
+        <th>placed</th>
+        <th>note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in rows %}
+        <tr {% if o.time == MM_TIME and mm_user_id and o.user_id == mm_user_id %}class="muted"{% endif %}>
+          <td class="numeric">{{ o.id }}</td>
+          <td><span class="name">{{ o.ticker }}</span></td>
+          <td>{{ "BUY" if o.type_buy else "SELL" }}</td>
+          <td class="numeric">{{ o.quantity }}</td>
+          <td class="numeric">{{ o.price }}</td>
+          <td><span class="name">{{ o.user_id }}</span></td>
+          <td>
+            {% if o.time == MM_TIME %}
+              <span class="muted">—</span>
+            {% else %}
+              <span class="muted">{{ o.time|fmt_ts }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if o.time == MM_TIME and mm_user_id and o.user_id == mm_user_id %}
+              <span class="muted">MM</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

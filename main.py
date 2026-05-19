@@ -49,7 +49,7 @@ import config
 import graph
 import msg2img
 from catpg import RawSQL, pool, transaction
-from database import Channel, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User
+from database import Channel, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User, _coerce_array
 
 try:
     import exportbackup  # type: ignore
@@ -292,6 +292,7 @@ FAST_CATCHER_THRESHOLD = config.tuning["fast_catcher_threshold_seconds"]
 SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
 PACK_DROP_CHANCE_ON_CATCH = config.tuning["pack_drop_chance_on_catch"]
 PACK_TIER_WEIGHTS = config.tuning["pack_tier_weights"]
+STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
 
 # Data-driven achievement trigger engine. Reads `trigger` blocks from
 # ach_list and fires them on matching events. Hardcoded `achemb()` call
@@ -482,6 +483,115 @@ async def get_stock_price(ticker: str) -> int:
             stock_price = 40
         temp_stock_prices[ticker] = stock_price
     return stock_price
+
+
+async def _fair_price_metric(ticker: str) -> float:
+    """Per-ticker in-game activity signal. Each branch returns a non-negative
+    float; zero is fine (the smoothing +eps in _compute_fair_price guards
+    against division blow-up). Hardcoded dispatch on purpose — the SQL for
+    each ticker is different and there's no benefit to making it configurable."""
+    if ticker == "PRSM":
+        return float(await Prism.count() or 0)
+    if ticker == "CTNP":
+        return float(await Profile.count("catnip_active > $1", time.time()) or 0)
+    if ticker == "PASS":
+        return float(await pool.fetchval('SELECT AVG(battlepass) FROM profile WHERE battlepass > 0') or 0)
+    if ticker == "ACHS":
+        return float(await pool.fetchval('SELECT AVG(jsonb_array_length(unlocked_aches)) FROM profile WHERE jsonb_array_length(unlocked_aches) > 0') or 0)
+    if ticker == "RAIN":
+        return float(await User.sum("rain_minutes_bought") or 0)
+    return 0.0
+
+
+async def _compute_fair_price(ticker: str) -> int:
+    """Power-law smoothed price from an in-game activity metric. Clamped to
+    [floor, ceiling] from config. Always returns a positive int >= 1."""
+    cfg = STOCK_MARKET.get("tickers", {}).get(ticker)
+    if not cfg:
+        return 40
+    base = cfg.get("base", 40)
+    baseline = cfg.get("baseline", 1)
+    alpha = cfg.get("alpha", 0.5)
+    eps = STOCK_MARKET.get("metric_eps", 1.0)
+    floor = STOCK_MARKET.get("price_floor", 1)
+    ceiling = STOCK_MARKET.get("price_ceiling", 1000)
+    metric = await _fair_price_metric(ticker)
+    fair = base * ((metric + eps) / (baseline + eps)) ** alpha
+    fair = max(floor, min(ceiling, round(fair)))
+    return max(1, int(fair))
+
+
+# ---------------------------------------------------------------------------
+# Cat Store helpers
+# ---------------------------------------------------------------------------
+# A cat's "value" is the same scaling that /trade and /gift use: total weight
+# of all rarities divided by this rarity's weight. Rarer cats = bigger number.
+# Sum is cached at module load — type_dict doesn't change at runtime.
+_TYPE_DICT_VALUE_SUM = sum(type_dict.values())
+
+
+def cat_value(cat_type: str) -> int:
+    """Value of one cat of the given rarity, in coins. Matches the formula used
+    by /trade and /gift so the store doesn't introduce a new pricing scale."""
+    weight = type_dict.get(cat_type)
+    if not weight:
+        return 0
+    return _TYPE_DICT_VALUE_SUM // weight
+
+
+def store_discount_pct(catnip_level: int) -> int:
+    """Cat Mafia store discount for the given catnip level. Negative numbers
+    are a tax (Newbie/Lurker get charged extra), positive numbers are a real
+    discount (Boss+ saves on every purchase). Defaults to 0 if a level entry
+    is missing the key (e.g. someone retiring a level without updating the
+    store_discount config — better to charge face value than crash)."""
+    try:
+        level_data = catnip_list["levels"][catnip_level]
+    except (IndexError, KeyError):
+        return 0
+    return int(level_data.get("store_discount", 0))
+
+
+def store_buy_price(cat_type: str, catnip_level: int) -> int:
+    """Coins to buy one cat. Discount applies multiplicatively then ceils so a
+    1-coin floor: ceil(value * (1 - discount/100)). Sell price is intentionally
+    NOT routed through here — sell is always at face value (see store_sell_price)."""
+    value = cat_value(cat_type)
+    discount = store_discount_pct(catnip_level)
+    price = math.ceil(value * (1 - discount / 100))
+    return max(1, int(price))
+
+
+def store_sell_price(cat_type: str) -> int:
+    """Coins received per cat sold. Always face value — discounts are
+    asymmetric on purpose so high-mafia players don't farm the sell side."""
+    return cat_value(cat_type)
+
+
+async def mark_discovered(profile: Profile, cat_type: str) -> None:
+    """Record that this player has owned at least one cat of this rarity in
+    this server. Idempotent — safe to call from every cat-acquisition site.
+    Lifetime per (user, server); selling all of a rarity does NOT undiscover."""
+    if not cat_type or cat_type not in type_dict:
+        return
+    discovered = _coerce_array(profile.discovered_cats)
+    if cat_type in discovered:
+        return
+    profile.discovered_cats = discovered + [cat_type]
+    await profile.save()
+
+
+async def mark_store_purchased(profile: Profile, cat_type: str) -> None:
+    """Record that this player has bought at least one cat of this rarity
+    from the store. Backs the catstore_collector achievement (len(set(...))
+    == len(type_dict)). Idempotent."""
+    if not cat_type or cat_type not in type_dict:
+        return
+    purchased = _coerce_array(profile.store_purchased_rarities)
+    if cat_type in purchased:
+        return
+    profile.store_purchased_rarities = purchased + [cat_type]
+    await profile.save()
 
 
 async def check_channel_setupped(guild: Server, channel: discord.TextChannel) -> bool:
@@ -947,6 +1057,8 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
         bonus_pack_name, _ = grant_bonus_pack(user)
         await user.save()
+        if active_level_data["reward"] in cattypes:
+            await mark_discovered(user, active_level_data["reward"])
 
         if active_level_data["reward"] == "Rain":
             description = f"You got ☔ {active_level_data['amount']} rain minutes!"
@@ -1151,6 +1263,10 @@ async def generate_quest(user: Profile, quest_type: str):
         if quest in ["slots", "reminder", "plush"]:
             # removed quests
             continue
+        elif quest == "define" and not config.WORDNIK_API_KEY:
+            # /define is conditionally registered on WORDNIK_API_KEY; without
+            # the key the command doesn't exist, so the quest is unwinnable.
+            continue
         elif quest == "catnip_session" and user.catnip_level <= 0:
             # catnip quest only makes sense if the user has unlocked catnip
             continue
@@ -1250,6 +1366,14 @@ async def refresh_quests(user):
         user.catch_cooldown = 1
         user.catch_reward = 0
     if user.misc_quest and user.misc_quest not in config.battle["quests"]["misc"]:
+        user.misc_quest = ""
+        user.misc_progress = 0
+        user.misc_cooldown = 1
+        user.misc_reward = 0
+    # Evict `define` if the operator never set WORDNIK_API_KEY; the command
+    # isn't registered in that case so the quest can never progress. Treat
+    # like a retired quest: zero progress + cooldown=1 forces a re-roll.
+    if user.misc_quest == "define" and not config.WORDNIK_API_KEY:
         user.misc_quest = ""
         user.misc_progress = 0
         user.misc_cooldown = 1
@@ -1400,6 +1524,8 @@ async def progress(
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
             bonus_pack_name, _ = grant_bonus_pack(user)
             await user.save()
+            if active_level_data["reward"] in cattypes:
+                await mark_discovered(user, active_level_data["reward"])
 
             if not cat_emojis:
                 if active_level_data["reward"] == "Rain":
@@ -1859,6 +1985,13 @@ async def background_loop():
             stock.active = True
             await stock.save()
 
+    # stock market maker tick — keeps the order book liquid on a small instance
+    # by maintaining bot-owned bid/ask orders at the activity-derived fair price.
+    try:
+        await _run_stock_market_maker()
+    except Exception:
+        logging.exception("stock market maker tick failed")
+
     # cancel old orders
     async for order in Order.filter("time > 0 AND time < $1", time.time() - 3600 * 24 * 7):
         profile = await Profile.get_or_none(id=order.user_id)
@@ -2170,6 +2303,91 @@ async def _init_stock_orders():
                 )
     except Exception:
         logging.exception("initial stock orders setup failed")
+
+
+async def _run_stock_market_maker() -> None:
+    """Background-loop tick that maintains a bot-owned bid/ask spread at the
+    fair price for each ticker. Without this, a small instance has no
+    liquidity and prices never move off the initial 40. The standing legacy
+    10k-share sell at price 40 from _init_stock_orders gets cancelled on the
+    first tick (its shares are returned to the bot's inventory) and replaced
+    with fresh fair-price-anchored orders each cycle.
+
+    Identified as MM orders by `user_id=<bot profile> AND time=0`. The 7-day
+    cleanup sweep (`Order.filter("time > 0 AND ...")`) skips them by design.
+    """
+    if not STOCK_MARKET.get("enabled"):
+        return
+
+    spread = STOCK_MARKET.get("spread", 0.05)
+    mm_qty = STOCK_MARKET.get("mm_order_quantity", 100)
+    floor = STOCK_MARKET.get("price_floor", 1)
+    ceiling = STOCK_MARKET.get("price_ceiling", 1000)
+
+    bot_profile = await Profile.get_or_create(user_id=bot.user.id, guild_id=0)
+
+    for stock in stock_data:
+        ticker = stock["ticker"]
+        try:
+            # Cancel existing MM orders for this ticker and refund whatever
+            # they were holding back into the bot's inventory. Refetch each
+            # order before deleting to detect races with resolve_orders.
+            existing = await Order.collect(
+                "user_id = $1 AND time = 0 AND ticker = $2",
+                bot_profile.id,
+                ticker,
+            )
+            for mm_order in existing:
+                live = await Order.get_or_none(id=mm_order.id)
+                if not live:
+                    continue
+                if live.type_buy:
+                    bot_profile.coins += live.quantity * live.price
+                else:
+                    bot_profile[f"stock_{ticker.lower()}"] += live.quantity
+                await live.delete()
+            await bot_profile.save()
+
+            fair = await _compute_fair_price(ticker)
+            bid = max(floor, round(fair * (1 - spread)))
+            ask = min(ceiling, round(fair * (1 + spread)))
+            if bid >= ask:
+                ask = bid + 1  # never let the bot self-cross
+
+            # Sell side: only post what we actually have.
+            ask_qty = min(mm_qty, bot_profile[f"stock_{ticker.lower()}"])
+            if ask_qty > 0:
+                bot_profile[f"stock_{ticker.lower()}"] -= ask_qty
+                await Order.create(
+                    user_id=bot_profile.id,
+                    time=0,
+                    ticker=ticker,
+                    type_buy=False,
+                    quantity=ask_qty,
+                    price=ask,
+                )
+
+            # Buy side: only post what we can afford.
+            bid_cost = mm_qty * bid
+            bid_qty = mm_qty if bot_profile.coins >= bid_cost else bot_profile.coins // bid
+            if bid_qty > 0:
+                bot_profile.coins -= bid_qty * bid
+                await Order.create(
+                    user_id=bot_profile.id,
+                    time=0,
+                    ticker=ticker,
+                    type_buy=True,
+                    quantity=bid_qty,
+                    price=bid,
+                )
+            await bot_profile.save()
+
+            # Record fair price so charts have data even without user trades.
+            await PriceHistory.create(ticker=ticker, price=fair, time=int(time.time()))
+            temp_stock_prices[ticker] = fair
+            logging.debug("stock MM tick: %s fair=%d bid=%d ask=%d", ticker, fair, bid, ask)
+        except Exception:
+            logging.exception("stock MM tick failed for %s", ticker)
 
 
 # this is all the code which is ran on every message sent
@@ -3017,6 +3235,8 @@ async def on_message(message: discord.Message):
 
                 user[f"cat_{le_emoji}"] += silly_amount
                 new_count = user[f"cat_{le_emoji}"]
+                if silly_amount > 0:
+                    await mark_discovered(user, le_emoji)
 
                 async def delete_cat():
                     try:
@@ -5378,6 +5598,9 @@ async def packs(message: discord.Interaction):
         for cat_type, cat_amount in results_percat.items():
             user[f"cat_{cat_type}"] += cat_amount
         await user.save()
+        for cat_type, cat_amount in results_percat.items():
+            if cat_amount > 0:
+                await mark_discovered(user, cat_type)
 
         final_header = f"Opened {opened_so_far:,} packs!"
         pack_list = "**" + ", ".join(results_header) + "**"
@@ -5603,6 +5826,8 @@ async def packs(message: discord.Interaction):
         user.packs_opened += 1
         user[f"pack_{pack.lower()}"] -= 1
         await user.save()
+        if cat_amount > 0 and chosen_type in cattypes:
+            await mark_discovered(user, chosen_type)
 
         logging.debug("Opened pack %s", pack)
 
@@ -6540,6 +6765,425 @@ Select any stock and click `💡 Help` to learn more, or click `Deposit` to star
         await message.followup.send(text, ephemeral=True)
 
 
+@bot.tree.command(description="buy and sell cats with the cat mafia")
+async def catstore(message: discord.Interaction):
+    """Cat Store — the late-game coin sink. Players spend coins on cats they've
+    personally discovered, gated by catnip-level discount. Sells are always at
+    face value (cat_value), so the discount is buy-side only."""
+
+    # ----- per-invocation state (closure-scoped) -----
+    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+    current_page = 0
+    current_cat: Optional[str] = None  # None = on main page, else on detail page
+    last_toast: Optional[str] = None  # one-line "✅ Bought ..." banner, cleared on navigation
+    PAGE_SIZE = 6
+
+    def _container_color(discount: int) -> int:
+        if discount >= 5:
+            return Colors.green
+        if discount <= -5:
+            return Colors.red
+        return Colors.brown
+
+    def _signed_pct(discount: int) -> str:
+        if discount > 0:
+            return f"+{discount}%"
+        if discount < 0:
+            # Unicode minus sign (U+2212) reads better than ASCII hyphen here.
+            return f"−{abs(discount)}%"
+        return "0%"
+
+    def _rank_name(level: int) -> str:
+        try:
+            return catnip_list["levels"][level]["name"]
+        except (IndexError, KeyError):
+            return "?"
+
+    def _discovered_list(p: Profile) -> list[str]:
+        # Iterate type_dict so the ordering is "most common first" — matches the
+        # spec and feels natural to browse.
+        owned = set(_coerce_array(p.discovered_cats))
+        return [t for t in cattypes if t in owned]
+
+    async def show_help(interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "**🛒 Cat Store — quick guide**\n"
+            "- Cats cost coins. Their value comes from how rare they are.\n"
+            "- Your Cat Mafia level changes the price. Levels 5–10 give you a discount, levels 0–3 charge a tax, level 4 is even.\n"
+            "- You can only buy or sell cats you've personally discovered in this server. Catch one to discover it.\n"
+            "- Sell prices are always at face value — the mafia only affects buying.",
+            ephemeral=True,
+        )
+
+    # ----- buy/sell modals -----
+    class BuyModal(Modal):
+        def __init__(self, cat_type: str, max_affordable: int):
+            super().__init__(title=f"Buy {cat_type} cats", timeout=VIEW_TIMEOUT)
+            self.cat_type = cat_type
+            self.input = TextInput(
+                min_length=1,
+                max_length=6,
+                label=f"How many? (max {max_affordable:,})",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder="1",
+            )
+            self.add_item(self.input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            nonlocal last_toast
+            try:
+                qty = int(self.input.value)
+                if qty <= 0:
+                    raise ValueError
+            except Exception:
+                await interaction.response.send_message("invalid quantity", ephemeral=True)
+                return
+
+            await interaction.response.defer()
+            async with transaction() as conn:
+                fresh = await Profile.get_or_create(conn, user_id=message.user.id, guild_id=message.guild.id)
+                if self.cat_type not in _coerce_array(fresh.discovered_cats):
+                    await interaction.followup.send("you haven't discovered that cat in this server", ephemeral=True)
+                    return
+                unit_price = store_buy_price(self.cat_type, fresh.catnip_level)
+                unit_value = cat_value(self.cat_type)
+                total_cost = unit_price * qty
+                if fresh.coins < total_cost:
+                    await interaction.followup.send(
+                        f"not enough coins — need 🪙 {total_cost:,}, have 🪙 {fresh.coins:,}",
+                        ephemeral=True,
+                    )
+                    return
+                fresh.coins -= total_cost
+                fresh[f"cat_{self.cat_type}"] += qty
+                # discovered_cats is already set (gate above), but mark_discovered
+                # is idempotent and also handles the case where someone hand-edits
+                # the JSONB array.
+                discovered = _coerce_array(fresh.discovered_cats)
+                if self.cat_type not in discovered:
+                    fresh.discovered_cats = discovered + [self.cat_type]
+                purchased = _coerce_array(fresh.store_purchased_rarities)
+                if self.cat_type not in purchased:
+                    fresh.store_purchased_rarities = purchased + [self.cat_type]
+                await fresh.save()
+                # rebind closure profile so the re-render reflects the new state
+                nonlocal profile
+                profile = fresh
+
+            # Build the toast.
+            savings = unit_value - unit_price
+            if savings > 0:
+                last_toast = f"✅ Bought {qty}× {self.cat_type} for 🪙 {total_cost:,} (saved 🪙 {savings * qty:,})"
+            elif savings < 0:
+                last_toast = f"✅ Bought {qty}× {self.cat_type} for 🪙 {total_cost:,} (paid 🪙 {-savings * qty:,} tax)"
+            else:
+                last_toast = f"✅ Bought {qty}× {self.cat_type} for 🪙 {total_cost:,}"
+
+            # Achievements (fire after transaction commits).
+            if not profile.has_ach("catstore_first_buy"):
+                await achemb(interaction, "catstore_first_buy", "followup")
+            if total_cost >= 10000 and not profile.has_ach("catstore_whale"):
+                await achemb(interaction, "catstore_whale", "followup")
+            if store_discount_pct(profile.catnip_level) >= 30 and not profile.has_ach("mafia_discount_max"):
+                await achemb(interaction, "mafia_discount_max", "followup")
+            if profile.catnip_level == 0 and not profile.has_ach("mafia_tax_payer"):
+                await achemb(interaction, "mafia_tax_payer", "followup")
+            if (
+                len(set(_coerce_array(profile.store_purchased_rarities))) == len(type_dict)
+                and not profile.has_ach("catstore_collector")
+            ):
+                await achemb(interaction, "catstore_collector", "followup")
+
+            await gen_detail(interaction, self.cat_type, use_followup=False)
+
+    class SellModal(Modal):
+        def __init__(self, cat_type: str, max_owned: int):
+            super().__init__(title=f"Sell {cat_type} cats", timeout=VIEW_TIMEOUT)
+            self.cat_type = cat_type
+            self.input = TextInput(
+                min_length=1,
+                max_length=6,
+                label=f"How many? (max {max_owned:,})",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder="1",
+            )
+            self.add_item(self.input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            nonlocal last_toast
+            try:
+                qty = int(self.input.value)
+                if qty <= 0:
+                    raise ValueError
+            except Exception:
+                await interaction.response.send_message("invalid quantity", ephemeral=True)
+                return
+
+            await interaction.response.defer()
+            async with transaction() as conn:
+                fresh = await Profile.get_or_create(conn, user_id=message.user.id, guild_id=message.guild.id)
+                if self.cat_type not in _coerce_array(fresh.discovered_cats):
+                    await interaction.followup.send("you haven't discovered that cat in this server", ephemeral=True)
+                    return
+                owned = fresh[f"cat_{self.cat_type}"]
+                if owned < qty:
+                    await interaction.followup.send(
+                        f"you only own {owned:,} {self.cat_type} cats in this server", ephemeral=True
+                    )
+                    return
+                unit_price = store_sell_price(self.cat_type)
+                total = unit_price * qty
+                fresh[f"cat_{self.cat_type}"] -= qty
+                fresh.coins += total
+                await fresh.save()
+                nonlocal profile
+                profile = fresh
+
+            last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,}"
+            await gen_detail(interaction, self.cat_type, use_followup=False)
+
+    # ----- callbacks wired to buttons -----
+    async def on_view(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal current_cat, last_toast
+        last_toast = None
+        current_cat = interaction.data["custom_id"].removeprefix("view_")
+        await interaction.response.defer()
+        await gen_detail(interaction, current_cat, use_followup=False)
+
+    async def on_back(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal current_cat, last_toast
+        last_toast = None
+        current_cat = None
+        await interaction.response.defer()
+        await gen_main(interaction, use_followup=False)
+
+    async def on_prev(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal current_page
+        current_page = max(0, current_page - 1)
+        await interaction.response.defer()
+        await gen_main(interaction, use_followup=False)
+
+    async def on_next(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal current_page
+        current_page += 1
+        await interaction.response.defer()
+        await gen_main(interaction, use_followup=False)
+
+    async def on_help(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        await show_help(interaction)
+
+    async def on_buy(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        if not current_cat:
+            return
+        await profile.refresh_from_db()
+        unit_price = store_buy_price(current_cat, profile.catnip_level)
+        max_affordable = profile.coins // unit_price if unit_price > 0 else 0
+        if max_affordable < 1:
+            await interaction.response.send_message(
+                f"you need 🪙 {unit_price - profile.coins:,} more coins to buy one {current_cat}",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(BuyModal(current_cat, max_affordable))
+
+    async def on_sell(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        if not current_cat:
+            return
+        await profile.refresh_from_db()
+        owned = profile[f"cat_{current_cat}"]
+        if owned < 1:
+            await interaction.response.send_message(
+                f"you don't have any {current_cat} cats to sell", ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(SellModal(current_cat, owned))
+
+    # ----- renderers -----
+    async def gen_main(interaction: discord.Interaction, use_followup: bool):
+        await profile.refresh_from_db()
+        discount = store_discount_pct(profile.catnip_level)
+        rank = _rank_name(profile.catnip_level)
+        discovered = _discovered_list(profile)
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## 🛒 Cat Store",
+            f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(discount)}",
+        ]
+        if last_toast:
+            items.append(last_toast)
+
+        if not discovered:
+            items.append(
+                "You haven't discovered any cats here yet! Catch one in this server first, then come back."
+            )
+            help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help")
+            help_btn.callback = on_help
+            items.append(ActionRow(help_btn))
+            container = Container(*items)
+            try:
+                container.accent_color = _container_color(discount)
+            except Exception:
+                pass
+            view.add_item(container)
+            if use_followup:
+                await interaction.followup.send(view=view, ephemeral=True)
+            else:
+                await interaction.edit_original_response(view=view)
+            return
+
+        # Pagination math.
+        total_pages = max(1, (len(discovered) + PAGE_SIZE - 1) // PAGE_SIZE)
+        nonlocal current_page
+        if current_page >= total_pages:
+            current_page = total_pages - 1
+        start = current_page * PAGE_SIZE
+        page_cats = discovered[start : start + PAGE_SIZE]
+
+        for cat_type in page_cats:
+            owned = profile[f"cat_{cat_type}"]
+            price = store_buy_price(cat_type, profile.catnip_level)
+            owned_line = f"Owned: {owned:,}" if owned > 0 else f"*Owned: 0*"
+            body = f"{owned_line}  ·  🪙 {price:,}"
+            btn = Button(label="View", style=ButtonStyle.blurple, custom_id=f"view_{cat_type}")
+            btn.callback = on_view
+            items.append(
+                Section(
+                    f"### {get_emoji(cat_type.lower() + 'cat')} {cat_type}",
+                    body,
+                    btn,
+                )
+            )
+
+        # Footer: pagination only when multi-page, plus Help always.
+        action_buttons: list = []
+        if total_pages > 1:
+            prev_btn = Button(label="← Prev", style=ButtonStyle.gray, custom_id="catstore_prev")
+            prev_btn.callback = on_prev
+            prev_btn.disabled = current_page == 0
+            next_btn = Button(label="Next →", style=ButtonStyle.gray, custom_id="catstore_next")
+            next_btn.callback = on_next
+            next_btn.disabled = current_page >= total_pages - 1
+            action_buttons.append(prev_btn)
+            action_buttons.append(next_btn)
+            items.append(f"-# Page {current_page + 1}/{total_pages}")
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help")
+        help_btn.callback = on_help
+        action_buttons.append(help_btn)
+        items.append(ActionRow(*action_buttons))
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def gen_detail(interaction: discord.Interaction, cat_type: str, use_followup: bool):
+        await profile.refresh_from_db()
+        discount = store_discount_pct(profile.catnip_level)
+        unit_value = cat_value(cat_type)
+        unit_buy = store_buy_price(cat_type, profile.catnip_level)
+        unit_sell = store_sell_price(cat_type)
+        owned = profile[f"cat_{cat_type}"]
+        coins = profile.coins
+        can_afford = coins // unit_buy if unit_buy > 0 else 0
+
+        if discount > 0:
+            savings_note = f"  (saving 🪙 {unit_value - unit_buy:,} at +{discount}%)"
+        elif discount < 0:
+            savings_note = f"  (adding 🪙 {unit_buy - unit_value:,} tax 💸)"
+        else:
+            savings_note = ""
+
+        body_lines = [
+            f"Buy:  🪙 {unit_buy:,}{savings_note}",
+            f"Sell: 🪙 {unit_sell:,}",
+            "",
+            f"You own: {owned:,} in this server",
+            f"You have: 🪙 {coins:,}  (can afford {can_afford:,})",
+        ]
+        body = "\n".join(body_lines)
+
+        thumb_url = (
+            f"https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/"
+            f"refs/heads/main/images/spawn/{cat_type.lower()}_cat.png"
+        )
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        section_items: list = [
+            Section(
+                f"### {get_emoji(cat_type.lower() + 'cat')} {cat_type} Cat",
+                body,
+                Thumbnail(thumb_url),
+            ),
+        ]
+        if last_toast:
+            section_items.append(last_toast)
+
+        # Buy / Sell buttons — disabled with a helpful label if unavailable.
+        buy_btn = Button(label="Buy", style=ButtonStyle.green, custom_id="catstore_buy")
+        if can_afford < 1:
+            buy_btn.disabled = True
+            buy_btn.label = f"Need 🪙 {unit_buy - coins:,} more"
+        buy_btn.callback = on_buy
+
+        sell_btn = Button(label="Sell", style=ButtonStyle.red, custom_id="catstore_sell")
+        if owned < 1:
+            sell_btn.disabled = True
+            sell_btn.label = "None to sell"
+        sell_btn.callback = on_sell
+
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back")
+        back_btn.callback = on_back
+
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help")
+        help_btn.callback = on_help
+
+        section_items.append(ActionRow(buy_btn, sell_btn, back_btn, help_btn))
+        container = Container(*section_items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    # ----- entry point -----
+    await message.response.defer(ephemeral=True)
+    await gen_main(message, use_followup=True)
+
+
 @bot.tree.command(description="cat prisms are a special power up")
 @discord.app_commands.describe(person="Person to view the prisms of")
 async def prism(message: discord.Interaction, person: Optional[discord.User]):
@@ -7110,6 +7754,9 @@ async def gift(
                 reciever.cat_gifts_recieved += amount
             await user.save()
             await reciever.save()
+            if key.startswith("cat_"):
+                # gift_type is the cat type (Fine/Nice/...) at this point.
+                await mark_discovered(reciever, gift_type)
         else:
             await message.response.send_message("no", ephemeral=True)
             return
@@ -7359,6 +8006,8 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
             # exchange
             cat_count = 0
+            user2_discovered_via_trade: list[str] = []
+            user1_discovered_via_trade: list[str] = []
             for k, v in person1gives.items():
                 if k in prism_names:
                     move_prism = await Prism.get_or_none(guild_id=message.guild.id, name=k)
@@ -7376,6 +8025,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                     cat_count += v
                     user1[f"cat_{k}"] -= v
                     user2[f"cat_{k}"] += v
+                    user2_discovered_via_trade.append(k)
                 else:
                     user1[f"pack_{k.lower()}"] -= v
                     user2[f"pack_{k.lower()}"] += v
@@ -7397,6 +8047,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                     cat_count += v
                     user1[f"cat_{k}"] += v
                     user2[f"cat_{k}"] -= v
+                    user1_discovered_via_trade.append(k)
                 else:
                     user1[f"pack_{k.lower()}"] += v
                     user2[f"pack_{k.lower()}"] -= v
@@ -7410,6 +8061,11 @@ async def trade(message: discord.Interaction, person_id: discord.User):
             await user2.save()
             await actual_user1.save()
             await actual_user2.save()
+
+            for k in user1_discovered_via_trade:
+                await mark_discovered(user1, k)
+            for k in user2_discovered_via_trade:
+                await mark_discovered(user2, k)
 
             try:
                 await interaction.edit_original_response(content="Trade finished!", view=None)
@@ -8207,7 +8863,7 @@ async def roulette(message: discord.Interaction):
 
             self.betamount = TextInput(
                 min_length=1,
-                label="bet amount (in cat dollars)",
+                label="bet amount (in coins)",
                 style=discord.TextStyle.short,
                 required=True,
                 placeholder="69",
@@ -8227,8 +8883,8 @@ async def roulette(message: discord.Interaction):
                 if bet_amount <= 0:
                     await interaction.response.send_message("bet amount must be greater than 0", ephemeral=True)
                     return
-                if bet_amount > max(user.roulette_balance, 100):
-                    await interaction.response.send_message(f"your max bet is {max(user.roulette_balance, 100)}", ephemeral=True)
+                if bet_amount > max(user.coins, 100):
+                    await interaction.response.send_message(f"your max bet is {max(user.coins, 100)}", ephemeral=True)
                     return
             except ValueError:
                 await interaction.response.send_message("invalid bet amount", ephemeral=True)
@@ -8284,19 +8940,19 @@ async def roulette(message: discord.Interaction):
             }
 
             final_choice = random.randint(0, 36)
-            user.roulette_balance -= bet_amount
+            user.coins -= bet_amount
             user.roulette_spins += 1
             win = False
             funny_win = False
             if str(final_choice) == self.bettype.value or colors[final_choice] == self.bettype.value.lower():
                 if self.bettype.value in [str(i) for i in range(37)] or self.bettype.value.lower() == "green":
-                    user.roulette_balance += bet_amount * 36
+                    user.coins += bet_amount * 36
                     funny_win = True
                 else:
-                    user.roulette_balance += bet_amount * 2
+                    user.coins += bet_amount * 2
                 user.roulette_wins += 1
                 win = True
-            user.roulette_balance = int(round(user.roulette_balance))
+            user.coins = int(round(user.coins))
             await user.save()
 
             for wait_time in [0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.375]:
@@ -8305,7 +8961,7 @@ async def roulette(message: discord.Interaction):
                 embed = discord.Embed(
                     color=Colors.maroon,
                     title="woo its spinnin",
-                    description=f"your bet is {int(self.betamount.value):,} cat dollars on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{choice}**",
+                    description=f"your bet is {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{choice}**",
                 )
                 await interaction.edit_original_response(embed=embed, view=None)
                 await asyncio.sleep(wait_time)
@@ -8313,13 +8969,13 @@ async def roulette(message: discord.Interaction):
             color = colors[final_choice]
 
             broke_suffix = ""
-            if user.roulette_balance <= 0:
-                broke_suffix = "\ndebt is allowed - you can still gamble up to **100** cat dollars"
+            if user.coins <= 0:
+                broke_suffix = "\ndebt is allowed - you can still gamble up to **100** coins"
 
             embed = discord.Embed(
                 color=Colors.maroon,
                 title="winner!!!" if win else "womp womp",
-                description=f"your bet was {int(self.betamount.value):,} cat dollars on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{final_choice}**\n\nyour new balance is **{user.roulette_balance:,}** cat dollars{broke_suffix}",
+                description=f"your bet was {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{final_choice}**\n\nyour new balance is **{user.coins:,}** coins{broke_suffix}",
             )
             view = View(timeout=VIEW_TIMEOUT)
             b = Button(label="spin", style=ButtonStyle.blurple)
@@ -8334,7 +8990,7 @@ async def roulette(message: discord.Interaction):
             await progress_casino_quest(message, user, "roulette")
             if funny_win:
                 await achemb(interaction, "roulette_prodigy", "followup")
-            if user.roulette_balance < 0:
+            if user.coins < 0:
                 await achemb(interaction, "failed_gambler", "followup")
 
     async def modal_select(interaction: discord.Interaction):
@@ -8345,13 +9001,13 @@ async def roulette(message: discord.Interaction):
         await interaction.response.send_modal(RouletteModel())
 
     broke_suffix = ""
-    if user.roulette_balance <= 0:
-        broke_suffix = "\n\ndebt is allowed - you can still gamble up to **100** cat dollars"
+    if user.coins <= 0:
+        broke_suffix = "\n\ndebt is allowed - you can still gamble up to **100** coins"
 
     embed = discord.Embed(
         color=Colors.maroon,
         title="hecking roulette table",
-        description=f"your balance is **{user.roulette_balance:,}** cat dollars{broke_suffix}",
+        description=f"your balance is **{user.coins:,}** coins{broke_suffix}",
     )
 
     view = View(timeout=VIEW_TIMEOUT)
@@ -8361,7 +9017,7 @@ async def roulette(message: discord.Interaction):
 
     await message.response.send_message(embed=embed, view=view)
 
-    if user.roulette_balance < 0:
+    if user.coins < 0:
         await achemb(message, "failed_gambler", "followup")
 
 
@@ -9994,7 +10650,7 @@ async def catch(message: discord.Interaction, msg: discord.Message):
 @discord.app_commands.autocomplete(cat_type=lb_type_autocomplete)
 async def leaderboards(
     message: discord.Interaction,
-    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Roulette Dollars", "Prisms"]],
+    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms"]],
     cat_type: Optional[str],
     locked: Optional[bool],
 ):
@@ -10097,12 +10753,15 @@ async def leaderboards(
                 ["user_id", "best_pig_score"], "guild_id = $1 AND best_pig_score > 0 ORDER BY best_pig_score DESC", message.guild.id
             )
             final_value = "best_pig_score"
-        elif type == "Roulette Dollars":
-            unit = "cat dollars"
+        elif type == "Coins":
+            unit = "coins"
+            # Anyone with a non-zero balance shows up — including debtors from
+            # gambling, since the previous "≤ 0 is still ranked" behavior is
+            # preserved for this category by the special-case below.
             result = await Profile.collect_limit(
-                ["user_id", "roulette_balance"], "guild_id = $1 AND roulette_balance != 100 ORDER BY roulette_balance DESC", message.guild.id
+                ["user_id", "coins"], "guild_id = $1 AND coins != 0 ORDER BY coins DESC", message.guild.id
             )
-            final_value = "roulette_balance"
+            final_value = "coins"
         elif type == "Prisms":
             unit = "prisms"
             result = await Prism.collect_limit(
@@ -10153,14 +10812,14 @@ async def leaderboards(
 
         # dont show placements if they arent defined
         if interactor and type != "Fast":
-            if interactor <= 0 and type != "Roulette Dollars":
+            if interactor <= 0 and type != "Coins":
                 interactor_placement = 0
             interactor = round(interactor)
         elif interactor and type == "Fast" and interactor >= 99999999999999:
             interactor_placement = 0
 
         if messager and type != "Fast":
-            if messager <= 0 and type != "Roulette Dollars":
+            if messager <= 0 and type != "Coins":
                 messager_placement = 0
             messager = round(messager)
         elif messager and type == "Fast" and messager >= 99999999999999:
@@ -10211,7 +10870,7 @@ async def leaderboards(
                         unit = "sec"
                 elif type in ["Cookies", "Cats", "Pig", "Prisms"] and num <= 0:
                     break
-                elif type == "Roulette Dollars" and num == 100:
+                elif type == "Coins" and num == 0:
                     break
                 string = string + f"{current}. {emoji} **{num:,}** {unit}: <@{i['user_id']}>\n"
 
@@ -10287,7 +10946,7 @@ async def leaderboards(
             "Cattlepass": "⬆️",
             "Cookies": "🍪",
             "Pig": "🎲",
-            "Roulette Dollars": "💰",
+            "Coins": "🪙",
             "Prisms": get_emoji("prism"),
         }
         options = [Option(label=k, emoji=v) for k, v in emojied_options.items()]

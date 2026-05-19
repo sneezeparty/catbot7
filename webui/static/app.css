@@ -790,6 +790,19 @@ input.numeric {
 .muted   { color: var(--paper-muted); }
 .danger  { color: var(--crimson); }
 
+/* tag-style pill used for JSONB list items in profile detail */
+.pill {
+  display: inline-block;
+  background: var(--ink-3);
+  color: var(--paper-soft);
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+  padding: 1px var(--sp-3);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  margin: 1px 2px;
+}
+
 code {
   font-family: var(--font-mono);
   font-size: 0.92em;

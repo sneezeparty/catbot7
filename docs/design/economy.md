@@ -49,17 +49,37 @@ Daily XP for an active player is on the order of **600–1500 XP**, against leve
 
 > **TODO(design):** there's no XP source for *opening* a pack yet. This was on the candidate list (idea #11) and was deliberately deferred — revisit if the pack drop rate from catches makes packs feel like a chore rather than a reward.
 
-## Currency: cat dollars, coins, rain minutes
+## Currency: coins and rain minutes
 
-These are *not* interchangeable on purpose:
+There are now two distinct currency pools:
 
-- **Cat dollars** are roulette-only. Bottoming out has its own ach (`failed_gambler`) and isolated recovery loop. Don't let cat dollars buy anything outside `/roulette`.
-- **Coins** are pack-economy (used by `/packs` flow). They're soft-capped by pack drop rate.
-
-> **STALE:** an earlier version of this line read "…and bakery", implying `/bakery` uses coins. In fact `/bakery` is a Bake.gg integration that costs cookies (`/cookie`), coffees (`/brew`), and Nice cats — not coins. The bakery mechanic is not covered by any design doc yet; the most relevant home would be a new section in economy.md or a standalone doc. A `> **STALE:** new mechanic` note follows.
+- **Coins** are the single shared wallet for `/roulette`, `/stocks`, `/packs`, and `/catstore`. New profiles start at **0 coins** (no default grant). The `failed_gambler` achievement still fires when coins go negative — only the underlying column changed, not the game mechanic. A player in debt can still bet up to 100 coins (`max(coins, 100)`) but cannot buy from `/stocks` or `/catstore` until they grind back to positive.
 - **Rain minutes** are channel-affecting (`/rain` triggers a multi-cat spawn event). They're gift-able and accumulate from battlepass + supporters.
 
-**Design intent:** the segregation prevents arbitrage. If someone could convert /roulette winnings into rain minutes, the casino would dominate. Each currency stays in its silo.
+**Design intent:** the coins-vs-rain-minutes segregation is preserved — if someone could convert /roulette winnings directly into rain minutes, the casino would dominate. Coins stay in the coins silo; rain minutes stay in the rain silo.
+
+### Historical note: the cat-dollars / coins merge (migration 006)
+
+The original upstream design (and this fork before migration 006) segregated two coin-like currencies:
+
+- **Cat dollars** (`profile.roulette_balance`) — roulette-only, default 100, isolated recovery loop.
+- **Coins** (`profile.coins`) — stocks / packs / catstore, no direct gambling use.
+
+The stated intent was to prevent arbitrage: winnings from `/roulette` could not be spent in `/packs` or `/catstore`, and a bankruptcy at the roulette table would not drain the pack economy.
+
+**Migration 006 merged these.** Reasons specific to this self-hosted fork:
+
+1. A small self-hosted instance (~20 profiles) has far fewer arbitrage concerns than the 200k-server public bot the segregation was designed for.
+2. Players preferred a unified wallet — tracking two separate "money" numbers was confusing with no visible benefit.
+3. The `roulette_balance` default of 100 meant every new profile had a free 100-coin head-start for gambling that didn't apply elsewhere; removing it levels the starting field.
+
+**The trade-off is intentional and accepted:** gambling losses now reduce a player's stock/store buying power, and roulette winnings can be spent anywhere. This is the direct consequence of merging, not an oversight.
+
+Existing `roulette_balance` values were summed into `coins` (not replaced), so no player lost earned currency. Negative balances (gambling debt) were also preserved additively. The `roulette_balance` column was then dropped from `profile`.
+
+### Coins leaderboard
+
+`/leaderboards type:Coins` (emoji 🪙) replaced the old "Roulette Dollars" leaderboard category. It ranks all profiles with a non-zero coins balance, ordered descending. The special-case that includes debtors (non-positive balances still appear; only the exact-zero score is suppressed) is preserved from the original "Roulette Dollars" implementation — gambling debt is real information and is worth ranking.
 
 ## Catnip as the late-game money sink
 
@@ -67,9 +87,38 @@ Catnip is the late-game money sink: cats go in, perks come out. See [catnip.md](
 
 ## Stocks
 
-A fake market with 5 tickers (PRSM, CTNP, PASS, ACHS, RAIN). Stocks are pure speculation — you buy in coin, sell back to coin. They are intentionally **not** correlated with anything real in the bot; the price is a random walk. Stocks exist for engagement, not progression.
+A fake market with 5 tickers (PRSM, CTNP, PASS, ACHS, RAIN). Stocks are pure speculation — you buy in coin, sell back to coin. Stocks exist for engagement, not progression.
 
-**Design intent:** the stock loop should not become the primary coin source. If it does, the random-walk variance is too generous and needs damping.
+### Activity-driven market maker
+
+On self-hosted instances with a small player base (~20 profiles), the original order-book design had no liquidity: prices sat at the 40-coin initial value forever because the legacy 10k-share upstream sell absorbed all buy demand before any fair-price ask could match.
+
+The fix is a **bot-owned market maker** (MM) that runs each background-loop tick (~every 5 min). Each tick it:
+
+1. Cancels its previous bid/ask for each ticker (refetching each order via `get_or_none` before deletion to detect races with `resolve_orders` — if an order is already gone a user trade consumed it, skip silently).
+2. Derives a **fair price** from an in-game activity signal specific to that ticker.
+3. Posts fresh bid/ask orders at `fair * (1 ± spread)`.
+4. Writes a new `PriceHistory` row at the fair price so charts always have data even with zero user trades.
+
+**Activity signals per ticker** (all queried at tick time):
+
+| Ticker | Metric |
+| ------ | ------ |
+| PRSM | `Prism.count()` — total prisms outstanding |
+| CTNP | `Profile.count("catnip_active > now")` — active catnip sessions |
+| PASS | `AVG(battlepass) WHERE battlepass > 0` — avg level among started battlepasses |
+| ACHS | `AVG(jsonb_array_length(unlocked_aches)) WHERE …` — avg achievements per active profile |
+| RAIN | `User.sum("rain_minutes_bought")` — cumulative rain minutes purchased |
+
+**Fair-price formula:** `clamp(base * ((metric + eps) / (baseline + eps)) ** alpha, floor, ceiling)`. The power-law (exponent `alpha`) keeps the price sublinear — doubling activity does not double price. `eps` prevents division blow-up when the metric is zero. All parameters are in `config/tuning.json["stock_market"]` and hot-reload on `cat!restart`.
+
+**MM order identity:** MM orders use `user_id=<bot profile> AND time=0`. User orders always have `time > 0`. The 7-day stale-order sweep (`Order.filter("time > 0 AND ...")`) skips MM orders by design — never broaden that filter.
+
+**Bot inventory as the MM capacity cap:** the sell side only posts what the bot currently holds; the buy side only posts what the bot can afford. Over time the bot accumulates coins from user buys and shares from user sells, which feeds back into MM capacity. No schema changes were required — the existing `order` and `pricehistory` tables already support it.
+
+**Legacy cleanup:** the first MM tick after deploy cancels the upstream-style `_init_stock_orders` order (10k shares @ 40, `time=0`) and returns the shares to the bot's inventory. Re-running is a no-op.
+
+**Design intent:** prices are now correlated with actual in-game activity, not a random walk. The goal is that a server where people actively use prisms, catnip, and the battlepass sees meaningfully different ticker prices than an empty server. The stock loop should still **not** become the primary coin source — if MM spread or order quantity are too generous, tighten `spread` and `mm_order_quantity` in `tuning.json` rather than changing the fair-price formula.
 
 ## Trades & gifts
 
@@ -84,6 +133,79 @@ When adding a new XP source, new pack tier, or new currency interaction, sanity-
 
 - **Daily XP ceiling:** even a degenerate player shouldn't break ~3000 XP/day. That's ~5 battlepass levels per day; the season-long curve assumes much less.
 - **Pack inflation:** total in-circulation packs should grow sub-linearly with catches. If a feature gives N packs per catch (vs the current ~0.01-ish), it's overpowered.
-- **Per-currency monopoly:** if a feature creates a new way to convert currency A → currency B, the segregation rule above is breaking. Either widen the segregation or pick a different reward.
+- **Per-currency monopoly:** if a feature creates a new way to convert coins into rain minutes (or vice versa), the surviving segregation rule is breaking. Either widen the segregation or pick a different reward. Note: coins↔roulette_balance arbitrage is no longer a concern — those two pools were merged in migration 006.
 
 > **STALE:** new mechanic `bakery` / `brew` / `cookie` (from `main.py`) is not represented in design docs. The `/bakery` command is a weekly Bake.gg integration: users accumulate cookies (via `/cookie`), coffees (via `/brew`), and Nice cats, then deliver a "bakery order" to receive a Silver Pack and a Bake.gg Cat Egg. The Cat Egg can be opened on Bake.gg for a Chef Pack back in Cat Bot (one per user per week). This introduces two new resource sinks (`cookies`, `coffees`) and an external partner economy loop that the segregation rules above don't currently account for.
+
+## Cat Store
+
+`/catstore` is the primary direct coin sink: players spend coins to buy specific cat rarities, or sell cats back for coins, without the randomness of packs.
+
+### Pricing model
+
+Each cat type has a **face value** derived from the same formula `/trade` and `/gift` have always used: `cat_value(type) = sum(type_dict.values()) // type_dict[type]`. The integer division (`//`) intentionally rounds down, keeping values consistent with trade valuation across the bot.
+
+- **Sell price** = face value, always. Selling is never modified by rank.
+- **Buy price** = `max(1, ceil(face_value * (1 - discount_pct / 100)))`. When `discount_pct` is negative (lower ranks), this is a surcharge — the buyer pays *more* than face value.
+
+The asymmetry is intentional: the discount only benefits buyers, never sellers. This prevents a high-mafia player from farming the sell side to extract a spread.
+
+### Catnip-level discount (store_discount)
+
+Each level entry in `config/catnip.json` carries a `store_discount` field (integer, percent). Negative values are a tax; positive values are a discount:
+
+| Level | Name | store_discount |
+| ----- | ---- | -------------- |
+| 0 | Newbie | -20% (tax) |
+| 1 | Lurker | -15% |
+| 2 | Associate | -10% |
+| 3 | Soldier | -5% |
+| 4 | Capo | 0% |
+| 5 | Consigliere | +5% |
+| 6 | Underboss | +10% |
+| 7 | Boss | +15% |
+| 8 | Godfather | +20% |
+| 9 | Kingpin | +25% |
+| 10 | El Patrón | +30% (cap) |
+| 11 | Most Wanted | +30% (cap, matches Lv10) |
+
+The cap at +30% is the `mafia_discount_max` achievement trigger. If the `store_discount` key is absent from a level entry, the code defaults to 0% rather than crashing.
+
+### Discovery gate
+
+A player can only buy or sell rarities listed in `profile.discovered_cats` — a JSONB array of rarity names that records every type the player has ever owned at least one of in that server. Discovery is **lifetime per (user, server)**; selling all cats of a rarity does not remove it from the catalog.
+
+The `mark_discovered(profile, cat_type)` helper is idempotent and is called from every cat-acquisition path:
+
+- The catch handler in `on_message`
+- Single pack open (`open_pack`) and multi-pack open (`process_pack_opening`)
+- Both battlepass level-up cat reward sites (in `grant_achievement_xp` and `progress()`)
+- Trade settlement (both participants)
+- Gift recipient side
+- The `/catstore` buy handler itself
+
+Existing users were backfilled from their `cat_<Type>` counters by migration 005.
+
+### Currency
+
+`/catstore` touches `profile.coins` only. Since migration 006 merged `roulette_balance` into `coins`, this means roulette winnings can now be spent in the store — that is an accepted consequence of the merge. The coins↔rain-minutes wall remains intact; the store does not interact with rain minutes.
+
+Before `/catstore`, coins had two main sinks: depositing into `/stocks` (volatile speculation) and spending via `/packs` (gacha lottery). Neither let a player target a specific rarity. `/catstore` is the intentional targeted coin sink the economy was missing.
+
+### Achievement integration
+
+Five achievements unlock inline in the buy handler via `achemb()` calls:
+
+| Achievement ID | Trigger |
+| -------------- | ------- |
+| `catstore_first_buy` | Any store purchase |
+| `catstore_whale` | Single transaction totalling ≥ 10,000 coins |
+| `catstore_collector` | `len(set(store_purchased_rarities)) == len(type_dict)` (one of every rarity bought) |
+| `mafia_discount_max` | Buying at ≥ +30% discount (Lv10+) |
+| `mafia_tax_payer` | Buying at Lv0 (Newbie, -20% tax) |
+
+`profile.store_purchased_rarities` (JSONB array) backs `catstore_collector`; duplicates are allowed and `set()` deduplication happens at check time.
+
+### Out of scope
+
+No cross-server store. No packs in the catalog. No custom cat support. The buy modal is the confirmation step (matching `/stocks` UX); there is no separate confirmation dialog. (The historical "no coins↔roulette_balance bridge" note is obsolete — `roulette_balance` no longer exists as a separate column; see the [currency merge history](#historical-note-the-cat-dollars--coins-merge-migration-006) above.)

@@ -78,6 +78,40 @@ def validate_tuning_weight_dict(section: str, hypothetical: dict) -> str | None:
     return None
 
 
+# ========================================================= stock_market =====
+
+_SM_SCALAR_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "spread":            (0.0,  1.0),   # fraction; 1.0 = 100% spread (nonsensical but not crashing)
+    "mm_order_quantity": (1,    None),  # at least 1 share per side
+    "price_floor":       (1,    None),  # must be at least 1 coin
+    "price_ceiling":     (1,    None),  # will be cross-checked against floor below
+    "metric_eps":        (0.0,  None),  # smoothing constant; 0 is technically ok (no divide if metric > 0)
+}
+
+
+def validate_stock_market_scalar(key: str, value: Any) -> str | None:
+    if isinstance(value, bool):
+        return None  # `enabled` is bool; no range check needed
+    lo, hi = _SM_SCALAR_BOUNDS.get(key, (None, None))
+    if not isinstance(value, (int, float)):
+        return None
+    if lo is not None and value < lo:
+        return f"stock_market.{key} must be >= {lo} (got {value})"
+    if hi is not None and value > hi:
+        return f"stock_market.{key} must be <= {hi} (got {value})"
+    return None
+
+
+def validate_stock_market_ticker(ticker: str, base: int, baseline: float, alpha: float) -> str | None:
+    if base < 1:
+        return f"{ticker}.base must be >= 1 (got {base})"
+    if baseline <= 0:
+        return f"{ticker}.baseline must be > 0 (got {baseline})"
+    if alpha <= 0:
+        return f"{ticker}.alpha must be > 0 (got {alpha})"
+    return None
+
+
 # =========================================================== battlepass =====
 
 def validate_battlepass_level(xp: int, amount: int, reward: str) -> str | None:
@@ -121,6 +155,7 @@ def validate_catnip_level(
     bonus: float,
     max_amount: int,
     weights: dict,
+    store_discount: int = 0,
 ) -> str | None:
     if duration < 1:
         return f"duration must be ≥ 1 (got {duration})"
@@ -137,4 +172,8 @@ def validate_catnip_level(
             return f"weight_{r} must be ≥ 0 (got {w})"
     if sum(weights.values()) <= 0:
         return "at least one rarity weight must be > 0 (otherwise the level can't roll a cat)"
+    # store_discount: negative = tax (Newbie pays more), positive = discount (high-level bonus)
+    # Hard-cap at ±50 to prevent free/negative-cost purchases crashing buy handler
+    if store_discount < -50 or store_discount > 50:
+        return f"store_discount must be between -50 and 50 (got {store_discount})"
     return None

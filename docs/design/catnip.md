@@ -23,6 +23,7 @@ Defined in `config/catnip.json` under `levels[<n>]`. Each level has:
 - `bonus`: a special bounty (e.g., catch a specific cat type)
 - `price`: cat type + amount required to advance
 - `perks`: list of allowed perk indices for the random-3 picker
+- `store_discount`: integer percent applied to `/catstore` buy prices for players at this rank. Negative values are a surcharge (Lv0 Newbie = -20%); positive values are a discount (Lv10 El Patrón = +30%). Sell prices are always face value regardless of rank. See the [Cat Store section of economy.md](economy.md#cat-store) for the full table and pricing formula.
 
 Perks themselves are defined separately under `perks` with rarity tiers (Common, Uncommon, Rare, Epic, Legendary) and effect values.
 

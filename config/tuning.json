@@ -49,5 +49,20 @@
     "Platinum": 2.7,
     "Diamond": 1,
     "Celestial": 0.3
+  },
+  "stock_market": {
+    "enabled": true,
+    "spread": 0.05,
+    "mm_order_quantity": 100,
+    "price_floor": 5,
+    "price_ceiling": 500,
+    "metric_eps": 1.0,
+    "tickers": {
+      "PRSM": {"base": 40, "baseline": 5,   "alpha": 0.5},
+      "CTNP": {"base": 40, "baseline": 3,   "alpha": 0.6},
+      "PASS": {"base": 40, "baseline": 10,  "alpha": 0.8},
+      "ACHS": {"base": 40, "baseline": 50,  "alpha": 0.5},
+      "RAIN": {"base": 40, "baseline": 200, "alpha": 0.4}
+    }
   }
 }

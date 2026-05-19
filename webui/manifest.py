@@ -24,19 +24,46 @@ SECTIONS: dict[str, dict] = {
     },
     "tuning": {
         "source": ["config/tuning.json"],
-        "schema": {"<key>": "scalar or dict", "pack_tier_weights": "dict[str, float]", "pack_drop_chance_on_catch": "float"},
+        "schema": {
+            "<key>": "scalar or dict",
+            "pack_tier_weights": "dict[str, float]",
+            "pack_drop_chance_on_catch": "float",
+            "stock_market": (
+                "dict — deeply nested, handled by dedicated routes; "
+                "top-level scalars: enabled(bool), spread(float), mm_order_quantity(int), "
+                "price_floor(int), price_ceiling(int), metric_eps(float); "
+                "tickers: dict[str, {base:int, baseline:float, alpha:float}]"
+            ),
+        },
         "routes": [
             "GET /tuning",
             "GET /tuning/scalar/{key}/edit",
             "POST /tuning/scalar/{key}",
             "GET /tuning/dict/{section}/{entry}/edit",
             "POST /tuning/dict/{section}/{entry}",
+            # stock_market structured sub-routes
+            "GET /tuning/stock_market/scalar/{key}/edit",
+            "GET /tuning/stock_market/scalar/{key}/cancel",
+            "POST /tuning/stock_market/scalar/{key}",
+            "GET /tuning/stock_market/tickers/{ticker}/edit",
+            "GET /tuning/stock_market/tickers/{ticker}/cancel",
+            "POST /tuning/stock_market/tickers/{ticker}",
         ],
-        "templates": ["tuning.html", "tuning_row.html", "tuning_dict_row.html"],
+        "templates": [
+            "tuning.html",
+            "tuning_row.html",
+            "tuning_dict_row.html",
+            "tuning_sm_scalar_row.html",
+            "tuning_sm_ticker_row.html",
+        ],
         "references": [
             # When type_dict changes, cattypes/cattype_lc_dict/allowedemojis
             # in main.py are derived at import time. Edits require a reload.
             ("type_dict", "main.cattypes/cattype_lc_dict/allowedemojis (regen on reload)"),
+            # stock_market.enabled gates _run_stock_market_maker() in background_loop.
+            # stock_market.tickers keys must match stock_data ticker list in main.py.
+            ("stock_market.enabled", "main.STOCK_MARKET — gates _run_stock_market_maker() in background_loop"),
+            ("stock_market.tickers", "main.stock_data ticker list — adding/removing tickers here has no effect unless main.py stock_data is also updated"),
         ],
     },
     "battlepass": {
@@ -64,18 +91,23 @@ SECTIONS: dict[str, dict] = {
         "source": ["config/catnip.json"],
         "schema": {
             "perks": "list[{id, name, desc, weight, values, exclusive}]  — 17 entries (index 10 timer_add retired weight=0, MUST NOT be removed)",
-            "levels": "list[{level, name, duration, cost, bounty_*, bonus, max_amount, weights}]",
+            "levels": "list[{level, name, duration, cost, bounty_*, bonus, max_amount, weights, store_discount}]  — store_discount: int [-50,+50]; negative=tax on /catstore buys, positive=discount",
             "quotes": "list[{level, name, quotes:{first, normal, levelup, leveldown}}]",
             "bounties": "list[{id, desc}]",
         },
         "routes": [
             "GET /catnip",
+            "GET /catnip/perk/{i}/edit",
+            "GET /catnip/perk/{i}/cancel",
             "POST /catnip/perk/{i}",
+            "GET /catnip/level/{i}/edit",
+            "GET /catnip/level/{i}/cancel",
             "POST /catnip/level/{i}",
         ],
         "templates": ["catnip.html", "catnip_perk_row.html", "catnip_level_row.html"],
         "references": [
             ("levels.<i>.level", "profile.catnip_level"),
+            ("levels.<i>.store_discount", "main.store_discount_pct() — applied to /catstore buy price; negative values levy a tax on low-rank players"),
             ("perks.<i>.id",      "profile.perk1/perk2/perk3/perk_selected"),
             # perks[14] combo "Snowballer" reads/writes profile.combo_stack
             ("perks[14].id=combo", "profile.combo_stack (reset-on-idle counter, see INT_FIELDS in profile_table.py)"),
@@ -113,6 +145,22 @@ SECTIONS: dict[str, dict] = {
             # challenge_quest/progress/cooldown/reward — 5th battlepass quest slot (challenge track); in STR_FIELDS/INT_FIELDS
             # reminder_challenge — challenge quest DM reminder flag; in INT_FIELDS
             # gift3_recipients — comma-separated user IDs who received gifts this quest cycle (gift3 challenge quest); in STR_FIELDS
+            # --- coins (unified wallet, 2026-05-19) ---
+            # profile.coins is the single in-game currency wallet.
+            # Migration 006 merged the now-removed profile.roulette_balance
+            # (bigint, DEFAULT 100) into profile.coins via SUM; roulette_balance
+            # no longer exists in schema or in any webui whitelist.
+            # /roulette reads and writes profile.coins. The /leaderboards
+            # "Roulette Dollars" category was renamed to "Coins".
+            # --- catstore columns (added 2026-05-19) ---
+            # discovered_cats — JSONB list of rarity names ever owned in this server; written by mark_discovered()
+            #   in main.py (every cat-acquisition path). View-only in webui (JSONB_FIELDS).
+            # store_purchased_rarities — JSONB list of rarity names ever bought from /catstore; written by
+            #   mark_store_purchased() in main.py. Backs catstore_collector achievement (profile must contain
+            #   all rarity names from type_dict). View-only in webui (JSONB_FIELDS).
+            ("profile.discovered_cats", "main.mark_discovered() — written on every cat acquisition; used by /catstore to show owned-vs-not UI"),
+            ("profile.store_purchased_rarities", "main.mark_store_purchased() + catstore_collector ach — must contain all type_dict keys for achievement to fire"),
+            ("profile.store_purchased_rarities", "config/aches.json:catstore_collector — award fires when len(set(store_purchased_rarities)) == len(type_dict)"),
         ],
     },
     "user_table": {
@@ -126,6 +174,26 @@ SECTIONS: dict[str, dict] = {
         "routes": ["GET /db/prism"],
         "templates": ["db_prism.html"],
         "references": [],
+    },
+    "order_table": {
+        "source": ["db:order"],
+        "schema": {
+            "id": "int PK",
+            "user_id": "bigint — profile.id (NOT the Discord snowflake); bot's profile has guild_id=0",
+            "time": "bigint unix ts — 0 means market-maker order (recreated each MM tick)",
+            "ticker": "varchar(10)",
+            "type_buy": "bool",
+            "quantity": "int",
+            "price": "int (coins)",
+        },
+        "routes": ["GET /db/order"],
+        "templates": ["db_order.html"],
+        "references": [
+            # MM orders: user_id = bot's profile id AND time = 0.
+            # Identified at runtime by querying profile WHERE guild_id=0.
+            # Deleting them is safe — next MM tick recreates them.
+            ("order.time=0", "market-maker orders — recreated by _run_stock_market_maker() every ~5 min"),
+        ],
     },
 }
 

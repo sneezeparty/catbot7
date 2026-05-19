@@ -1,0 +1,42 @@
+{% set row_id = "sm-ticker-" ~ ticker %}
+<tr id="{{ row_id }}" class="{% if editing %}editing{% endif %}">
+  <td><span class="name">{{ ticker }}</span></td>
+  {% if editing %}
+    {# Three editable numeric sub-fields submitted together in one POST. #}
+    <td colspan="3">
+      <form hx-post="/tuning/stock_market/tickers/{{ ticker }}" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+        <table class="inner-table">
+          {% for sk in sub_keys %}
+            <tr>
+              <td><span class="muted">{{ sub_labels[sk] }}</span></td>
+              <td>
+                <input class="numeric" name="{{ sk }}" value="{{ cfg[sk] }}" inputmode="decimal">
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      </form>
+    </td>
+    <td class="actions">
+      <button class="btn btn-primary" type="button"
+              hx-post="/tuning/stock_market/tickers/{{ ticker }}"
+              hx-include="closest tr form"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Save</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/tuning/stock_market/tickers/{{ ticker }}/cancel"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Cancel</button>
+    </td>
+  {% else %}
+    <td class="numeric">{{ cfg.base }}</td>
+    <td class="numeric">{{ cfg.baseline }}</td>
+    <td class="numeric">{{ cfg.alpha }}</td>
+    <td class="actions">
+      <button class="btn" type="button"
+              hx-get="/tuning/stock_market/tickers/{{ ticker }}/edit"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Edit</button>
+    </td>
+  {% endif %}
+</tr>

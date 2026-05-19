@@ -35,7 +35,32 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **Bait & Switch** catnip perk: each catch has a % chance to immediately respawn a cat in the same channel. Does not fire during a rain. Chance by tier: 1 / 1.5 / 2.5 / 5 / 8%.
   > _draft_
 
+### Added
+- **/catstore command** — buy and sell cats for coins, per-server. Purchase price is adjusted by your Cat Mafia (catnip) level: levels 0–3 apply a tax (−20% to −5%), level 4 is face value, levels 5–10 give a discount (+5% to +30%). Sell prices are always at face value regardless of catnip level.
+  > _draft_
+- **Discovery gate for /catstore** — a cat rarity is only available in a server's store once you've personally caught at least one of that rarity in that server. Discovery is lifetime: catching a Mythic once unlocks Mythics in that server's store forever. Existing players are backfilled from their current catch counters via migration 005.
+  > _draft_
+- **5 new achievements** added for /catstore activity:
+  - `catstore_first_buy` — "First Purrchase": complete your first store purchase • 250 XP
+  - `catstore_whale` — "Whale Watcher": spend 10 000+ coins in a single transaction • 400 XP
+  - `catstore_collector` (hidden) — "Compulsive Shopper": buy every rarity at least once • 500 XP
+  - `mafia_discount_max` (hidden) — "Made Man": buy at maximum Cat Mafia discount • 350 XP
+  - `mafia_tax_payer` (hidden) — "Sucker": buy as a Newbie (maximum tax) • 200 XP
+  > _draft_
+- **`store_discount` field on every catnip level** in `config/catnip.json` (range −20 to +30; hidden level 11 "Most Wanted" matches +30). The catnip editor in the webui surfaces this field automatically alongside existing level keys.
+  > _draft_
+
 ### Changed
+- **/roulette now uses `coins`**, the same wallet as /stocks, /packs, and /catstore. Migration 006 sums each player's existing `roulette_balance` into `coins` — nobody loses earned currency, and gambling debts are preserved as negative coin balances. The debt-recovery mechanic is unchanged: max bet is `max(coins, 100)` so a player in the red can still wager up to 100 coins.
+  > _draft_
+- **"Cat dollars" terminology retired from /roulette UI.** Bet modal label, win/loss embeds, balance description, and the broke-recovery message all now read "coins" with the 🪙 emoji.
+  > _draft_
+- **"Roulette Dollars" leaderboard category renamed to "Coins".** Debtors with non-positive balances are still ranked (gambling debt is meaningful game info). Coins is now a first-class leaderboard category alongside Cats, Cattlepass, Pig, etc.
+  > _draft_
+- **`profile.roulette_balance` column removed; the default 100-coin starting balance for new profiles is gone.** New profiles start at 0 coins and accumulate them by catching packs, depositing into /stocks, or winning roulette. Existing balances were merged into `coins` by migration 006 before the column was dropped.
+  > _draft_
+- **Stock prices now track in-game activity** instead of sitting at the default 40 indefinitely. A background tick (every 5 min, on the existing `MAIN_LOOP_INTERVAL` cadence) computes a fair price per ticker from live game state — PRSM from prisms outstanding, CTNP from active-catnip profiles, PASS from average battlepass level, ACHS from average unlocked achievements, RAIN from total rain minutes bought — then places bot-owned bid/ask orders at fair ± spread. `PriceHistory` receives a sample every tick so charts always have data. Buy/sell flow still moves prices normally via order matching. Legacy 10k-share startup order (price 40, time=0) is cancelled on the first MM tick and shares returned so it no longer absorbs all buy demand at the floor.
+  > _draft_
 - **`user.vote_streak` renamed to `user.daily_catch_streak`**; `user.max_vote_streak` renamed to `user.max_daily_streak`. Data copied 1:1 by migration 004; old columns dropped. The counter increments on the first catch of each UTC day and resets if a day is skipped — semantics unchanged, name now accurate.
   > _draft_
 - **"Voting Booster" catnip perk renamed to "Loyalty Streak"** (ID: `timer_add_streak` → `loyalty_streak`). Description updated to "Your daily catch streak (N) boosts catnip duration." Mechanic unchanged — still extends /catnip activation duration scaled to streak count.
@@ -86,6 +111,16 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **webui admin panel** user-table field whitelist (`webui/routes/user_table.py`) updated to expose `daily_catch_streak` and `max_daily_streak` in place of the dropped column names.
   > _draft_
 - `CLAUDE.md` and `config.py` comments updated: "vote_streak is repurposed" note removed; `VOTING_ENABLED` documented as the dormant on/off switch for `/vote` + top.gg webhook.
+  > _draft_
+- New profile columns `discovered_cats` and `store_purchased_rarities` (both JSONB, default `[]`). Mirrored in `schema.sql`; backfilled by `migrations/005_cat_store.py` (idempotent ADD COLUMN + per-rarity discovery backfill from existing `cat_<Type>` counters, batched 5 000 rows at a time).
+  > _draft_
+- New helpers in `main.py` (placed near `get_stock_price`): `cat_value`, `store_discount_pct`, `store_buy_price`, `store_sell_price`, `mark_discovered` (called from every cat acquisition site: catch, pack opens, battlepass level-up rewards, /gift recipient, /trade settlement), `mark_store_purchased` (backs the `catstore_collector` achievement). Store touches `profile.coins` only; `roulette_balance` is unaffected and no new currency type was added. _(Note: `roulette_balance` has since been merged into `coins` by migration 006 — see Changed section.)_
+  > _draft_
+- New `stock_market` block in `config/tuning.json`: operator-tunable enabled flag, spread, MM order quantity, price floor/ceiling, and per-ticker base/baseline/alpha. Hot-reloads on `cat!restart`.
+  > _draft_
+- New helpers in `main.py`: `_fair_price_metric(ticker)`, `_compute_fair_price(ticker)`, `_run_stock_market_maker()` — placed near `get_stock_price` and `_init_stock_orders`. MM orders identified by `user_id=<bot profile> AND time=0`; existing 7-day stale-order sweep already skips them.
+  > _draft_
+- **`failed_gambler` achievement trigger unchanged** by the wallet merge. The condition fires when `profile.coins` goes negative, same logic as before — only the column underneath it was renamed from `roulette_balance`. Migration 006: idempotent `UPDATE profile SET coins = coins + roulette_balance` → `ALTER TABLE profile DROP COLUMN roulette_balance`. Bot must be stopped to run.
   > _draft_
 
 ## Conventions

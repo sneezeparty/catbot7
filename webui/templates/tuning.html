@@ -38,5 +38,42 @@
       </tbody>
     </table>
   {% endfor %}
+
+  {# ---- Stock market structured section ---- #}
+  {% if stock_market %}
+    <h2 class="section">Stock market — MM settings</h2>
+    {% set body %}
+      Controls the automated market-maker. <strong>enabled</strong> is a kill switch — when false the MM tick is
+      a no-op and prices stay wherever they are. Changes apply on next <strong>Reload Bot</strong>.
+      MM orders in the order book are identified by <code>user_id = &lt;bot profile&gt;</code> and
+      <code>time = 0</code>; the next tick (~5 min) recreates them if manually deleted.
+    {% endset %}
+    {% include "partials/_help.html" %}
+
+    <table class="editor-table" id="sm-scalars">
+      <thead>
+        <tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in stock_market.scalars %}
+          {% include "tuning_sm_scalar_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2 class="section">Stock market — Tickers <span class="heading-count">{{ stock_market.tickers|length }}</span></h2>
+    <table class="editor-table" id="sm-tickers">
+      <thead>
+        <tr><th>Ticker</th><th>base</th><th>baseline</th><th>alpha</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for t in stock_market.tickers %}
+          {% set ticker = t.ticker %}
+          {% set cfg = t.cfg %}
+          {% include "tuning_sm_ticker_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
 </section>
 {% endblock %}

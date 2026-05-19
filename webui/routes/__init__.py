@@ -9,6 +9,7 @@ from webui.routes import (
     channel_table,
     commands,
     dashboard,
+    order_table,
     prism_table,
     profile_table,
     server_table,
@@ -28,4 +29,5 @@ def register(app: web.Application) -> None:
     profile_table.register(app)
     user_table.register(app)
     prism_table.register(app)
+    order_table.register(app)
     actions.register(app)

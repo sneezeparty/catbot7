@@ -10694,7 +10694,7 @@ async def catch(message: discord.Interaction, msg: discord.Message):
 @discord.app_commands.autocomplete(cat_type=lb_type_autocomplete)
 async def leaderboards(
     message: discord.Interaction,
-    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms"]],
+    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia"]],
     cat_type: Optional[str],
     locked: Optional[bool],
 ):
@@ -10815,6 +10815,14 @@ async def leaderboards(
                 add_primary_key=False,
             )
             final_value = "prism_count"
+        elif type == "Mafia":
+            # Cat Mafia (catnip) level — Newbies (level 0) are excluded since
+            # that's the default for anyone who's never touched /catnip.
+            unit = "Lv"
+            result = await Profile.collect_limit(
+                ["user_id", "catnip_level"], "guild_id = $1 AND catnip_level > 0 ORDER BY catnip_level DESC", message.guild.id
+            )
+            final_value = "catnip_level"
         else:
             # qhar
             raise ValueError("Invalid leaderboard type")
@@ -10992,6 +11000,7 @@ async def leaderboards(
             "Pig": "🎲",
             "Coins": "🪙",
             "Prisms": get_emoji("prism"),
+            "Mafia": get_emoji("catnip"),
         }
         options = [Option(label=k, emoji=v) for k, v in emojied_options.items()]
         lb_select = Select(

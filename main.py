@@ -287,6 +287,7 @@ BAKERY_COST_COOKIES = config.tuning["bakery_cost_cookies"]
 BAKERY_COST_COFFEES = config.tuning["bakery_cost_coffees"]
 BAKERY_COST_NICE = config.tuning["bakery_cost_nice_cats"]
 MAIN_LOOP_INTERVAL = config.tuning["main_loop_interval_seconds"]
+SPAWN_REVIVAL_INTERVAL = config.tuning.get("spawn_revival_interval_seconds", 60)
 ANTI_DOUBLE_CATCH_COOLDOWN = config.tuning["anti_double_catch_cooldown_seconds"]
 FAST_CATCHER_THRESHOLD = config.tuning["fast_catcher_threshold_seconds"]
 SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
@@ -1789,6 +1790,48 @@ def alnum(string):
     return "".join(item for item in string.lower() if item.isalnum())
 
 
+async def _revive_dead_spawns_tick() -> int:
+    """Scan for channels where the scheduled spawn time has passed but no
+    cat is alive, and respawn each one. Returns the number of channels
+    revived (for logging). Called from two places:
+
+    1. The on_message-driven `background_loop`, as defense-in-depth.
+    2. The standalone `_spawn_revival_loop` background task below, so empty
+       channels don't have their overdue spawns stuck waiting for a message.
+
+    `spawn_cat` is self-guarded against double-spawning, so duplicate calls
+    here and from a still-alive scheduled task race cleanly.
+    """
+    counter = 0
+    try:
+        async for channel in Channel.limit(["channel_id"], "yet_to_spawn < $1 AND cat = 0", time.time(), refetch=False):
+            counter += 1
+            await spawn_cat(str(channel.channel_id))
+            await asyncio.sleep(0.1)
+    except Exception:
+        logging.exception("spawn revival tick failed")
+    return counter
+
+
+async def _spawn_revival_loop():
+    """Background revival ticker. Unlike `background_loop`, this is NOT
+    on_message-driven — it runs on a fixed cadence so quiet channels (no
+    chatter, no /commands) still get their overdue spawns respawned.
+
+    Started once per process from `setup(bot2)`. Reload-safe via the
+    `config.spawn_revival_task` handle; `setup` cancels any prior task
+    before creating a new one to avoid duplicates after `cat!restart`.
+    """
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(SPAWN_REVIVAL_INTERVAL)
+            await _revive_dead_spawns_tick()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("spawn revival loop iteration failed")
+
+
 async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     try:
         channel = await Channel.get_or_none(channel_id=int(ch_id))
@@ -2041,12 +2084,10 @@ async def background_loop():
                     await resolve_orders(order)
             await profile.save()
 
-    # revive dead catch loops
-    counter = 0
-    async for channel in Channel.limit(["channel_id"], "yet_to_spawn < $1 AND cat = 0", time.time(), refetch=False):
-        counter += 1
-        await spawn_cat(str(channel.channel_id))
-        await asyncio.sleep(0.1)
+    # revive dead catch loops — defense in depth alongside _spawn_revival_loop.
+    # This runs whenever background_loop fires (i.e. on message activity);
+    # _spawn_revival_loop covers the quiet-channel case on a fixed cadence.
+    counter = await _revive_dead_spawns_tick()
     logging.debug("Channels revived: %d", counter)
 
     # THIS IS CONSENTUAL AND TURNED OFF BY DEFAULT DONT BAN ME
@@ -11497,6 +11538,14 @@ async def setup(bot2):
     bot = bot2
 
     config.SOFT_RESTART_TIME = time.time()
+
+    # Start (or restart) the background spawn-revival loop. We keep the
+    # task handle on `config` so it survives cat!restart; the new setup
+    # cancels the old loop before creating a fresh one to avoid duplicates.
+    old_task = getattr(config, "spawn_revival_task", None)
+    if old_task and not old_task.done():
+        old_task.cancel()
+    config.spawn_revival_task = bot.loop.create_task(_spawn_revival_loop())
 
     app_commands = await bot.tree.sync()
     for i in app_commands:

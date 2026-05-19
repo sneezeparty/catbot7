@@ -37,6 +37,7 @@
   "bakery_cost_coffees": 140,
   "bakery_cost_nice_cats": 2,
   "main_loop_interval_seconds": 300,
+  "spawn_revival_interval_seconds": 60,
   "anti_double_catch_cooldown_seconds": 300,
   "view_timeout_seconds": 86400,
   "pack_drop_chance_on_catch": 0.02,

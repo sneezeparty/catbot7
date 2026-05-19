@@ -60,7 +60,9 @@ When adding a new slash command in `main.py`, just use `@bot.tree.command(...)` 
 
 ### Background loop
 
-There is **no `tasks.loop`**. Maintenance runs in `background_loop()` and is kicked off from `on_message` whenever `time.time() > last_loop_time + 300`. So the loop only fires while messages are flowing. It updates presence (with /plush pledge count), posts top.gg metrics & command list, replays missed votes via cursor stored in `cursor.txt`, cleans `temp_belated_storage`, etc.
+Most maintenance is **on_message-driven**: `background_loop()` is kicked off from `on_message` whenever `time.time() > last_loop_time + 300`. It updates presence (with /plush pledge count), posts top.gg metrics & command list, replays missed votes via cursor stored in `cursor.txt`, cleans `temp_belated_storage`, etc. The loop only fires while messages are flowing.
+
+There is **one standalone background task**: `_spawn_revival_loop()` ticks every `SPAWN_REVIVAL_INTERVAL` seconds (default 60) and respawns cats in channels where `yet_to_spawn < now AND cat = 0`. This is the safety net for quiet channels — without it, a server with no chatter would have its overdue spawns stuck waiting for a message to wake `background_loop`. The task handle is kept on `config.spawn_revival_task` so it survives `cat!restart` (the new `setup` cancels the old task before starting a fresh one). The same `_revive_dead_spawns_tick` helper is also called from `background_loop` as defense in depth.
 
 ### Data layer (`catpg.py` + `database.py`)
 

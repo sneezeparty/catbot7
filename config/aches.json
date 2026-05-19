@@ -109,8 +109,14 @@
   "thanksforplaying": {"title": "Thanks For Playing", "description": "complete the story", "is_hidden": false, "category": "Cat Hunt", "xp": 500},
 
   "catstore_first_buy": {"title": "First Purrchase", "description": "buy a cat from the cat store", "is_hidden": false, "category": "Commands", "xp": 250},
+  "catstore_first_sell": {"title": "Profit Margin", "description": "sell a cat to the cat store for the first time", "is_hidden": false, "category": "Commands", "xp": 250},
   "catstore_whale": {"title": "Whale Watcher", "description": "spend 10000+ coins in a single cat store transaction", "is_hidden": false, "category": "Commands", "xp": 400},
   "catstore_collector": {"title": "Compulsive Shopper", "description": "buy at least one of every cat rarity from the store", "is_hidden": true, "category": "Hidden", "xp": 500},
   "mafia_discount_max": {"title": "Made Man", "description": "buy a cat at maximum mafia discount", "is_hidden": true, "category": "Hidden", "xp": 350},
-  "mafia_tax_payer": {"title": "Sucker", "description": "buy a cat as a Newbie (level 0)", "is_hidden": true, "category": "Hidden", "xp": 200}
+  "mafia_tax_payer": {"title": "Sucker", "description": "buy a cat as a Newbie (level 0)", "is_hidden": true, "category": "Hidden", "xp": 200},
+
+  "challenge_first": {"title": "Challenge Accepted", "description": "complete a battlepass challenge quest for the first time", "is_hidden": false, "category": "Commands", "xp": 350},
+  "bait_switch_proc": {"title": "Bait Master", "description": "trigger the Bait & Switch catnip perk", "is_hidden": true, "category": "Hidden", "xp": 200},
+  "snowballer_max": {"title": "Avalanche", "description": "reach a 30-stack on the Snowballer catnip perk", "is_hidden": true, "category": "Hidden", "xp": 400},
+  "bp_xp_proc": {"title": "Cram Session", "description": "trigger the Battlepass Booster catnip perk", "is_hidden": true, "category": "Hidden", "xp": 200}
 }

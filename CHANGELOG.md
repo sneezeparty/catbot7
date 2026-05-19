@@ -51,6 +51,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
   > _draft_
 
 ### Changed
+- **README rewritten** to document fork-specific gameplay divergence (unified coins wallet, /catstore, activity-driven stocks, reshuffled catnip perks, 5-quest battlepass, passive XP drips, pack-open polish) and to list every migration with what it does and when it's needed. The `voting_enabled` / `webhook_verify` env-var rows now make clear voting is permanently retired scaffolding.
+  > _draft_
 - **/roulette now uses `coins`**, the same wallet as /stocks, /packs, and /catstore. Migration 006 sums each player's existing `roulette_balance` into `coins` — nobody loses earned currency, and gambling debts are preserved as negative coin balances. The debt-recovery mechanic is unchanged: max bet is `max(coins, 100)` so a player in the red can still wager up to 100 coins.
   > _draft_
 - **"Cat dollars" terminology retired from /roulette UI.** Bet modal label, win/loss embeds, balance description, and the broke-recovery message all now read "coins" with the 🪙 emoji.

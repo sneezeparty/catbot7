@@ -1488,6 +1488,10 @@ async def progress(
             current_xp = user.progress + user.challenge_reward
             user.challenge_progress = 0
             user.reminder_challenge = 1
+            if not user.has_ach("challenge_first"):
+                # Fire the first-completion ach BEFORE the level-up flow so it
+                # lands inline with the other catch-context embeds.
+                await achemb(message, "challenge_first", "send")
     else:
         return user
 
@@ -2961,6 +2965,8 @@ async def on_message(message: discord.Message):
                         combo_chance = min(combo_per_stack * user.combo_stack, 100.0)
                         double_chance += combo_chance
                         single_chance -= combo_chance
+                        if user.combo_stack >= 30 and not user.has_ach("snowballer_max"):
+                            await achemb(message, "snowballer_max", "send")
 
                     # Battlepass Booster: % chance per catch of +5 XP nugget.
                     # grant_achievement_xp saves the user internally; if the proc
@@ -2973,12 +2979,16 @@ async def on_message(message: discord.Message):
                                 await message.channel.send(f"<@{user.user_id}>", embeds=bp_xp_embeds)
                             except Exception:
                                 logging.exception("bp_xp level-up embed send failed")
+                        if not user.has_ach("bp_xp_proc"):
+                            await achemb(message, "bp_xp_proc", "send")
 
                     # Bait & Switch: roll the chance now, fire the respawn after
                     # channel state has been persisted (see post-save hook below).
                     if respawn_chance > 0 and random.random() * 100 < respawn_chance and channel.cat_rains == 0:
                         do_respawn = True
                         suffix_string += f"\n{get_emoji('catnip')} Bait & Switch! Another cat appears..."
+                        if not user.has_ach("bait_switch_proc"):
+                            await achemb(message, "bait_switch_proc", "send")
 
                     if double_first > user.catnip_total_cats:
                         user.catnip_total_cats += 1
@@ -6942,6 +6952,8 @@ async def catstore(message: discord.Interaction):
                 profile = fresh
 
             last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,}"
+            if not profile.has_ach("catstore_first_sell"):
+                await achemb(interaction, "catstore_first_sell", "followup")
             await gen_detail(interaction, self.cat_type, use_followup=False)
 
     # ----- callbacks wired to buttons -----

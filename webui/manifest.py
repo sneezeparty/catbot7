@@ -202,7 +202,8 @@ SECTIONS: dict[str, dict] = {
             "tiers": "dict['1'..'5', {name, difficulty_range[lo,hi], reward_coin_range[lo,hi], heat, min_catnip_level}]",
             "npcs": (
                 "dict[key, {display_name, min_hire_level, tiers_offered[], hires_against[], "
-                "reward_mult, heat_mult, reward_bias, rep_unlock_at_100?, ally_protection_threshold?}]"
+                "reward_mult, heat_mult, reward_bias(read-only), rep_unlock_at_100?, "
+                "ally_protection_threshold?, reward_recipes: dict[tier, list[{weight,coins,cats,pack?}]]}]"
             ),
             "targets_only": "dict[key, {display_name, min_catnip_level, owns_egirl_vault?}]",
             "big_score": (
@@ -218,6 +219,15 @@ SECTIONS: dict[str, dict] = {
             ),
             "narrative_pools": "dict[npc_key, list[str]]",
             "narrative_pools_big_score": "list[str]",
+            "complications": (
+                "{base_chance_by_tier: dict[tier,float], heat_modifier: dict[low|watching|scrutiny,float], "
+                "rep_discount_per_point: float, rep_discount_cap: float, "
+                "sloppy_target_default_pack_tier_by_tier: dict[tier,pack_name]}"
+            ),
+            "complication_pools": "dict['1'..'5', list[{id,weight,phase,heat_bonus?,wall_fraction?,difficulty_mult?}]]",
+            "cat_voices": "dict[rarity, {success:list[str], near_miss:list[str], total_failure:list[str]}] — 22 rarities",
+            "complication_quips": "dict[event_id, dict[rarity, list[str]]] — subset of rarities per event",
+            "complication_flavor": "dict[event_id, list[str]] — rarity-agnostic narrative lines",
         },
         "routes": [
             "GET /jobs",
@@ -253,6 +263,30 @@ SECTIONS: dict[str, dict] = {
             "GET /jobs/narrative/{npc}/edit",
             "GET /jobs/narrative/{npc}/cancel",
             "POST /jobs/narrative/{npc}",
+            # complications scalars
+            "GET /jobs/complications/edit",
+            "GET /jobs/complications/cancel",
+            "POST /jobs/complications",
+            # complication pools
+            "GET /jobs/complication_pool/{tier}/edit",
+            "GET /jobs/complication_pool/{tier}/cancel",
+            "POST /jobs/complication_pool/{tier}",
+            # reward_recipes
+            "GET /jobs/npc/{npc}/recipe/{tier}/edit",
+            "GET /jobs/npc/{npc}/recipe/{tier}/cancel",
+            "POST /jobs/npc/{npc}/recipe/{tier}",
+            # cat_voices
+            "GET /jobs/voice/{rarity}/edit",
+            "GET /jobs/voice/{rarity}/cancel",
+            "POST /jobs/voice/{rarity}",
+            # complication_quips
+            "GET /jobs/quip/{event_id}/edit",
+            "GET /jobs/quip/{event_id}/cancel",
+            "POST /jobs/quip/{event_id}",
+            # complication_flavor
+            "GET /jobs/flavor/{event_id}/edit",
+            "GET /jobs/flavor/{event_id}/cancel",
+            "POST /jobs/flavor/{event_id}",
         ],
         "templates": [
             "jobs.html",
@@ -264,6 +298,12 @@ SECTIONS: dict[str, dict] = {
             "jobs_big_score_form.html",
             "jobs_rep_form.html",
             "jobs_narrative_row.html",
+            "jobs_complications_form.html",
+            "jobs_complication_pool_row.html",
+            "jobs_recipe_row.html",
+            "jobs_voice_row.html",
+            "jobs_quip_row.html",
+            "jobs_flavor_row.html",
         ],
         "references": [
             # NPC tiers_offered must reference keys in tiers — checked at save time (hard block)
@@ -281,6 +321,16 @@ SECTIONS: dict[str, dict] = {
             # profile columns holding job state — read-only in current webui scope
             ("profile.job_heat", "main._jobs_* helpers — written every job submission"),
             ("profile.job_rep_*", "main._jobs_faction_rep() — per-NPC rep stored as JSONB; not in webui edit whitelist"),
+            # complication_pools event ids cross-reference complication_flavor — soft warning
+            ("complication_pools[*][*].id", "complication_flavor keys — soft warning if event_id has no flavor entry"),
+            # complication_quips rarity keys should be known rarities — soft warning
+            ("complication_quips[event_id] keys", "send_power keys (cattypes) — soft warning if rarity unknown"),
+            # reward_recipes cats keys should be known rarities — soft warning
+            ("npcs.<key>.reward_recipes[*].cats keys", "send_power keys (cattypes) — soft warning if rarity unknown"),
+            # reward_recipes pack values must be valid pack tier names — validated on save
+            ("npcs.<key>.reward_recipes[*].pack", "validators.PACK_TIER_LIST — save blocked if unknown pack tier"),
+            # complications.sloppy_target pack tiers must be valid — validated on save
+            ("complications.sloppy_target_default_pack_tier_by_tier[*]", "validators.PACK_TIER_LIST — save blocked if unknown"),
         ],
     },
     "jobs_help": {

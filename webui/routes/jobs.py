@@ -50,6 +50,8 @@ def _referential_warnings(jobs: dict) -> list[str]:
     npc_keys = set(jobs.get("npcs", {}).keys())
     target_keys = set(jobs.get("targets_only", {}).keys())
     all_npc_like = npc_keys | target_keys | {"dynamic_higher_rank", "commoners"}
+    # known rarity names from send_power keys (same as cattypes)
+    known_rarities = set(jobs.get("send_power", {}).keys())
 
     for npc_key, npc in jobs.get("npcs", {}).items():
         for t in npc.get("tiers_offered", []):
@@ -58,6 +60,12 @@ def _referential_warnings(jobs: dict) -> list[str]:
         for h in npc.get("hires_against", []):
             if h not in all_npc_like:
                 warnings.append(f"NPC {npc_key}: hires_against contains {h!r} (not in npcs/targets_only/magic)")
+        # reward_recipes rarity keys should be known rarities
+        for tier_key, recipes in npc.get("reward_recipes", {}).items():
+            for recipe in recipes:
+                for rarity in recipe.get("cats", {}).keys():
+                    if known_rarities and rarity not in known_rarities:
+                        warnings.append(f"NPC {npc_key} reward_recipes[{tier_key}]: cat rarity {rarity!r} not in send_power keys")
 
     bs = jobs.get("big_score", {})
     if bs.get("patron_npc") and bs["patron_npc"] not in npc_keys:
@@ -65,12 +73,34 @@ def _referential_warnings(jobs: dict) -> list[str]:
     if bs.get("target_npc") and bs["target_npc"] not in (npc_keys | target_keys):
         warnings.append(f"big_score.target_npc={bs['target_npc']!r} not found in npcs/targets_only")
 
+    # complication_pools event ids should appear in complication_flavor
+    flavor_keys = set(jobs.get("complication_flavor", {}).keys())
+    for tier_key, entries in jobs.get("complication_pools", {}).items():
+        for entry in entries:
+            eid = entry.get("id", "")
+            if eid and flavor_keys and eid not in flavor_keys:
+                warnings.append(f"complication_pools[{tier_key}] event {eid!r} has no entry in complication_flavor")
+
+    # complication_quips rarity keys should be known rarities
+    for event_id, rarity_map in jobs.get("complication_quips", {}).items():
+        for rarity in rarity_map.keys():
+            if known_rarities and rarity not in known_rarities:
+                warnings.append(f"complication_quips[{event_id!r}]: rarity {rarity!r} not in send_power keys")
+
+    # complications.sloppy_target pack tiers should be valid
+    from webui.validators import PACK_TIER_LIST
+    sloppy = jobs.get("complications", {}).get("sloppy_target_default_pack_tier_by_tier", {})
+    for tier_key, pack_tier in sloppy.items():
+        if pack_tier and pack_tier not in PACK_TIER_LIST:
+            warnings.append(f"complications.sloppy_target_default_pack_tier_by_tier[{tier_key}]={pack_tier!r} is not a known pack tier")
+
     return warnings
 
 
 # ------------------------------------------------------------------ index  --
 
 async def index(request):
+    import json as _json
     jobs = state.get_jobs()
     warnings = _referential_warnings(jobs)
     # Build a flat list for the rep tier tables
@@ -78,6 +108,18 @@ async def index(request):
     rep = jobs.get("rep", {})
     tier_rep_gain = rep.get("tier_rep_gain", {})
     tier_rep_loss = rep.get("tier_rep_loss", {})
+    # Pre-render complication pool JSON strings for display
+    complication_pools_json = {
+        tk: _json.dumps(entries, indent=2)
+        for tk, entries in jobs.get("complication_pools", {}).items()
+    }
+    # Pre-render reward_recipes JSON per NPC per tier
+    npc_recipes_json = {}
+    for npc_key, npc in jobs.get("npcs", {}).items():
+        npc_recipes_json[npc_key] = {
+            tk: _json.dumps(entries, indent=2)
+            for tk, entries in npc.get("reward_recipes", {}).items()
+        }
     return aiohttp_jinja2.render_template(
         "jobs.html",
         request,
@@ -98,6 +140,13 @@ async def index(request):
             "tier_rep_loss": tier_rep_loss,
             "narrative_pools": jobs.get("narrative_pools", {}),
             "narrative_pools_big_score": jobs.get("narrative_pools_big_score", []),
+            "complications": jobs.get("complications", {}),
+            "complication_pools": jobs.get("complication_pools", {}),
+            "complication_pools_json": complication_pools_json,
+            "npc_recipes_json": npc_recipes_json,
+            "cat_voices": jobs.get("cat_voices", {}),
+            "complication_quips": jobs.get("complication_quips", {}),
+            "complication_flavor": jobs.get("complication_flavor", {}),
             "warnings": warnings,
         },
     )
@@ -685,6 +734,385 @@ async def save_narrative(request):
     )
 
 
+# --------------------------------------------------- complications routes ---
+
+async def edit_complications(request):
+    jobs = state.get_jobs()
+    return aiohttp_jinja2.render_template(
+        "jobs_complications_form.html",
+        request,
+        {"complications": jobs.get("complications", {}), "editing": True},
+    )
+
+
+async def cancel_complications(request):
+    jobs = state.get_jobs()
+    return aiohttp_jinja2.render_template(
+        "jobs_complications_form.html",
+        request,
+        {"complications": jobs.get("complications", {}), "editing": False},
+    )
+
+
+async def save_complications(request):
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    form = await request.post()
+    existing = dict(jobs.get("complications", {}))
+
+    # base_chance_by_tier — form fields: base_chance_<tier>
+    tier_keys = sorted(jobs.get("tiers", {}).keys(), key=lambda x: int(x))
+    new_base_chance = dict(existing.get("base_chance_by_tier", {}))
+    for tk in tier_keys:
+        raw = form.get(f"base_chance_{tk}")
+        if raw is not None:
+            try:
+                new_base_chance[tk] = float(raw)
+            except ValueError:
+                return web.Response(status=400, text=f"base_chance_by_tier[{tk}] must be a float")
+    existing["base_chance_by_tier"] = new_base_chance
+
+    # heat_modifier — form fields: heat_mod_<level>
+    new_heat_mod = dict(existing.get("heat_modifier", {}))
+    for level in ("low", "watching", "scrutiny"):
+        raw = form.get(f"heat_mod_{level}")
+        if raw is not None:
+            try:
+                new_heat_mod[level] = float(raw)
+            except ValueError:
+                return web.Response(status=400, text=f"heat_modifier.{level} must be a float")
+    existing["heat_modifier"] = new_heat_mod
+
+    # scalar floats
+    for field in ("rep_discount_per_point", "rep_discount_cap"):
+        raw = form.get(field)
+        if raw is not None:
+            try:
+                existing[field] = float(raw)
+            except ValueError:
+                return web.Response(status=400, text=f"complications.{field} must be a float")
+
+    # sloppy_target_default_pack_tier_by_tier — form fields: sloppy_pack_<tier>
+    new_sloppy = dict(existing.get("sloppy_target_default_pack_tier_by_tier", {}))
+    for tk in tier_keys:
+        raw = form.get(f"sloppy_pack_{tk}")
+        if raw is not None:
+            new_sloppy[tk] = raw.strip() or None
+            if new_sloppy[tk] is None:
+                new_sloppy.pop(tk, None)
+    existing["sloppy_target_default_pack_tier_by_tier"] = new_sloppy
+
+    if err := validators.validate_jobs_complications(existing):
+        return web.Response(status=400, text=err)
+
+    async with io_locks.lock_for(JOBS_PATH):
+        jobs["complications"] = existing
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_complications_form.html",
+        request,
+        {"complications": jobs["complications"], "editing": False, "just_saved": True},
+    )
+
+
+# --------------------------------------------------- complication pool routes
+
+async def edit_complication_pool(request):
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    pools = jobs.get("complication_pools", {})
+    if tier_key not in pools:
+        return web.Response(status=404)
+    import json as _json
+    entries = pools[tier_key]
+    return aiohttp_jinja2.render_template(
+        "jobs_complication_pool_row.html",
+        request,
+        {"tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": True},
+    )
+
+
+async def cancel_complication_pool(request):
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    pools = jobs.get("complication_pools", {})
+    if tier_key not in pools:
+        return web.Response(status=404)
+    import json as _json
+    entries = pools[tier_key]
+    return aiohttp_jinja2.render_template(
+        "jobs_complication_pool_row.html",
+        request,
+        {"tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": False},
+    )
+
+
+async def save_complication_pool(request):
+    import json as _json
+    tier_key = request.match_info["tier"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    pools = jobs.get("complication_pools", {})
+    if tier_key not in pools:
+        return web.Response(status=404)
+    form = await request.post()
+    raw = form.get("entries_json", "[]")
+    try:
+        entries = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        return web.Response(status=400, text=f"Invalid JSON: {exc}")
+    if not isinstance(entries, list):
+        return web.Response(status=400, text="complication_pools[tier] must be a JSON array")
+    for entry in entries:
+        if err := validators.validate_jobs_complication_pool_entry(entry):
+            return web.Response(status=400, text=err)
+    async with io_locks.lock_for(JOBS_PATH):
+        pools[tier_key] = entries
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_complication_pool_row.html",
+        request,
+        {"tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": False, "just_saved": True},
+    )
+
+
+# --------------------------------------------------- reward_recipes routes --
+
+async def edit_recipe(request):
+    npc_key = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    npcs = jobs.get("npcs", {})
+    if npc_key not in npcs:
+        return web.Response(status=404)
+    import json as _json
+    recipes = npcs[npc_key].get("reward_recipes", {})
+    entries = recipes.get(tier_key, [])
+    return aiohttp_jinja2.render_template(
+        "jobs_recipe_row.html",
+        request,
+        {"npc_key": npc_key, "tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": True},
+    )
+
+
+async def cancel_recipe(request):
+    npc_key = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    npcs = jobs.get("npcs", {})
+    if npc_key not in npcs:
+        return web.Response(status=404)
+    import json as _json
+    recipes = npcs[npc_key].get("reward_recipes", {})
+    entries = recipes.get(tier_key, [])
+    return aiohttp_jinja2.render_template(
+        "jobs_recipe_row.html",
+        request,
+        {"npc_key": npc_key, "tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": False},
+    )
+
+
+async def save_recipe(request):
+    import json as _json
+    npc_key = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    npcs = jobs.get("npcs", {})
+    if npc_key not in npcs:
+        return web.Response(status=404)
+    form = await request.post()
+    raw = form.get("entries_json", "[]")
+    try:
+        entries = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        return web.Response(status=400, text=f"Invalid JSON: {exc}")
+    if not isinstance(entries, list):
+        return web.Response(status=400, text="reward_recipes[tier] must be a JSON array")
+    for entry in entries:
+        if err := validators.validate_jobs_recipe_entry(entry):
+            return web.Response(status=400, text=err)
+    async with io_locks.lock_for(JOBS_PATH):
+        if "reward_recipes" not in npcs[npc_key]:
+            npcs[npc_key]["reward_recipes"] = {}
+        npcs[npc_key]["reward_recipes"][tier_key] = entries
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_recipe_row.html",
+        request,
+        {"npc_key": npc_key, "tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": False, "just_saved": True},
+    )
+
+
+# --------------------------------------------------- cat_voices routes ------
+
+async def edit_voice(request):
+    rarity = request.match_info["rarity"]
+    jobs = state.get_jobs()
+    voices = jobs.get("cat_voices", {})
+    if rarity not in voices:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_voice_row.html",
+        request,
+        {"rarity": rarity, "voice": voices[rarity], "editing": True},
+    )
+
+
+async def cancel_voice(request):
+    rarity = request.match_info["rarity"]
+    jobs = state.get_jobs()
+    voices = jobs.get("cat_voices", {})
+    if rarity not in voices:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_voice_row.html",
+        request,
+        {"rarity": rarity, "voice": voices[rarity], "editing": False},
+    )
+
+
+async def save_voice(request):
+    rarity = request.match_info["rarity"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    voices = jobs.get("cat_voices", {})
+    if rarity not in voices:
+        return web.Response(status=404)
+    form = await request.post()
+    new_voice = {}
+    for outcome in ("success", "near_miss", "total_failure"):
+        raw_text = form.get(outcome, "")
+        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+        for ln in lines:
+            if err := validators.validate_jobs_voice_entry(ln):
+                return web.Response(status=400, text=f"{rarity}.{outcome}: {err}")
+        new_voice[outcome] = lines
+    async with io_locks.lock_for(JOBS_PATH):
+        voices[rarity] = new_voice
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_voice_row.html",
+        request,
+        {"rarity": rarity, "voice": voices[rarity], "editing": False, "just_saved": True},
+    )
+
+
+# --------------------------------------------------- complication_quips routes
+
+async def edit_quip(request):
+    event_id = request.match_info["event_id"]
+    jobs = state.get_jobs()
+    quips = jobs.get("complication_quips", {})
+    if event_id not in quips:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_quip_row.html",
+        request,
+        {"event_id": event_id, "quip": quips[event_id], "editing": True},
+    )
+
+
+async def cancel_quip(request):
+    event_id = request.match_info["event_id"]
+    jobs = state.get_jobs()
+    quips = jobs.get("complication_quips", {})
+    if event_id not in quips:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_quip_row.html",
+        request,
+        {"event_id": event_id, "quip": quips[event_id], "editing": False},
+    )
+
+
+async def save_quip(request):
+    event_id = request.match_info["event_id"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    quips = jobs.get("complication_quips", {})
+    if event_id not in quips:
+        return web.Response(status=404)
+    form = await request.post()
+    # Form fields are named quip_<rarity>
+    new_quip = {}
+    for key in form:
+        if key.startswith("quip_"):
+            rarity = key[5:]
+            raw_text = form.get(key, "")
+            lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+            if lines:
+                new_quip[rarity] = lines
+    async with io_locks.lock_for(JOBS_PATH):
+        quips[event_id] = new_quip
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_quip_row.html",
+        request,
+        {"event_id": event_id, "quip": quips[event_id], "editing": False, "just_saved": True},
+    )
+
+
+# --------------------------------------------------- complication_flavor routes
+
+async def edit_flavor(request):
+    event_id = request.match_info["event_id"]
+    jobs = state.get_jobs()
+    flavor = jobs.get("complication_flavor", {})
+    if event_id not in flavor:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_flavor_row.html",
+        request,
+        {"event_id": event_id, "lines": flavor[event_id], "editing": True},
+    )
+
+
+async def cancel_flavor(request):
+    event_id = request.match_info["event_id"]
+    jobs = state.get_jobs()
+    flavor = jobs.get("complication_flavor", {})
+    if event_id not in flavor:
+        return web.Response(status=404)
+    return aiohttp_jinja2.render_template(
+        "jobs_flavor_row.html",
+        request,
+        {"event_id": event_id, "lines": flavor[event_id], "editing": False},
+    )
+
+
+async def save_flavor(request):
+    event_id = request.match_info["event_id"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    flavor = jobs.get("complication_flavor", {})
+    if event_id not in flavor:
+        return web.Response(status=404)
+    form = await request.post()
+    raw_text = form.get("lines", "")
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    async with io_locks.lock_for(JOBS_PATH):
+        flavor[event_id] = lines
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_flavor_row.html",
+        request,
+        {"event_id": event_id, "lines": lines, "editing": False, "just_saved": True},
+    )
+
+
 # --------------------------------------------------- register  --------------
 
 def register(app: web.Application) -> None:
@@ -729,3 +1157,33 @@ def register(app: web.Application) -> None:
     app.router.add_get(r"/jobs/narrative/{npc}/edit", edit_narrative)
     app.router.add_get(r"/jobs/narrative/{npc}/cancel", cancel_narrative)
     app.router.add_post(r"/jobs/narrative/{npc}", save_narrative)
+
+    # complications scalars
+    app.router.add_get("/jobs/complications/edit", edit_complications)
+    app.router.add_get("/jobs/complications/cancel", cancel_complications)
+    app.router.add_post("/jobs/complications", save_complications)
+
+    # complication pools (per-tier textarea)
+    app.router.add_get(r"/jobs/complication_pool/{tier}/edit", edit_complication_pool)
+    app.router.add_get(r"/jobs/complication_pool/{tier}/cancel", cancel_complication_pool)
+    app.router.add_post(r"/jobs/complication_pool/{tier}", save_complication_pool)
+
+    # reward_recipes (per-NPC, per-tier)
+    app.router.add_get(r"/jobs/npc/{npc}/recipe/{tier}/edit", edit_recipe)
+    app.router.add_get(r"/jobs/npc/{npc}/recipe/{tier}/cancel", cancel_recipe)
+    app.router.add_post(r"/jobs/npc/{npc}/recipe/{tier}", save_recipe)
+
+    # cat_voices (per-rarity)
+    app.router.add_get(r"/jobs/voice/{rarity}/edit", edit_voice)
+    app.router.add_get(r"/jobs/voice/{rarity}/cancel", cancel_voice)
+    app.router.add_post(r"/jobs/voice/{rarity}", save_voice)
+
+    # complication_quips (per-event_id)
+    app.router.add_get(r"/jobs/quip/{event_id}/edit", edit_quip)
+    app.router.add_get(r"/jobs/quip/{event_id}/cancel", cancel_quip)
+    app.router.add_post(r"/jobs/quip/{event_id}", save_quip)
+
+    # complication_flavor (per-event_id)
+    app.router.add_get(r"/jobs/flavor/{event_id}/edit", edit_flavor)
+    app.router.add_get(r"/jobs/flavor/{event_id}/cancel", cancel_flavor)
+    app.router.add_post(r"/jobs/flavor/{event_id}", save_flavor)

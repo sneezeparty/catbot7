@@ -32,12 +32,149 @@
     "5": { "name": "The Big Score", "difficulty_range": [800, 800],  "reward_coin_range": [15000, 15000], "heat": 100, "min_catnip_level": 10 }
   },
   "npcs": {
-    "whiskers":  { "display_name": "Whiskers",   "min_hire_level": 1, "tiers_offered": [2, 3, 4], "hires_against": ["bailey", "wilson", "lalo"],   "reward_mult": 1.0,  "heat_mult": 0.9,  "reward_bias": "standard",      "rep_unlock_at_100": "favor" },
-    "lucian_jr": { "display_name": "Lucian Jr",  "min_hire_level": 2, "tiers_offered": [1, 2],    "hires_against": ["whiskers", "sofia", "jinx"],  "reward_mult": 1.3,  "heat_mult": 1.15, "reward_bias": "standard" },
-    "jinx":      { "display_name": "Jinx",       "min_hire_level": 3, "tiers_offered": [1, 2, 3], "hires_against": ["wilson", "sofia"],            "reward_mult": 0.9,  "heat_mult": 0.7,  "reward_bias": "coin_heavy" },
-    "jeremy":    { "display_name": "Jeremy",     "min_hire_level": 4, "tiers_offered": [2],       "hires_against": ["bailey"],                     "reward_mult": 1.2,  "heat_mult": 1.0,  "reward_bias": "coins_only" },
-    "lucian_sr": { "display_name": "Lucian Sr",  "min_hire_level": 5, "tiers_offered": [2, 3],    "hires_against": ["dynamic_higher_rank"],        "reward_mult": 1.0,  "heat_mult": 1.0,  "reward_bias": "mid_rare_cats", "ally_protection_threshold": 50 },
-    "sofia":     { "display_name": "Sofia",      "min_hire_level": 6, "tiers_offered": [3, 4],    "hires_against": ["commoners"],                  "reward_mult": 1.25, "heat_mult": 1.1,  "reward_bias": "cat_heavy",     "rep_unlock_at_100": "premium_menu" }
+    "whiskers": {
+      "display_name": "Whiskers",
+      "min_hire_level": 1,
+      "tiers_offered": [2, 3, 4],
+      "hires_against": ["bailey", "wilson", "lalo"],
+      "reward_mult": 1.0,
+      "heat_mult": 0.9,
+      "reward_bias": "standard",
+      "rep_unlock_at_100": "favor",
+      "reward_recipes": {
+        "2": [
+          { "weight": 50, "coins": [180, 350], "cats": {"Good": 1} },
+          { "weight": 30, "coins": [200, 380], "cats": {"Rare": 1} },
+          { "weight": 15, "coins": [150, 300], "cats": {"Nice": 1, "Good": 1} },
+          { "weight": 5,  "coins": [250, 400], "cats": {"Rare": 1}, "pack": "wooden" }
+        ],
+        "3": [
+          { "weight": 45, "coins": [700, 1200], "cats": {"Epic": 1} },
+          { "weight": 30, "coins": [500, 900],  "cats": {"Rare": 3} },
+          { "weight": 15, "coins": [800, 1300], "cats": {"Rare": 2, "Epic": 1} },
+          { "weight": 10, "coins": [600, 1000], "cats": {"Epic": 1}, "pack": "stone" }
+        ],
+        "4": [
+          { "weight": 40, "coins": [3000, 4500], "cats": {"Ultimate": 1} },
+          { "weight": 25, "coins": [2500, 4000], "cats": {"Legendary": 1}, "pack": "bronze" },
+          { "weight": 20, "coins": [3500, 5000], "cats": {"Legendary": 2} },
+          { "weight": 10, "coins": [2000, 3000], "cats": {"Ultimate": 2} },
+          { "weight": 5,  "coins": [5000, 6000], "cats": {"Mythic": 1},   "pack": "silver" }
+        ]
+      }
+    },
+    "lucian_jr": {
+      "display_name": "Lucian Jr",
+      "min_hire_level": 2,
+      "tiers_offered": [1, 2],
+      "hires_against": ["whiskers", "sofia", "jinx"],
+      "reward_mult": 1.3,
+      "heat_mult": 1.15,
+      "reward_bias": "standard",
+      "reward_recipes": {
+        "1": [
+          { "weight": 70, "coins": [80, 150] },
+          { "weight": 30, "coins": [60, 120], "cats": {"Nice": 1} }
+        ],
+        "2": [
+          { "weight": 55, "coins": [220, 380], "cats": {"Nice": 1} },
+          { "weight": 30, "coins": [180, 320], "cats": {"Good": 1} },
+          { "weight": 15, "coins": [200, 350], "cats": {"Good": 1}, "pack": "stone" }
+        ]
+      }
+    },
+    "jinx": {
+      "display_name": "Jinx",
+      "min_hire_level": 3,
+      "tiers_offered": [1, 2, 3],
+      "hires_against": ["wilson", "sofia"],
+      "reward_mult": 0.9,
+      "heat_mult": 0.7,
+      "reward_bias": "coin_heavy",
+      "reward_recipes": {
+        "1": [
+          { "weight": 60, "coins": [90, 150] },
+          { "weight": 35, "coins": [70, 130], "cats": {"Fine": 2} },
+          { "weight": 5,  "coins": [100, 150], "cats": {"Nice": 1} }
+        ],
+        "2": [
+          { "weight": 55, "coins": [250, 400] },
+          { "weight": 30, "coins": [200, 350], "cats": {"Nice": 1} },
+          { "weight": 12, "coins": [220, 380], "cats": {"Good": 1} },
+          { "weight": 3,  "coins": [180, 300], "cats": {"Rare": 1} }
+        ],
+        "3": [
+          { "weight": 60, "coins": [900, 1500] },
+          { "weight": 25, "coins": [700, 1200], "cats": {"Rare": 1} },
+          { "weight": 10, "coins": [600, 1100], "cats": {"Epic": 1} },
+          { "weight": 5,  "coins": [800, 1300], "cats": {"Rare": 2}, "pack": "wooden" }
+        ]
+      }
+    },
+    "jeremy": {
+      "display_name": "Jeremy",
+      "min_hire_level": 4,
+      "tiers_offered": [2],
+      "hires_against": ["bailey"],
+      "reward_mult": 1.2,
+      "heat_mult": 1.0,
+      "reward_bias": "coins_only",
+      "reward_recipes": {
+        "2": [
+          { "weight": 50, "coins": [280, 400] },
+          { "weight": 35, "coins": [220, 360] },
+          { "weight": 15, "coins": [200, 350], "pack": "stone" }
+        ]
+      }
+    },
+    "lucian_sr": {
+      "display_name": "Lucian Sr",
+      "min_hire_level": 5,
+      "tiers_offered": [2, 3],
+      "hires_against": ["dynamic_higher_rank"],
+      "reward_mult": 1.0,
+      "heat_mult": 1.0,
+      "reward_bias": "mid_rare_cats",
+      "ally_protection_threshold": 50,
+      "reward_recipes": {
+        "2": [
+          { "weight": 45, "coins": [100, 200], "cats": {"Trash": 1} },
+          { "weight": 35, "coins": [150, 250], "cats": {"Superior": 1} },
+          { "weight": 20, "coins": [80, 180],  "cats": {"Legendary": 1} }
+        ],
+        "3": [
+          { "weight": 40, "coins": [500, 900],  "cats": {"Superior": 2} },
+          { "weight": 30, "coins": [400, 800],  "cats": {"Legendary": 1} },
+          { "weight": 20, "coins": [600, 1000], "cats": {"Trash": 2, "Legendary": 1} },
+          { "weight": 10, "coins": [300, 600],  "cats": {"Legendary": 2} }
+        ]
+      }
+    },
+    "sofia": {
+      "display_name": "Sofia",
+      "min_hire_level": 6,
+      "tiers_offered": [3, 4],
+      "hires_against": ["commoners"],
+      "reward_mult": 1.25,
+      "heat_mult": 1.1,
+      "reward_bias": "cat_heavy",
+      "rep_unlock_at_100": "premium_menu",
+      "reward_recipes": {
+        "3": [
+          { "weight": 40, "coins": [700, 1200], "cats": {"Epic": 1} },
+          { "weight": 30, "coins": [500, 900],  "cats": {"Rare": 2} },
+          { "weight": 20, "coins": [400, 700],  "cats": {"Epic": 1}, "pack": "stone" },
+          { "weight": 10, "coins": [600, 1100], "cats": {"Epic": 2} }
+        ],
+        "4": [
+          { "weight": 35, "coins": [2500, 4000], "cats": {"Ultimate": 1} },
+          { "weight": 25, "coins": [2000, 3500], "cats": {"Legendary": 2} },
+          { "weight": 20, "coins": [3000, 4500], "cats": {"Ultimate": 1}, "pack": "bronze" },
+          { "weight": 15, "coins": [2500, 4000], "cats": {"Legendary": 1}, "pack": "silver" },
+          { "weight": 5,  "coins": [4000, 6000], "cats": {"Mythic": 1},   "pack": "silver" }
+        ]
+      }
+    }
   },
   "targets_only": {
     "bailey":   { "display_name": "Bailey",     "min_catnip_level": 7 },
@@ -169,6 +306,225 @@
       { "id": "easy_mark",       "weight": 5,  "phase": "post_roll" },
       { "id": "found_a_stash",   "weight": 5,  "phase": "post_roll" },
       { "id": "sloppy_target",   "weight": 2,  "phase": "post_roll" }
+    ]
+  },
+  "cat_voices": {
+    "Fine": {
+      "success":       ["meow.", "we got the thing i think", "easy", "did we do good?", "ok that worked"],
+      "near_miss":     ["is...is jerry coming back?", "that was scary", "half of us are home. that's fine right"],
+      "total_failure": ["tell my owner i did my best", "purr… cough", "meo—"]
+    },
+    "Nice": {
+      "success":       ["well-executed.", "a pleasant outing.", "all accounted for, thank you"],
+      "near_miss":     ["we did what we could.", "regrettable but expected.", "the survivors mourn the others"],
+      "total_failure": ["tell my mother i was good", "i hope they remember me kindly"]
+    },
+    "Good": {
+      "success":       ["good job team", "smooth one", "we did the thing right"],
+      "near_miss":     ["could have been worse", "half is still something", "we'll bounce back"],
+      "total_failure": ["i'm sorry", "we tried", "tell the others to be careful out there"]
+    },
+    "Rare": {
+      "success":       ["of course we got it", "what did you expect", "another easy night"],
+      "near_miss":     ["we still got out. mostly.", "next one is clean", "I told you to bring more Mythics"],
+      "total_failure": ["this isn't how i pictured it ending", "tell whiskers i won't be in tomorrow"]
+    },
+    "Wild": {
+      "success":       ["AAAAAAA WE GOT IT", "i bit a guy. it was awesome.", "the spiders were a distraction"],
+      "near_miss":     ["half of us became spiders!! the rest of us are FINE", "i don't remember most of it tbh"],
+      "total_failure": ["i went down screaming and i'd do it again", "tell the bees i love them"]
+    },
+    "Baby": {
+      "success":       ["i did a big job! :3", "owner will be proud i think", "yay we won"],
+      "near_miss":     ["where are the other kitties going", "i don't like this part", "mama?"],
+      "total_failure": ["i was supposed to be in bed", "i want my mom", "i'm scared"]
+    },
+    "Epic": {
+      "success":       ["an EPIC victory!", "behold, the legend grows", "this will be sung about"],
+      "near_miss":     ["an EPIC tragedy. mostly EPIC.", "even legends bleed", "the saga continues"],
+      "total_failure": ["an EPIC end befitting an EPIC hero", "tell the bards to write a sad one"]
+    },
+    "Sus": {
+      "success":       ["the impostor was the bag the whole time", "ඞ", "task complete", "i KNEW that vent was rigged"],
+      "near_miss":     ["i saw who tipped them off. it was YOU", "vote them out. all of them.", "sussy outcome tbh"],
+      "total_failure": ["i knew this would happe—", "report the body", "ඞ —"]
+    },
+    "Brave": {
+      "success":       ["Honor preserved. The crew rides on.", "We did as we said we would.", "Another job, another night."],
+      "near_miss":     ["The fallen knew the cost.", "I would do it again. So would they.", "We honor the lost by living well."],
+      "total_failure": ["It was a good ending. A worthy one.", "I regret nothing.", "Save your tears for those who need them."]
+    },
+    "Rickroll": {
+      "success":       ["🎵 never gonna give that mark up 🎵", "🎵 never gonna stop our hustle 🎵", "🎵 we just rolled them, didn't we 🎵"],
+      "near_miss":     ["🎵 we know the game and we're gonna play it 🎵", "🎵 inside we both know what's been happening 🎵"],
+      "total_failure": ["🎵 don't say goodbye 🎵", "🎵 i just wanted to tell you how i'm feeling 🎵", "🎵 never gonna..."]
+    },
+    "Reverse": {
+      "success":       ["we did .ti got we", "?neirf ,doog si tahT", "esle gnihtemos ot oG"],
+      "near_miss":     ["drah si gniyD", "?yltsom emoh emaC", "...maerd a saw ti"],
+      "total_failure": ["emoh og t'nac eW", "...won kaerf a ma I", "ereh ma I yhw wonk t'nod I"]
+    },
+    "Superior": {
+      "success":       ["as anticipated.", "the operation went exactly as I projected.", "what did you expect."],
+      "near_miss":     ["an acceptable margin of loss.", "a few subordinates, regrettable.", "below my projections, but not catastrophic."],
+      "total_failure": ["miscalculation. mine, regrettably.", "the variables were not as advertised."]
+    },
+    "Trash": {
+      "success":       ["i told you that fence was sketchy. it was. but we got the take anyway.", "luck. all luck. we are not built for this.", "wait, we won?"],
+      "near_miss":     ["of course we lost half. it's us. what did you think.", "story of our lives", "expected"],
+      "total_failure": ["another tuesday", "i should never have come", "we deserved this"]
+    },
+    "Legendary": {
+      "success":       ["Another tale to add to the chronicles.", "The legend continues.", "Mark this night."],
+      "near_miss":     ["The price of legend is steep.", "We carry the lost with us.", "Names will be sung."],
+      "total_failure": ["Even legends fall. Sing them well.", "A worthy end. Remember us."]
+    },
+    "Mythic": {
+      "success":       ["I FORGED THIS NIGHT WITH MY OWN PAWS", "THE HEAVENS WILL HEAR OF IT", "MARK THIS DATE"],
+      "near_miss":     ["EVEN THE GODS BLEED", "A REVERSAL — TEMPORARY", "MY CLAWS REMEMBER"],
+      "total_failure": ["I FELL AS I LIVED — LOUDLY", "REMEMBER MY NAME", "I REGRET NOTHING"]
+    },
+    "8bit": {
+      "success":       ["▓▓ MISSION COMPLETE ▓▓", "[GET_LOOT] >> 100%", "MEEEOOWW.exe"],
+      "near_miss":     ["[ERROR] PARTIAL RECOVERY", "▓░░ HEALTH 50% ░░▓", "RESPAWN_AT_HIDEOUT_OK"],
+      "total_failure": ["▓▓ CONNECTION LOST ▓▓", "GAME OVER. INSERT QUARTER.", "[FATAL_ERROR] cat_not_found"]
+    },
+    "Corrupt": {
+      "success":       ["we... we did the t̸h̸i̵n̴g̵.", "the t҉ake came home", "🜂 it is done 🜂"],
+      "near_miss":     ["half the c̴r̴e̴w̴ came home. half.", "the others are... elsewhere.", "i can hear them still"],
+      "total_failure": ["ę̴̢̛r̷̢r̴͠ŏ̴r̵̛ ̷̛̪i̸̛͝n̵̟͠ ̷̛t̵͠h̸̛e̷̪ ̸͜v̸̢̛o̵i̶̟d̷", "everything ends. eventually.", "we were never here."]
+    },
+    "Professor": {
+      "success":       ["A clean operation. The variables aligned.", "Statistically expected; pleasingly so.", "The methodology held."],
+      "near_miss":     ["Outliers in the data. Regrettable but informative.", "Half our test subjects did not return.", "We will adjust the model."],
+      "total_failure": ["An object lesson in respecting the variance.", "Catastrophic data loss.", "My findings will not be published."]
+    },
+    "Divine": {
+      "success":       ["It was written.", "Praise be — the path opened.", "The Holy One smiled."],
+      "near_miss":     ["A trial. We are not unscathed.", "The faithful pass through fire.", "We honor the fallen martyrs."],
+      "total_failure": ["We commend our souls.", "It was foretold.", "Light eternal."]
+    },
+    "Real": {
+      "success":       ["got it. let's go home.", "done. next.", "clean."],
+      "near_miss":     ["half of us. let's move.", "it is what it is.", "we live."],
+      "total_failure": ["rough one.", "that's how it goes sometimes.", "—"]
+    },
+    "Ultimate": {
+      "success":       ["another one.", "done.", "easy."],
+      "near_miss":     ["next time.", "still here.", "tch."],
+      "total_failure": ["huh.", "...", "didn't see that one."]
+    },
+    "eGirl": {
+      "success":       ["omg that was so fun bestie 💅", "we ATE that job ✨", "no thoughts just W's", "slayed it not even kidding", "PERIODT"],
+      "near_miss":     ["ok that was rough but we're literally fine bestie 💔", "girlies didn't all make it but we vibing", "rip bestie 😔"],
+      "total_failure": ["babe... we're not okay", "this is so giving funeral 😭", "rip babes i never even got to post 💀"]
+    }
+  },
+  "complication_quips": {
+    "cat_police_raid": {
+      "Sus":       ["i told you that guy was a fed", "i CALLED IT. he was sus.", "police? ඞ"],
+      "Trash":     ["we always get caught. always.", "this is just how it ends for us"],
+      "Real":      ["heat. shoulda known.", "cops. typical."]
+    },
+    "rival_crew": {
+      "Brave":     ["Another crew. Worthy adversaries.", "Steel against steel."],
+      "Sus":       ["see? OTHER crew. sussssssss", "i bet they were impostors too"],
+      "eGirl":     ["omg the OTHER girls?? rude 💅"],
+      "Mythic":    ["TWO CREWS DARE THE SAME NIGHT — ONE LEAVES."]
+    },
+    "double_cross": {
+      "Sus":       ["the offerer was the impostor 😤", "TOLD YOU not to trust them"],
+      "Trash":     ["always us. always.", "of course they short us"],
+      "Professor": ["An interesting data point on offerer trustworthiness."],
+      "Real":      ["short. typical."]
+    },
+    "boss_arrives": {
+      "Mythic":    ["FINALLY A WORTHY OPPONENT", "BRING THEM"],
+      "Brave":     ["The Boss themself. So be it.", "Honor demands a fair fight."],
+      "Ultimate":  ["finally."]
+    },
+    "informant": {
+      "Sus":       ["imPOSTOR! they were the impostor!!", "report. now. report.", "i'm calling an emergency meeting"],
+      "Real":      ["tipped off. typical."],
+      "Trash":     ["of course there was a snitch"]
+    },
+    "easy_mark": {
+      "eGirl":     ["literally so easy bestie 💅", "we ATE down 🍴", "no notes ✨"],
+      "Trash":     ["wait... it actually worked?", "this never happens to us"],
+      "Real":      ["clean. let's go."]
+    },
+    "found_a_stash": {
+      "Wild":      ["I FOUND A SECRET CRATE!!!", "what's in the boooooox", "bonus loot lets goooo"],
+      "Professor": ["An undocumented cache. Fascinating.", "Side data was preserved."]
+    },
+    "sloppy_target": {
+      "8bit":      ["[INVENTORY] PACK_ACQUIRED", "▓ LOOT.exe ▓", "[BONUS_ITEM] >> 1"],
+      "Trash":     ["the cats weren't even there. of course."],
+      "Real":      ["wrong stash. better one."]
+    },
+    "witness": {
+      "Brave":     ["A face I will remember.", "We were seen. So be it."],
+      "Sus":       ["did you see that guy?? imPOSTOR for sure", "i'm reporting him next round"]
+    },
+    "loose_end": {
+      "Real":      ["missed something. fix it later."],
+      "Professor": ["A loose variable. We will resolve it next iteration."],
+      "Trash":     ["of course we left a thread loose"]
+    }
+  },
+  "accept_announcements": {
+    "whiskers": [
+      "{player} just took a job from **Whiskers**.",
+      "**Whiskers** has handed {player} a contract.",
+      "{player} is on **Whiskers**'s payroll tonight."
+    ],
+    "lucian_jr": [
+      "{player} accepted a job from **Lucian Jr**. lmao good luck",
+      "**Lucian Jr** slid {player} a folder. dad's not gonna know about this one.",
+      "{player} took **Lucian Jr** up on his offer."
+    ],
+    "jinx": [
+      "{player} signed up for a job with **Jinx**. low heat, vibes only.",
+      "**Jinx** found {player} a job. it's chill she swears.",
+      "{player} is rolling with **Jinx** tonight."
+    ],
+    "jeremy": [
+      "**Jeremy** is putting {player} on the books.",
+      "{player} took **Jeremy**'s job — pure coin, no questions.",
+      "{player} is doing the laundry for **Jeremy** tonight."
+    ],
+    "lucian_sr": [
+      "**Lucian Sr** has named {player} as the vendetta carrier.",
+      "{player} accepted **Lucian Sr**'s task. the family remembers.",
+      "{player} is settling a score for **Lucian Sr**."
+    ],
+    "sofia": [
+      "**Sofia** has selected {player} for one of her jobs.",
+      "{player} is doing a job for **Sofia**. cats and coins on the line.",
+      "**Sofia** brought {player} into her parlor. business follows."
+    ]
+  },
+  "accept_announcements_big_score": [
+    "{player} just accepted **The Big Score**. The eGirl vault. Wilson, no idea what's coming.",
+    "**Whiskers** has finally found someone for the heist he tried in '08: {player}.",
+    "{player} is going for **The Big Score**. The whole hideout went quiet."
+  ],
+  "outcome_announcements": {
+    "success": [
+      "{player}'s crew got it done. **{npc}** is pleased.",
+      "Clean work for **{npc}**. {player}'s crew came home with the take.",
+      "{player} delivered. **{npc}** doesn't forget that.",
+      "Job's done. {player} is back at the hideout."
+    ],
+    "near_miss": [
+      "{player}'s crew came home short — **{casualties}** cats didn't make it. {npc}'s take walked.",
+      "Half a crew is better than none. {player}'s smaller team is back.",
+      "{player}'s crew got out, but **{casualties}** cats didn't. The job's a wash."
+    ],
+    "total_failure": [
+      "**{npc}**'s job is dust. {player}'s crew is gone — **{casualties}** cats lost.",
+      "{player} sent a crew. {player} did not get one back.",
+      "Total wipe. **{casualties}** of {player}'s cats are in the bay now."
     ]
   },
   "complication_flavor": {

@@ -3,7 +3,7 @@
 <section>
   {% set eyebrow = "config / jobs.json" %}
   {% set heading = "Jobs / Mafia Killings" %}
-  {% set lede    = "Send Power, probability curve, tiers, NPCs, The Big Score, reputation math, and flavor text." %}
+  {% set lede    = "Send Power, probability curve, tiers, NPCs, The Big Score, reputation math, complications, and flavor text." %}
   {% include "partials/_section_header.html" %}
 
   {% set body %}
@@ -77,13 +77,33 @@
       <tr>
         <th>Key</th><th>Display name</th><th>Min hire level</th>
         <th>Tiers offered</th><th>Hires against</th>
-        <th>Reward mult</th><th>Heat mult</th><th>Reward bias</th>
+        <th>Reward mult</th><th>Heat mult</th>
+        <th title="Read-only. reward_bias is superseded by reward_recipes; edit via the Reward Recipes section below.">Reward bias (read-only)</th>
         <th>Rep unlock @100</th><th>Ally threshold</th><th></th>
       </tr>
     </thead>
     <tbody>
       {% for npc_key, npc in npcs.items() %}
         {% include "jobs_npc_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ reward_recipes #}
+  <h2 class="section">Reward Recipes <span class="heading-count">per-NPC per-tier</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Weighted reward tables. Each entry: <code>{"weight": int, "coins": [lo, hi], "cats": {Rarity: count}, "pack": "tier"|null}</code>.
+    <code>reward_bias</code> on the NPC row is now read-only (superseded by these recipes).
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>NPC</th><th>Tier</th><th>Entries</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for npc_key, npc in npcs.items() %}
+        {% for tier_key, entries_json in npc_recipes_json.get(npc_key, {}).items() %}
+          {% include "jobs_recipe_row.html" %}
+        {% endfor %}
       {% endfor %}
     </tbody>
   </table>
@@ -142,6 +162,98 @@
       {% set npc_key = "_big_score" %}
       {% set lines = narrative_pools_big_score %}
       {% include "jobs_narrative_row.html" %}
+    </tbody>
+  </table>
+
+  {# ============================================================ complications scalars #}
+  <h2 class="section">Complications — scalars</h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Second-die mechanic tuning. <code>base_chance_by_tier</code> is the baseline complication
+    probability; <code>heat_modifier</code> adds to it based on heat level;
+    <code>rep_discount_*</code> reduces it based on faction rep.
+  </p>
+  <div id="jobs-complications">
+    {% with editing = false %}
+      {% include "jobs_complications_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ complication pools #}
+  <h2 class="section">Complication pools <span class="heading-count">per-tier event lists</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Weighted event tables per tier. Each entry:
+    <code>{"id": "event_id", "weight": int, "phase": "pre_roll|post_roll|aftermath", ...}</code>.
+    Optional event-specific params: <code>heat_bonus</code> (int), <code>wall_fraction</code> (float),
+    <code>difficulty_mult</code> (float).
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Tier</th><th>Pool JSON</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for tier_key in tier_keys %}
+        {% if tier_key in complication_pools %}
+          {% set entries_json = complication_pools_json.get(tier_key, "[]") %}
+          {% include "jobs_complication_pool_row.html" %}
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ cat_voices #}
+  <h2 class="section">Cat voices <span class="heading-count">{{ cat_voices|length }} rarities</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Per-rarity flavor lines for job outcomes. Three outcome buckets:
+    <code>success</code>, <code>near_miss</code>, <code>total_failure</code>. One line per quip.
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr>
+        <th>Rarity</th>
+        <th class="numeric" title="success lines">Succ.</th>
+        <th class="numeric" title="near_miss lines">Near</th>
+        <th class="numeric" title="total_failure lines">Fail</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rarity, voice in cat_voices.items() %}
+        {% include "jobs_voice_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ complication_quips #}
+  <h2 class="section">Complication quips <span class="heading-count">{{ complication_quips|length }} events</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Per-event, per-rarity themed one-liners shown during a complication. Only a subset of rarities
+    is defined per event — others get no quip.
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Event ID</th><th>Rarities covered</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for event_id, quip in complication_quips.items() %}
+        {% include "jobs_quip_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ complication_flavor #}
+  <h2 class="section">Complication flavor <span class="heading-count">{{ complication_flavor|length }} events</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Per-event narrative lines (rarity-agnostic). One line per entry; the bot picks one at random.
+    Event IDs here should match the <code>id</code> fields in complication pools above.
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Event ID</th><th>Lines</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for event_id, lines in complication_flavor.items() %}
+        {% include "jobs_flavor_row.html" %}
+      {% endfor %}
     </tbody>
   </table>
 

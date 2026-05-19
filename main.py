@@ -745,67 +745,43 @@ def _jobs_resolve_difficulty(tier: int, target_key: str | None, faction_rep: dic
     return base
 
 
-def _jobs_default_cat_reward(tier: int, rng: random.Random) -> dict[str, int]:
-    """Pre-bias tier defaults. Phase 2 will grant these verbatim from the
-    persisted reward_snapshot, so getting this right matters now."""
-    if tier == 1:
-        return {}
-    if tier == 2:
-        # 1 Uncommon, occasional Rare.
-        return rng.choices(
-            [{"Nice": 1}, {"Good": 1}, {"Rare": 1}],
-            weights=[3, 3, 1],
-            k=1,
-        )[0]
-    if tier == 3:
-        # 1 Epic, or 2-3 Rares.
-        return rng.choice([{"Epic": 1}, {"Rare": 2}, {"Rare": 3}])
-    if tier == 4:
-        # 1-2 Ultimates, or 1 Legendary + significant coins.
-        return rng.choices(
-            [{"Ultimate": 1}, {"Ultimate": 2}, {"Legendary": 1}],
-            weights=[3, 1, 2],
-            k=1,
-        )[0]
-    if tier == 5:
-        return {"eGirl": 3}
-    return {}
+def _jobs_roll_recipe(npc_key: str, tier: int, rng: random.Random) -> dict:
+    """Resolve a (NPC, tier) reward by picking a weighted entry from the
+    NPC's reward_recipes table. Returns {coins, cats, pack}. reward_mult is
+    NOT applied here — _jobs_resolve_reward composes that on top so the
+    operator sees recipe values in their pre-mult form in the config."""
+    npc = JOBS_NPCS.get(npc_key, {})
+    recipes = (npc.get("reward_recipes") or {}).get(str(tier))
+    if not recipes:
+        logging.warning("jobs: no reward recipe for %s tier %s — falling back to coin-only",
+                        npc_key, tier)
+        lo, hi = JOBS_TIERS[str(tier)]["reward_coin_range"]
+        return {"coins": rng.randint(lo, hi), "cats": {}, "pack": None}
 
+    weights = [max(0, int(e.get("weight", 0))) for e in recipes]
+    if sum(weights) <= 0:
+        return {"coins": 0, "cats": {}, "pack": None}
 
-def _jobs_apply_reward_bias(reward: dict, bias: str, rng: random.Random) -> dict:
-    coins = reward["coins"]
-    cats = reward["cats"]
-    if bias == "standard":
-        pass
-    elif bias == "coins_only":
-        coins += sum(cat_value(t) * c for t, c in cats.items())
-        cats = {}
-    elif bias == "coin_heavy":
-        coins = round(coins * 1.3)
-        cats = {t: max(0, c * 7 // 10) for t, c in cats.items()}
-        cats = {t: c for t, c in cats.items() if c > 0}
-    elif bias == "cat_heavy":
-        coins = coins * 7 // 10
-        cats = {t: math.ceil(c * 1.3) for t, c in cats.items()}
-    elif bias == "mid_rare_cats":
-        total = sum(cats.values())
-        replacement = rng.choice(["Trash", "Superior", "Legendary"])
-        cats = {replacement: total} if total else {}
-    return {"coins": coins, "cats": cats}
+    entry = rng.choices(recipes, weights=weights, k=1)[0]
+    coins_range = entry.get("coins")
+    if coins_range and len(coins_range) >= 2:
+        coins = rng.randint(int(coins_range[0]), int(coins_range[1]))
+    else:
+        coins = 0
+    cats = {t: int(c) for t, c in (entry.get("cats") or {}).items() if int(c) > 0}
+    pack = entry.get("pack") or None
+    return {"coins": coins, "cats": cats, "pack": pack}
 
 
 def _jobs_resolve_reward(tier: int, npc_key: str, rng: random.Random) -> dict:
-    npc = JOBS_NPCS[npc_key]
-    lo, hi = JOBS_TIERS[str(tier)]["reward_coin_range"]
-    coins_base = rng.randint(lo, hi)
-    cats_base = _jobs_default_cat_reward(tier, rng)
-    mult = npc.get("reward_mult", 1.0)
-    reward = {
-        "coins": math.ceil(coins_base * mult),
-        "cats": {t: math.ceil(c * mult) for t, c in cats_base.items()},
-    }
-    bias = npc.get("reward_bias", "standard")
-    return _jobs_apply_reward_bias(reward, bias, rng)
+    """Picks a recipe entry, then applies the NPC's reward_mult to coins +
+    cat counts. Pack tier is preserved as-is (mult doesn't apply to packs)."""
+    npc = JOBS_NPCS.get(npc_key, {})
+    recipe = _jobs_roll_recipe(npc_key, tier, rng)
+    mult = float(npc.get("reward_mult", 1.0))
+    coins = math.ceil(int(recipe.get("coins", 0)) * mult)
+    cats = {t: max(1, math.ceil(int(c) * mult)) for t, c in (recipe.get("cats") or {}).items()}
+    return {"coins": coins, "cats": cats, "pack": recipe.get("pack")}
 
 
 def _jobs_heat_scrutiny_mult(heat: int) -> float:
@@ -991,12 +967,16 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
 def _jobs_reward_summary(reward: dict) -> str:
     coins = int(reward.get("coins", 0))
     cats = reward.get("cats", {}) or {}
+    pack = reward.get("pack")
     parts = []
     if coins:
         parts.append(f"🪙 {coins:,}")
     for t, c in cats.items():
         emoji = get_emoji(t.lower()) if t else ""
         parts.append(f"{c}× {emoji} {t}".strip())
+    if pack:
+        pack_emoji = get_emoji(f"{pack}pack") or "📦"
+        parts.append(f"{pack_emoji} 1× {pack.title()} Pack")
     return "  ·  ".join(parts) if parts else "—"
 
 
@@ -1325,6 +1305,202 @@ def _jobs_complication_flavor(event_id: str, rng: random.Random) -> str:
     return rng.choice(pool)
 
 
+# ---------------------------------------------------------------------------
+# Phase 3: cat dialogue. One survivor (or casualty on a wipe) gets the last
+# word on the result screen. Weighted toward rarer cats so the eGirl talks
+# when she comes home alive.
+# ---------------------------------------------------------------------------
+
+JOBS_CAT_VOICES = config.jobs.get("cat_voices", {})
+JOBS_COMPLICATION_QUIPS = config.jobs.get("complication_quips", {})
+JOBS_ACCEPT_ANN = config.jobs.get("accept_announcements", {})
+JOBS_ACCEPT_ANN_BIG_SCORE = config.jobs.get("accept_announcements_big_score", [])
+JOBS_OUTCOME_ANN = config.jobs.get("outcome_announcements", {})
+
+
+def _jobs_format_accept_line(job, player_mention: str, rng: random.Random) -> str:
+    """Build a one-line thematic announcement for a public accept embed."""
+    if int(job.tier or 0) == 5 and JOBS_ACCEPT_ANN_BIG_SCORE:
+        template = rng.choice(JOBS_ACCEPT_ANN_BIG_SCORE)
+    else:
+        pool = JOBS_ACCEPT_ANN.get(job.offered_by) or [
+            f"{{player}} just took a job from **{_jobs_npc_display(job.offered_by)}**."
+        ]
+        template = rng.choice(pool)
+    return template.replace("{player}", player_mention)
+
+
+def _jobs_format_outcome_line(job, outcome: str, casualties: int, player_mention: str, rng: random.Random) -> str:
+    """Build the body line of the outcome embed. Substitutes {player}, {npc}, {casualties}."""
+    pool = JOBS_OUTCOME_ANN.get(outcome) or [
+        f"{{player}}'s job for **{{npc}}** ended in {outcome.replace('_', '-')}."
+    ]
+    template = rng.choice(pool)
+    return (template
+            .replace("{player}", player_mention)
+            .replace("{npc}", _jobs_npc_display(job.offered_by))
+            .replace("{casualties}", str(casualties)))
+
+
+def _jobs_outcome_color(outcome: str) -> int:
+    if outcome == "success":
+        return Colors.green
+    if outcome == "near_miss":
+        return Colors.brown
+    return Colors.red
+
+
+async def _jobs_announce_accept(channel, job, player_mention: str) -> None:
+    """Post a public embed when a player accepts a contract. Best-effort —
+    swallows errors so an embed-post failure can't block the send screen."""
+    if channel is None:
+        return
+    try:
+        rng = random.Random(int(job.id or 0) ^ hash(player_mention))
+        tier_info = JOBS_TIERS.get(str(job.tier), {})
+        tier_name = tier_info.get("name", f"Tier {job.tier}")
+        line = _jobs_format_accept_line(job, player_mention, rng)
+        embed = discord.Embed(
+            title="🎯 Contract Accepted",
+            description=line,
+            color=Colors.brown,
+        )
+        embed.add_field(name="Tier", value=f"{job.tier} ({tier_name})", inline=True)
+        if job.target_faction:
+            embed.add_field(name="Target", value=_jobs_npc_display(job.target_faction), inline=True)
+        embed.add_field(name="Difficulty", value=f"{job.difficulty} SP", inline=True)
+        if job.narrative:
+            embed.set_footer(text=job.narrative[:200])
+        await channel.send(embed=embed)
+    except Exception:
+        logging.exception("jobs: accept announcement failed (non-fatal)")
+
+
+async def _jobs_announce_outcome(channel, job, profile, player_mention: str) -> None:
+    """Post a public embed when a job resolves. Includes outcome, reward
+    summary on success, complication flavor when applicable. Best-effort."""
+    if channel is None:
+        return
+    try:
+        outcome = job.outcome or ""
+        if not outcome:
+            return  # job didn't resolve cleanly; skip the embed
+        cats_destroyed = _jobs_coerce_dict(job.cats_destroyed)
+        casualties = sum(int(c or 0) for c in cats_destroyed.values())
+        send_snap = _jobs_coerce_dict(job.send_snapshot)
+        sent_total = sum(int(c or 0) for c in send_snap.values())
+        survivors = max(0, sent_total - casualties)
+        rng = random.Random(int(job.id or 0) ^ hash(outcome) ^ int(job.resolved_at or 0))
+
+        if outcome == "success":
+            title = "✅ Job Done"
+        elif outcome == "near_miss":
+            title = "🩹 Almost"
+        else:
+            title = "💀 Wiped"
+
+        body = _jobs_format_outcome_line(job, outcome, casualties, player_mention, rng)
+        embed = discord.Embed(title=title, description=body, color=_jobs_outcome_color(outcome))
+
+        # Reward (success only)
+        reward = _jobs_coerce_dict(job.reward_snapshot)
+        if outcome == "success":
+            reward_str = _jobs_reward_summary(reward)
+            if reward_str and reward_str != "—":
+                embed.add_field(name="Reward", value=reward_str, inline=False)
+        elif outcome == "near_miss":
+            embed.add_field(name="Crew", value=f"{survivors} survived  ·  {casualties} lost", inline=False)
+        else:
+            embed.add_field(name="Crew", value=f"All {casualties} lost", inline=False)
+
+        # Complication (if it fired and was meaningful)
+        comp_id = (_jobs_col(job, "complication", "") or "").strip()
+        if comp_id:
+            flavor = _jobs_complication_flavor(comp_id, rng)
+            comp_pretty = comp_id.replace("_", " ").title()
+            value = f"**{comp_pretty}** — *{flavor}*" if flavor else f"**{comp_pretty}**"
+            embed.add_field(name="⚠️ Complication", value=value, inline=False)
+
+        # Pinch tag
+        rep_changes = _jobs_coerce_dict(job.rep_changes)
+        if rep_changes.get("pinched"):
+            embed.set_footer(text="🚓 Heat hit 100. The Cat Police picked them up.")
+
+        await channel.send(embed=embed)
+    except Exception:
+        logging.exception("jobs: outcome announcement failed (non-fatal)")
+
+
+def _jobs_survivors(send: dict, cats_destroyed: dict, outcome: str) -> dict:
+    """For success — all sent cats survived. For near_miss — sent minus destroyed.
+    For total_failure — all sent cats DIED (returned as the casualty set for
+    posthumous lines)."""
+    sent = {t: int(c or 0) for t, c in (send or {}).items() if int(c or 0) > 0}
+    if outcome == "success":
+        return sent
+    destroyed = {t: int(c or 0) for t, c in (cats_destroyed or {}).items() if int(c or 0) > 0}
+    if outcome == "total_failure":
+        return destroyed  # posthumous voice pool
+    # near_miss: sent − destroyed
+    out = {}
+    for t, c in sent.items():
+        survived = c - destroyed.get(t, 0)
+        if survived > 0:
+            out[t] = survived
+    return out
+
+
+def _jobs_pick_speaking_rarity(candidates: dict, rng: random.Random) -> str | None:
+    """Weight each candidate by `count × inverse_spawn_weight`. Rarer rarities
+    have lower spawn weights in type_dict, so we invert to make them speak more.
+    Returns the picked rarity name, or None if candidates is empty."""
+    if not candidates:
+        return None
+    types = []
+    weights = []
+    for t, c in candidates.items():
+        spawn_weight = type_dict.get(t)
+        if not spawn_weight:
+            continue
+        # Inverse: a Fine has weight 1000 → 1/1000; an eGirl is 2 → 1/2.
+        # Multiply by count so a 100-Fine crew still gets some voice probability.
+        types.append(t)
+        weights.append((c * 1.0) / spawn_weight)
+    if not types:
+        return None
+    return rng.choices(types, weights=weights, k=1)[0]
+
+
+def _jobs_pick_cat_voice(send: dict, cats_destroyed: dict, outcome: str, complication_id: str, rng: random.Random) -> str | None:
+    """Return a formatted '> _The X cat:_ "line"' quote, or None if no cats
+    eligible. Prefers complication_quips when a thematic match exists for any
+    surviving/casualty rarity; otherwise falls back to cat_voices[rarity][outcome]."""
+    pool = _jobs_survivors(send, cats_destroyed, outcome)
+    if not pool:
+        return None
+
+    # First pass: try to find a thematic quip if a complication fired.
+    quip_block = JOBS_COMPLICATION_QUIPS.get(complication_id, {}) if complication_id else {}
+    if quip_block:
+        themed = {t: c for t, c in pool.items() if t in quip_block and quip_block[t]}
+        if themed:
+            rarity = _jobs_pick_speaking_rarity(themed, rng)
+            if rarity:
+                line = rng.choice(quip_block[rarity])
+                return f"> _The {rarity} cat:_ \"{line}\""
+
+    # Fallback: generic cat_voices[rarity][outcome].
+    rarity = _jobs_pick_speaking_rarity(pool, rng)
+    if not rarity:
+        return None
+    rarity_block = JOBS_CAT_VOICES.get(rarity, {})
+    lines = rarity_block.get(outcome) or []
+    if not lines:
+        return None
+    line = rng.choice(lines)
+    return f"> _The {rarity} cat:_ \"{line}\""
+
+
 def _jobs_add_cat(profile: Profile, cat_type: str, count: int) -> None:
     """Safely increment a cat column. No-op if column doesn't exist."""
     if count == 0 or cat_type not in type_dict:
@@ -1420,6 +1596,14 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         for t, c in (reward.get("cats") or {}).items():
             _jobs_add_cat(profile, t, int(c or 0))
             await mark_discovered(profile, t)
+        # Pack reward (Phase 2 recipes). Lands in /packs inventory, not auto-opened.
+        pack_tier = reward.get("pack")
+        if pack_tier:
+            col = f"pack_{pack_tier}"
+            try:
+                profile[col] = int(profile[col] or 0) + 1
+            except KeyError:
+                logging.warning("jobs: unknown pack tier %r — pack not granted", pack_tier)
         profile.job_coins_won = int(getattr(profile, "job_coins_won", 0) or 0) + coin_reward
         haul = coin_reward + sum(cat_value(t) * int(c or 0) for t, c in (reward.get("cats") or {}).items())
         if haul > int(getattr(profile, "biggest_score_value", 0) or 0):
@@ -8721,6 +8905,15 @@ async def jobs(message: discord.Interaction):
                 f"Catnip perks are suspended until <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
             )
 
+        # One cat from the crew gets the last word. Seeded off the job id + outcome
+        # so the line is stable across re-renders of the same result.
+        voice_rng = random.Random(int(job.id or 0) ^ hash(outcome) ^ int(job.committed_at or 0))
+        send_for_voice = _jobs_coerce_dict(job.send_snapshot)
+        voice_line = _jobs_pick_cat_voice(send_for_voice, cats_destroyed, outcome, comp_id, voice_rng)
+        if voice_line:
+            items.append(Separator())
+            items.append(voice_line)
+
         # Outcomes are final — the roll is locked the moment Send Crew is clicked.
         # No Undo (strategic re-rolling defeats the gamble).
         back_btn = Button(label="📋 Back to board", style=ButtonStyle.gray, custom_id="jobs_result_back")
@@ -8747,6 +8940,16 @@ async def jobs(message: discord.Interaction):
             mode["screen"] = "send"
             mode["job_id"] = job_id
             send_state.clear()
+            # Public thematic embed. Fire-and-forget — don't block the send
+            # screen render on it.
+            try:
+                job_for_announce = await JobInstance.get_or_none(id=job_id)
+                if job_for_announce:
+                    bot.loop.create_task(_jobs_announce_accept(
+                        message.channel, job_for_announce, message.user.mention
+                    ))
+            except Exception:
+                logging.exception("jobs: accept announce dispatch failed")
             await show_send(interaction)
         return cb
 
@@ -9079,6 +9282,17 @@ async def jobs(message: discord.Interaction):
             logging.info("jobs: show_result returned")
         except Exception:
             logging.exception("jobs: show_result failed")
+
+        # Public thematic embed. Fire-and-forget so a channel-send failure
+        # never affects the result screen the player already saw.
+        try:
+            resolved_job = await JobInstance.get_or_none(id=mode["job_id"])
+            if resolved_job and resolved_job.outcome:
+                bot.loop.create_task(_jobs_announce_outcome(
+                    message.channel, resolved_job, profile, message.user.mention
+                ))
+        except Exception:
+            logging.exception("jobs: outcome announce dispatch failed")
 
     async def on_result_back(interaction: discord.Interaction):
         mode["screen"] = "board"

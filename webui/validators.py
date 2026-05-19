@@ -238,6 +238,78 @@ def validate_jobs_rep(field: str, value: float) -> str | None:
     return None
 
 
+PACK_TIER_LIST = ["wooden", "stone", "bronze", "silver", "gold", "diamond", "emerald", "obsidian"]
+COMPLICATION_PHASES = {"pre_roll", "post_roll", "aftermath"}
+
+
+def validate_jobs_complications(complications: dict) -> str | None:
+    """Validate the top-level complications scalar block."""
+    base_chance = complications.get("base_chance_by_tier", {})
+    for tier, chance in base_chance.items():
+        if not isinstance(chance, (int, float)) or not (0.0 <= chance <= 1.0):
+            return f"complications.base_chance_by_tier[{tier}] must be a float in [0, 1] (got {chance!r})"
+    heat_mod = complications.get("heat_modifier", {})
+    for level, mod in heat_mod.items():
+        if not isinstance(mod, (int, float)) or mod < 0:
+            return f"complications.heat_modifier[{level}] must be a non-negative float (got {mod!r})"
+    rep_discount = complications.get("rep_discount_per_point", 0.0)
+    if not isinstance(rep_discount, (int, float)) or not (0.0 <= rep_discount <= 0.01):
+        return f"complications.rep_discount_per_point must be in [0, 0.01] (got {rep_discount!r})"
+    rep_cap = complications.get("rep_discount_cap", 0.0)
+    if not isinstance(rep_cap, (int, float)) or not (0.0 <= rep_cap <= 1.0):
+        return f"complications.rep_discount_cap must be in [0, 1] (got {rep_cap!r})"
+    sloppy = complications.get("sloppy_target_default_pack_tier_by_tier", {})
+    for tier, pack_tier in sloppy.items():
+        if pack_tier not in PACK_TIER_LIST:
+            return f"complications.sloppy_target_default_pack_tier_by_tier[{tier}]={pack_tier!r} is not a known pack tier"
+    return None
+
+
+def validate_jobs_complication_pool_entry(entry: dict) -> str | None:
+    """Validate a single entry in a complication_pools tier list."""
+    if not entry.get("id", "").strip():
+        return "complication pool entry: id cannot be empty"
+    weight = entry.get("weight", 0)
+    if not isinstance(weight, (int, float)) or weight < 0:
+        return f"complication pool entry {entry.get('id')!r}: weight must be >= 0 (got {weight!r})"
+    phase = entry.get("phase", "")
+    if phase not in COMPLICATION_PHASES:
+        return f"complication pool entry {entry.get('id')!r}: phase must be one of {sorted(COMPLICATION_PHASES)} (got {phase!r})"
+    return None
+
+
+def validate_jobs_recipe_entry(entry: dict) -> str | None:
+    """Validate a single reward_recipes entry for an NPC tier."""
+    weight = entry.get("weight", 0)
+    if not isinstance(weight, (int, float)) or weight < 0:
+        return f"recipe entry: weight must be >= 0 (got {weight!r})"
+    coins = entry.get("coins", [0, 0])
+    if not isinstance(coins, list) or len(coins) != 2:
+        return "recipe entry: coins must be a two-element list [lo, hi]"
+    lo, hi = coins
+    if not isinstance(lo, int) or not isinstance(hi, int):
+        return "recipe entry: coins [lo, hi] must both be integers"
+    if lo > hi:
+        return f"recipe entry: coins lo ({lo}) must be <= hi ({hi})"
+    cats = entry.get("cats", {})
+    if not isinstance(cats, dict):
+        return "recipe entry: cats must be a dict"
+    for rarity, count in cats.items():
+        if not isinstance(count, int) or count < 1:
+            return f"recipe entry: cats[{rarity!r}] must be an integer >= 1 (got {count!r})"
+    pack = entry.get("pack")
+    if pack is not None and pack not in PACK_TIER_LIST:
+        return f"recipe entry: pack {pack!r} is not a known pack tier"
+    return None
+
+
+def validate_jobs_voice_entry(line: str) -> str | None:
+    """Validate a single voice line."""
+    if not line.strip():
+        return "voice line cannot be empty"
+    return None
+
+
 def validate_jobs_help_page(title: str, body: str, min_level_to_see: int) -> str | None:
     if not title.strip():
         return "title cannot be empty"

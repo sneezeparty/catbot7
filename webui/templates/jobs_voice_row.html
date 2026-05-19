@@ -1,0 +1,57 @@
+{#
+  Row for a single cat_voices rarity entry.
+  Variables: rarity, voice (dict with success/near_miss/total_failure lists), editing, just_saved
+  Target: #voice-<rarity>
+#}
+{% set row_id = "voice-" ~ rarity %}
+<tr id="{{ row_id }}" class="{% if editing %}editing{% endif %}{% if just_saved %} just-saved{% endif %}">
+  <td><span class="name">{{ rarity }}</span></td>
+  {% if editing %}
+    <td colspan="4">
+      <form id="{{ row_id }}-form"
+            hx-post="/jobs/voice/{{ rarity }}"
+            hx-target="#{{ row_id }}"
+            hx-swap="outerHTML"
+            style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--sp-2)">
+        <label>
+          <span class="muted" style="font-size:var(--fs-xs);display:block;margin-bottom:var(--sp-1)">success (one line per entry)</span>
+          <textarea name="success" rows="5"
+                    style="width:100%;font-family:var(--font-mono);font-size:var(--fs-xs)"
+                    placeholder="One line per quip"
+          >{{ (voice.get("success", [])) | join('\n') }}</textarea>
+        </label>
+        <label>
+          <span class="muted" style="font-size:var(--fs-xs);display:block;margin-bottom:var(--sp-1)">near_miss (one line per entry)</span>
+          <textarea name="near_miss" rows="5"
+                    style="width:100%;font-family:var(--font-mono);font-size:var(--fs-xs)"
+                    placeholder="One line per quip"
+          >{{ (voice.get("near_miss", [])) | join('\n') }}</textarea>
+        </label>
+        <label>
+          <span class="muted" style="font-size:var(--fs-xs);display:block;margin-bottom:var(--sp-1)">total_failure (one line per entry)</span>
+          <textarea name="total_failure" rows="5"
+                    style="width:100%;font-family:var(--font-mono);font-size:var(--fs-xs)"
+                    placeholder="One line per quip"
+          >{{ (voice.get("total_failure", [])) | join('\n') }}</textarea>
+        </label>
+      </form>
+      <div class="actions" style="margin-top:var(--sp-2)">
+        <button class="btn btn-primary" type="submit" form="{{ row_id }}-form">Save</button>
+        <button class="btn btn-ghost" type="button"
+                hx-get="/jobs/voice/{{ rarity }}/cancel"
+                hx-target="#{{ row_id }}"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </td>
+  {% else %}
+    <td class="numeric">{{ voice.get("success", []) | length }}</td>
+    <td class="numeric">{{ voice.get("near_miss", []) | length }}</td>
+    <td class="numeric">{{ voice.get("total_failure", []) | length }}</td>
+    <td class="actions">
+      <button class="btn" type="button"
+              hx-get="/jobs/voice/{{ rarity }}/edit"
+              hx-target="#{{ row_id }}"
+              hx-swap="outerHTML">Edit</button>
+    </td>
+  {% endif %}
+</tr>

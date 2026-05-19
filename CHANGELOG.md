@@ -7,6 +7,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 ## [Unreleased]
 
 ### Added
+- **Mafia leaderboard category** — `/leaderboards type:Mafia` ranks players by catnip level (Cat Mafia rank, 0–10). Per-server like the other categories. Sorted by `user.catnip_level` joined into the per-profile rollup.
+  > _draft_
 - **Fifth battlepass quest slot** (`challenge_quest`) for harder catch-condition quests. Wired through `generate_quest`, `refresh_quests` (season rollover + retired-quest cleanup), `progress()`, the /battlepass UI render, and DM reminders (with postpone button). Five challenge quests in the new `quests.challenge` config section:
   - `under3` — Catch a cat in under 3 seconds • 320–370 XP
   - `slow` — Catch after a cat has sat for a full minute • 250–290 XP
@@ -89,6 +91,12 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - Catnip level names for L5–L11 updated to reflect the uniform duration (e.g. "Second Bounty", "Tougher Bounties", etc.); old names referenced duration increments that no longer apply.
   > _draft_
 - **Plush promo footer removed** from bot messages; the `/plush` limited-time campaign has ended.
+  > _draft_
+- **Spawn revival now runs on a real background ticker** (every 60s by default), not only when someone chats. Previously, quiet channels could sit with an overdue spawn waiting for the next message to wake `background_loop` — long-running gaps after `cat!restart` or a scheduled-spawn task drop were possible. A standalone `_spawn_revival_loop` task now scans `channel WHERE yet_to_spawn < now() AND cat = 0` on a timer and respawns. The inline scan in `background_loop` remains as defense in depth; `spawn_cat` is self-guarded so the two paths race cleanly. Tunable via `spawn_revival_interval_seconds` in `config/tuning.json`. Task handle stored on `config.spawn_revival_task` so it survives `cat!restart`.
+  > _draft_
+
+### Fixed
+- **/inventory and /achievements no longer crash on newly-added achievement IDs.** Five sites in `main.py` were probing `person[k]` (legacy boolean column lookup), which raises `KeyError` for aches that exist only in the JSONB `profile.unlocked_aches` array. Replaced with `person.has_ach(k)`. Affected newer achievements: `catstore_*`, `mafia_*`, `challenge_first`, `snowballer_max`, `bp_xp_proc`, `bait_switch_proc`.
   > _draft_
 
 ### Removed

@@ -562,10 +562,27 @@ def store_buy_price(cat_type: str, catnip_level: int) -> int:
     return max(1, int(price))
 
 
-def store_sell_price(cat_type: str) -> int:
-    """Coins received per cat sold. Always face value — discounts are
-    asymmetric on purpose so high-mafia players don't farm the sell side."""
-    return cat_value(cat_type)
+def store_sell_pct(catnip_level: int) -> int:
+    """What fraction of face value the mafia pays out on a sell, as a percent.
+    The "natural" curve is 50% at Newbie + 5% per level (so El Patrón would
+    sell at 100% face) — but the natural curve crosses the buy curve at Lv7
+    and beyond, which would create a buy<face<sell arbitrage loop. We cap
+    sell at `buy_pct - 5` so the round-trip stays at least 5 percentage
+    points negative at every level. Practical effect: sell tops out around
+    65% face at El Patrón rather than the named 100%."""
+    natural = 50 + max(0, catnip_level) * 5
+    buy_pct = 100 - store_discount_pct(catnip_level)
+    return min(natural, buy_pct - 5)
+
+
+def store_sell_price(cat_type: str, catnip_level: int) -> int:
+    """Coins received per cat sold. Scales with mafia level: a Newbie only
+    gets 50% of face value back, El Patrón gets the full 100%. The asymmetry
+    with the buy discount is intentional — sell ceiling is 100% face while
+    buy floor is 70% face at max mafia, so round-trips always net negative."""
+    value = cat_value(cat_type)
+    pct = store_sell_pct(catnip_level)
+    return max(1, value * pct // 100)
 
 
 async def mark_discovered(profile: Profile, cat_type: str) -> None:
@@ -6821,7 +6838,7 @@ async def catstore(message: discord.Interaction):
             "- Cats cost coins. Their value comes from how rare they are.\n"
             "- Your Cat Mafia level changes the price. Levels 5–10 give you a discount, levels 0–3 charge a tax, level 4 is even.\n"
             "- You can only buy or sell cats you've personally discovered in this server. Catch one to discover it.\n"
-            "- Sell prices are always at face value — the mafia only affects buying.",
+            "- Sell prices also scale with Cat Mafia level — Newbies sell at 50% of face value, mid-ranks peak around 80%, and the rate stays below the buy price at every level so round-trips always lose money. You can't farm the store.",
             ephemeral=True,
         )
 
@@ -6943,7 +6960,7 @@ async def catstore(message: discord.Interaction):
                         f"you only own {owned:,} {self.cat_type} cats in this server", ephemeral=True
                     )
                     return
-                unit_price = store_sell_price(self.cat_type)
+                unit_price = store_sell_price(self.cat_type, fresh.catnip_level)
                 total = unit_price * qty
                 fresh[f"cat_{self.cat_type}"] -= qty
                 fresh.coins += total
@@ -6951,7 +6968,12 @@ async def catstore(message: discord.Interaction):
                 nonlocal profile
                 profile = fresh
 
-            last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,}"
+            face_total = cat_value(self.cat_type) * qty
+            cut = face_total - total
+            if cut > 0:
+                last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,} (mafia took 🪙 {cut:,})"
+            else:
+                last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,} (full value)"
             if not profile.has_ach("catstore_first_sell"):
                 await achemb(interaction, "catstore_first_sell", "followup")
             await gen_detail(interaction, self.cat_type, use_followup=False)
@@ -7121,23 +7143,29 @@ async def catstore(message: discord.Interaction):
     async def gen_detail(interaction: discord.Interaction, cat_type: str, use_followup: bool):
         await profile.refresh_from_db()
         discount = store_discount_pct(profile.catnip_level)
+        sell_pct = store_sell_pct(profile.catnip_level)
         unit_value = cat_value(cat_type)
         unit_buy = store_buy_price(cat_type, profile.catnip_level)
-        unit_sell = store_sell_price(cat_type)
+        unit_sell = store_sell_price(cat_type, profile.catnip_level)
         owned = profile[f"cat_{cat_type}"]
         coins = profile.coins
         can_afford = coins // unit_buy if unit_buy > 0 else 0
 
         if discount > 0:
-            savings_note = f"  (saving 🪙 {unit_value - unit_buy:,} at +{discount}%)"
+            buy_note = f"  (saving 🪙 {unit_value - unit_buy:,} at +{discount}%)"
         elif discount < 0:
-            savings_note = f"  (adding 🪙 {unit_buy - unit_value:,} tax 💸)"
+            buy_note = f"  (adding 🪙 {unit_buy - unit_value:,} tax 💸)"
         else:
-            savings_note = ""
+            buy_note = ""
+
+        if sell_pct < 100:
+            sell_note = f"  (mafia takes 🪙 {unit_value - unit_sell:,} — {sell_pct}% of face)"
+        else:
+            sell_note = "  (full face value)"
 
         body_lines = [
-            f"Buy:  🪙 {unit_buy:,}{savings_note}",
-            f"Sell: 🪙 {unit_sell:,}",
+            f"Buy:  🪙 {unit_buy:,}{buy_note}",
+            f"Sell: 🪙 {unit_sell:,}{sell_note}",
             "",
             f"You own: {owned:,} in this server",
             f"You have: 🪙 {coins:,}  (can afford {can_afford:,})",

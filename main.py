@@ -1301,7 +1301,7 @@ async def generate_quest(user: Profile, quest_type: str):
         elif quest == "achievement":
             unlocked = 0
             for k in ach_names:
-                if user[k] and ach_list[k]["category"] != "Hidden":
+                if user.has_ach(k) and ach_list[k]["category"] != "Hidden":
                     unlocked += 1
             if unlocked > 30:
                 continue
@@ -1702,7 +1702,7 @@ async def finale(message, user):
 
     # check ach req
     for k in ach_names:
-        if not user[k] and ach_list[k]["category"] != "Hidden":
+        if not user.has_ach(k) and ach_list[k]["category"] != "Hidden":
             return
 
     user.finale_seen = True
@@ -4831,7 +4831,11 @@ async def gen_inventory(message, person_id):
         is_ach_hidden = ach_list[k]["category"] == "Hidden"
         if is_ach_hidden:
             minus_achs_count += 1
-        if person[k]:
+        # has_ach checks the JSONB unlocked_aches array first, then falls back
+        # to the legacy boolean column. New aches (catstore_*, mafia_*, etc.)
+        # only exist in the JSONB array — probing them via person[k] raises
+        # KeyError because no column was ever created for them.
+        if person.has_ach(k):
             if is_ach_hidden:
                 minus_achs += 1
             else:
@@ -10493,7 +10497,7 @@ async def achievements(message: discord.Interaction):
         is_ach_hidden = ach_list[k]["category"] == "Hidden"
         if is_ach_hidden:
             minus_achs_count += 1
-        if user[k]:
+        if user.has_ach(k):
             if is_ach_hidden:
                 minus_achs += 1
             else:
@@ -10515,7 +10519,7 @@ async def achievements(message: discord.Interaction):
             is_ach_hidden = ach_list[k]["category"] == "Hidden"
             if is_ach_hidden:
                 minus_achs_count += 1
-            if user[k]:
+            if user.has_ach(k):
                 if is_ach_hidden:
                     minus_achs += 1
                 else:

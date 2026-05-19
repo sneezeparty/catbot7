@@ -13,6 +13,7 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
   - `legendary+` — Catch a Legendary or rarer cat • 380–400 XP
   - `catnip_catch` — Catch 10 cats while catnip is active • 280–340 XP • progress 10
   - `streak10` — Catch 10 cats in a row without missing • 320–380 XP • progress 10
+  - Achievement `challenge_first` — "Challenge Accepted": complete a challenge quest for the first time • 350 XP
   > _draft_
 - **`define` misc quest** — Use /define once • 250–290 XP. Added to the `quests.misc` pool.
   > _draft_
@@ -28,20 +29,21 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **`CHANGELOG.md`** with auto-draft maintenance via the `changelog-sync` subagent.
 - **Pack rewards in battlepass level-up track.** One pack (Wooden through Celestial, scaling with tier) is now interspersed as a reward at specific levels across all 17 seasons. Season 1 has one of each tier across its 30 levels.
   > _draft_
-- **Snowballer** catnip perk: each consecutive catch builds a combo stack (cap 30); per-stack % chance to trigger a double-catch feeds into the existing double pool. Stack resets to 1 after 5 minutes idle. Per-stack % by tier: 0.5 / 0.75 / 1.25 / 2.0 / 3.0. Maximum double-chance contribution at cap: 15 / 22.5 / 37.5 / 60 / 90%.
+- **Snowballer** catnip perk: each consecutive catch builds a combo stack (cap 30); per-stack % chance to trigger a double-catch feeds into the existing double pool. Stack resets to 1 after 5 minutes idle. Per-stack % by tier: 0.5 / 0.75 / 1.25 / 2.0 / 3.0. Maximum double-chance contribution at cap: 15 / 22.5 / 37.5 / 60 / 90%. Hidden achievement `snowballer_max` ("Avalanche") unlocked on reaching a 30-stack • 400 XP.
   > _draft_
-- **Battlepass Booster** catnip perk: each catch has a % chance to grant +5 battlepass XP immediately (via the existing XP path; can trigger a level-up). Chance by tier: 5 / 8 / 12 / 20 / 30%.
+- **Battlepass Booster** catnip perk: each catch has a % chance to grant +5 battlepass XP immediately (via the existing XP path; can trigger a level-up). Chance by tier: 5 / 8 / 12 / 20 / 30%. Hidden achievement `bp_xp_proc` ("Cram Session") unlocked on first proc • 200 XP.
   > _draft_
-- **Bait & Switch** catnip perk: each catch has a % chance to immediately respawn a cat in the same channel. Does not fire during a rain. Chance by tier: 1 / 1.5 / 2.5 / 5 / 8%.
+- **Bait & Switch** catnip perk: each catch has a % chance to immediately respawn a cat in the same channel. Does not fire during a rain. Chance by tier: 1 / 1.5 / 2.5 / 5 / 8%. Hidden achievement `bait_switch_proc` ("Bait Master") unlocked on first proc • 200 XP.
   > _draft_
 
 ### Added
-- **/catstore command** — buy and sell cats for coins, per-server. Purchase price is adjusted by your Cat Mafia (catnip) level: levels 0–3 apply a tax (−20% to −5%), level 4 is face value, levels 5–10 give a discount (+5% to +30%). Sell prices are always at face value regardless of catnip level.
+- **/catstore command** — buy and sell cats for coins, per-server. Purchase price is adjusted by your Cat Mafia (catnip) level: levels 0–3 apply a tax (−20% to −5%), level 4 is face value, levels 5–10 give a discount (+5% to +30%). Sell prices scale with mafia level (see Changed section).
   > _draft_
 - **Discovery gate for /catstore** — a cat rarity is only available in a server's store once you've personally caught at least one of that rarity in that server. Discovery is lifetime: catching a Mythic once unlocks Mythics in that server's store forever. Existing players are backfilled from their current catch counters via migration 005.
   > _draft_
-- **5 new achievements** added for /catstore activity:
+- **6 new achievements** added for /catstore activity:
   - `catstore_first_buy` — "First Purrchase": complete your first store purchase • 250 XP
+  - `catstore_first_sell` — "Profit Margin": sell a cat to the store for the first time • 250 XP
   - `catstore_whale` — "Whale Watcher": spend 10 000+ coins in a single transaction • 400 XP
   - `catstore_collector` (hidden) — "Compulsive Shopper": buy every rarity at least once • 500 XP
   - `mafia_discount_max` (hidden) — "Made Man": buy at maximum Cat Mafia discount • 350 XP
@@ -51,6 +53,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
   > _draft_
 
 ### Changed
+- **/catstore sell prices now scale with Cat Mafia (catnip) level.** The natural curve starts at 50% of face value at Newbie and rises +5% per level, but is capped at `(buy_pct − 5)` at every level to prevent buy-low-sell-high arbitrage. Practical curve across Lv0–11: 50, 55, 60, 65, 70, 75, 80, 80, 75, 70, 65, 65%. El Patrón tops out at 65% sell (not 100%). The /catstore detail view now shows the mafia cut inline — e.g. "(mafia takes 🪙 N — N% of face)" — and the sell confirmation toast reflects the cut or says "(full value)" when none applies. Help text updated to mention the scaling and that round-trips always net negative.
+  > _draft_
 - **README rewritten** to document fork-specific gameplay divergence (unified coins wallet, /catstore, activity-driven stocks, reshuffled catnip perks, 5-quest battlepass, passive XP drips, pack-open polish) and to list every migration with what it does and when it's needed. The `voting_enabled` / `webhook_verify` env-var rows now make clear voting is permanently retired scaffolding.
   > _draft_
 - **/roulette now uses `coins`**, the same wallet as /stocks, /packs, and /catstore. Migration 006 sums each player's existing `roulette_balance` into `coins` — nobody loses earned currency, and gambling debts are preserved as negative coin balances. The debt-recovery mechanic is unchanged: max bet is `max(coins, 100)` so a player in the red can still wager up to 100 coins.
@@ -117,6 +121,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - New profile columns `discovered_cats` and `store_purchased_rarities` (both JSONB, default `[]`). Mirrored in `schema.sql`; backfilled by `migrations/005_cat_store.py` (idempotent ADD COLUMN + per-rarity discovery backfill from existing `cat_<Type>` counters, batched 5 000 rows at a time).
   > _draft_
 - New helpers in `main.py` (placed near `get_stock_price`): `cat_value`, `store_discount_pct`, `store_buy_price`, `store_sell_price`, `mark_discovered` (called from every cat acquisition site: catch, pack opens, battlepass level-up rewards, /gift recipient, /trade settlement), `mark_store_purchased` (backs the `catstore_collector` achievement). Store touches `profile.coins` only; `roulette_balance` is unaffected and no new currency type was added. _(Note: `roulette_balance` has since been merged into `coins` by migration 006 — see Changed section.)_
+  > _draft_
+- New helper `store_sell_pct(catnip_level)` added to `main.py`; `store_sell_price` signature updated to accept `catnip_level`. Both placed near the existing buy-price helpers.
   > _draft_
 - New `stock_market` block in `config/tuning.json`: operator-tunable enabled flag, spread, MM order quantity, price floor/ceiling, and per-ticker base/baseline/alpha. Hot-reloads on `cat!restart`.
   > _draft_

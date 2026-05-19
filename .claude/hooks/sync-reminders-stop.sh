@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Stop hook: surfaces reminders for any pending sync queues (webui-sync,
-# design-docs-sync, changelog-sync) so Claude invokes them on the next turn.
+# design-docs-sync, changelog-sync, readme-sync) so Claude invokes them on
+# the next turn.
 #
 # Stop hooks can block completion by emitting JSON. We don't block — we just
 # print "additional context" messages that the next turn sees.
@@ -23,5 +24,6 @@ EOF
 emit "webui-sync"        "$ROOT/webui/.sync-pending"        "webui-sync"
 emit "design-docs-sync"  "$ROOT/docs/design/.sync-pending"  "design-docs-sync"
 emit "changelog-sync"    "$ROOT/docs/.changelog-pending"    "changelog-sync"
+emit "readme-sync"       "$ROOT/docs/.readme-pending"       "readme-sync"
 
 exit 0

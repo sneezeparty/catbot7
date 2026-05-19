@@ -110,6 +110,16 @@ Section layout is declared in `webui/manifest.py` — a dict mapping section nam
 
 Hard rules for the subagent: it only writes inside `webui/`, never touches bot code, never restarts the bot, never deletes a section without confirmation. If you're editing bot-surface files and `.sync-pending` is non-empty, expect the agent to run on the next turn (or invoke it explicitly with `/sync-webui`).
 
+### Other sync subagents
+
+Three more sync subagents follow the same pattern as `webui-sync`: a `PostToolUse` hook records edits to bot-surface files in a `.{name}-pending` queue, and the agent processes that queue on the next turn. **None of them commit or push** — commits and pushes are manual. They only edit working-tree files within their owned scope.
+
+- **`changelog-sync`** — owns `CHANGELOG.md`'s `[Unreleased]` section. Adds `> _draft_` entries for user-facing changes; humans de-draft on review. Hook: `.claude/hooks/changelog-sync-on-edit.sh`. Queue: `docs/.changelog-pending`. Slash command: `/sync-changelog`.
+- **`design-docs-sync`** — owns `docs/design/`. Updates evergreen design docs to reflect mechanics changes. Hook: `.claude/hooks/design-docs-sync-on-edit.sh`. Queue: `docs/design/.sync-pending`. Slash command: `/sync-design-docs`.
+- **`readme-sync`** — owns three specific sections of `README.md` (the "What's different on this fork" bullet list, the env-vars table, and the migrations table). Conservative — skips edits when the change doesn't affect those sections. Hook: `.claude/hooks/readme-sync-on-edit.sh`. Queue: `docs/.readme-pending`. Slash command: `/sync-readme`.
+
+All four hooks (the three above plus `webui-sync`) are registered in `.claude/settings.json` under `PostToolUse`. A single `Stop` hook (`sync-reminders-stop.sh`) surfaces any non-empty queues so the next turn knows which agents to invoke.
+
 ### Reload-safety
 
 Because `cat!restart` re-imports `main` (and optionally `database`/`catpg`), avoid stashing state on module globals you expect to survive a reload. Cross-reload state lives on the `config` module (e.g. `config.cat_cought_rain`, `config.rain_starter`, `config.HARD_RESTART_TIME`, `config.SOFT_RESTART_TIME`) — `bot.py` initializes those before `bot.run` and `setup` updates `SOFT_RESTART_TIME`.

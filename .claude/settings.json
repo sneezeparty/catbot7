@@ -15,6 +15,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/changelog-sync-on-edit.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/readme-sync-on-edit.sh"
           }
         ]
       }

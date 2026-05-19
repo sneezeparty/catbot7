@@ -7,6 +7,12 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 ## [Unreleased]
 
 ### Added
+- **Jobs / Mafia Killings** — full PvE contract system. `/jobs` offers 3 contracts every 6 UTC hours, deterministic per (user, server, window). Send cats as a crew, roll against a sigmoid (`ratio = crew_SP / difficulty`), three outcomes (success / 10pp near-miss / total failure). Six NPCs (Whiskers, Lucian Jr, Jinx, Jeremy, Lucian Sr, Sofia) with distinct stat blocks. `/rep` shows per-NPC standing. Big Score is a Tier 5 once-per-season Lv10 capstone — 3 eGirls + 15k coins + permanent +5% spawn-extra perk on first win. 12 new achievements, 2 new battlepass extra quests (job_easy, job_hard), 3 new leaderboards (Heists, Job Coins, Biggest Score). Paginated 9-page `/jobs help` reachable from every UI surface. Operator config editor in the admin webui under `/jobs` and `/jobs_help`.
+  > _draft_
+- **Diminishing returns on crew composition.** Mono-rarity stacking is dampened: `effective_SP = base_SP × count^0.75`. Mixing rarities preserves full efficiency. 100 Fines contribute ~32 SP, not 100 — closes the arbitrage of farming coins by spamming Tier 1 jobs with bought Fines. Tunable via `config/jobs.json → tuning.diminishing_returns_alpha`.
+  > _draft_
+- **Daily job-commit cap** — 3 commits per UTC day, per server. Surfaces on the `/jobs` board header as `Jobs today: X/3`. Tunable via `config/jobs.json → tuning.max_commits_per_day`. Misclicks would have burned a slot, so the cancel-grace mechanic that used to allow a 30s undo has been removed (it also let players undo total wipes — strategic re-rolling, which the spec explicitly disallowed). The roll is now final the moment you click Send Crew.
+  > _draft_
 - **Mafia leaderboard category** — `/leaderboards type:Mafia` ranks players by catnip level (Cat Mafia rank, 0–10). Per-server like the other categories. Sorted by `user.catnip_level` joined into the per-profile rollup.
   > _draft_
 - **Fifth battlepass quest slot** (`challenge_quest`) for harder catch-condition quests. Wired through `generate_quest`, `refresh_quests` (season rollover + retired-quest cleanup), `progress()`, the /battlepass UI render, and DM reminders (with postpone button). Five challenge quests in the new `quests.challenge` config section:

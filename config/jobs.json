@@ -21,7 +21,8 @@
     "pinch_threshold": 100,
     "pinch_lockout_seconds": 43200,
     "pinch_reset_heat": 30,
-    "diminishing_returns_alpha": 0.75
+    "diminishing_returns_alpha": 0.75,
+    "max_commits_per_day": 3
   },
   "tiers": {
     "1": { "name": "Errand",        "difficulty_range": [15, 30],    "reward_coin_range": [50, 150],      "heat": 0,   "min_catnip_level": 2 },

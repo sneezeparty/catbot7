@@ -1004,8 +1004,8 @@ def _jobs_reward_summary(reward: dict) -> str:
 # Jobs / Mafia Killings — Phase 2: send/commit/resolve.
 # ---------------------------------------------------------------------------
 
-JOBS_CANCEL_GRACE = JOBS_TUNING.get("cancel_grace_seconds", 30)
 JOBS_DIMINISHING_ALPHA = float(JOBS_TUNING.get("diminishing_returns_alpha", 0.75))
+JOBS_MAX_DAILY_COMMITS = int(JOBS_TUNING.get("max_commits_per_day", 3))
 
 
 def _jobs_coerce_dict(value) -> dict:
@@ -1271,92 +1271,21 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         profile.unlock_ach("outlaw")
 
 
-async def _jobs_reverse_commit(profile: Profile, job, send: dict) -> None:
-    """Inverse of escrow + _jobs_apply_outcome. Used by the cancel-grace path
-    to put the player back where they were before clicking Send Crew."""
-    outcome = job.outcome or ""
-
-    # Inventory: on success, the original sent cats returned + reward cats were
-    # granted — so reverse: remove reward cats; sent count unchanged from
-    # pre-escrow. On near-miss: survivors were re-added; destroyed weren't.
-    # On total_failure: nothing was re-added.
-    if outcome == "success":
-        reward = _jobs_coerce_dict(job.reward_snapshot)
-        for t, c in (reward.get("cats") or {}).items():
-            _jobs_subtract_cat(profile, t, int(c or 0))
-        coin_reward = int(reward.get("coins", 0) or 0)
-        if coin_reward:
-            profile.coins = int(getattr(profile, "coins", 0) or 0) - coin_reward
-        profile.job_coins_won = max(0, int(getattr(profile, "job_coins_won", 0) or 0) - coin_reward)
-    elif outcome == "near_miss":
-        # Destroyed cats need to come back (survivors already re-credited at commit time).
-        for t, c in _jobs_coerce_dict(job.cats_destroyed).items():
-            _jobs_add_cat(profile, t, int(c or 0))
-    else:  # total_failure: all sent were destroyed
-        for t, c in send.items():
-            _jobs_add_cat(profile, t, int(c or 0))
-
-    # Heat — restore prior values when available (cancel after a pinch needs
-    # this; the heat reset to 30 isn't a simple subtract of heat_cost).
-    rep_changes = _jobs_coerce_dict(job.rep_changes)
-    if "prior_heat" in rep_changes:
-        profile.heat = int(rep_changes["prior_heat"] or 0)
-    else:
-        profile.heat = max(0, int(getattr(profile, "heat", 0) or 0) - int(job.heat_cost or 0))
-    if "prior_suspended_until" in rep_changes:
-        profile.perks_suspended_until = int(rep_changes["prior_suspended_until"] or 0)
-
-    # Big Score: restore season + win counter + perk unlock flag.
-    if "prior_big_score_season" in rep_changes:
-        profile.big_score_season = int(rep_changes["prior_big_score_season"] or -1)
-    if "prior_big_score_wins" in rep_changes:
-        profile.big_score_wins = int(rep_changes["prior_big_score_wins"] or 0)
-    if "prior_big_score_perk_unlocked" in rep_changes:
-        profile.big_score_perk_unlocked = bool(rep_changes["prior_big_score_perk_unlocked"])
-
-    # Big Score consolation coins on near-miss: subtract them back out.
-    if int(job.tier or 0) == 5 and job.outcome == "near_miss":
-        reward_snap = _jobs_coerce_dict(job.reward_snapshot)
-        consolation = int(reward_snap.get("_near_miss_coins", 0) or 0)
-        if consolation:
-            profile.coins = max(0, int(getattr(profile, "coins", 0) or 0) - consolation)
-            profile.job_coins_won = max(0, int(getattr(profile, "job_coins_won", 0) or 0) - consolation)
-
-    # Rep
-    rep = _jobs_faction_rep(profile)
-    for k, delta in rep_changes.get("applied", {}).items():
-        rep[k] = rep.get(k, 0) - int(delta or 0)
-    profile.faction_rep = rep
-
-    # Counters
-    if outcome == "success":
-        profile.jobs_completed = max(0, int(getattr(profile, "jobs_completed", 0) or 0) - 1)
-    elif outcome == "near_miss":
-        profile.jobs_near_missed = max(0, int(getattr(profile, "jobs_near_missed", 0) or 0) - 1)
-    else:
-        profile.jobs_failed = max(0, int(getattr(profile, "jobs_failed", 0) or 0) - 1)
-    destroyed_total = sum(int(c or 0) for c in _jobs_coerce_dict(job.cats_destroyed).values())
-    profile.cats_lost_to_jobs = max(0, int(getattr(profile, "cats_lost_to_jobs", 0) or 0) - destroyed_total)
-
-    # Job back to offered
-    job.state = "offered"
-    job.outcome = ""
-    job.roll = 0.0
-    job.success_chance = 0.0
-    job.cats_destroyed = {}
-    job.send_snapshot = {}
-    job.send_total = 0
-    job.committed_at = 0
-    job.resolved_at = 0
-    job.rep_changes = {}
+def _jobs_start_of_utc_day(now: int) -> int:
+    """Unix epoch for 00:00 UTC of the day containing `now`."""
+    dt = datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc)
+    midnight = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(midnight.timestamp())
 
 
-def _jobs_cancel_grace_remaining(job) -> int:
-    """Seconds left in the cancel-grace window. 0 if locked."""
-    if not job.committed_at:
-        return 0
-    elapsed = int(time.time()) - int(job.committed_at)
-    return max(0, JOBS_CANCEL_GRACE - elapsed)
+async def _jobs_commits_today(user_id: int, guild_id: int, now: int) -> int:
+    """Count commits-this-UTC-day (per-server). Cancelled commits zero out
+    `committed_at`, so they aren't counted — the daily cap doesn't punish misclicks."""
+    start = _jobs_start_of_utc_day(now)
+    return int(await JobInstance.count(
+        "user_id = $1 AND guild_id = $2 AND committed_at >= $3 AND state IN ('resolved', 'committed')",
+        int(user_id), int(guild_id), start,
+    ) or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -8326,12 +8255,17 @@ async def jobs(message: discord.Interaction):
         heat_band = "🟢" if heat <= 30 else ("🟡" if heat <= 70 else "🔴")
         suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
         pinch_active = suspended_until > now
+        today_count = await _jobs_commits_today(int(profile.user_id), int(profile.guild_id), now)
+        day_end = _jobs_start_of_utc_day(now) + 86400
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
             "## 📋 Jobs Board",
-            f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  Refreshes <t:{win_end}:R>",
+            (f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  "
+             f"Jobs today: {today_count}/{JOBS_MAX_DAILY_COMMITS}  ·  Refreshes <t:{win_end}:R>"),
         ]
+        if today_count >= JOBS_MAX_DAILY_COMMITS:
+            items.append(f"-# 🛑 **Daily limit hit.** Resets <t:{day_end}:R>.")
         if pinch_active:
             items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
         if level < 4:
@@ -8524,7 +8458,6 @@ async def jobs(message: discord.Interaction):
                 "No reward.",
             ]
 
-        grace_left = _jobs_cancel_grace_remaining(job)
         items: list = [
             header,
             f"Rolled **{job.roll * 100:.1f}%** vs threshold **{job.success_chance * 100:.0f}%**",
@@ -8545,18 +8478,13 @@ async def jobs(message: discord.Interaction):
                 f"Catnip perks are suspended until <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
             )
 
-        cancel_btn = Button(
-            label=f"Undo ({grace_left}s)" if grace_left > 0 else "Undo (locked)",
-            style=ButtonStyle.red,
-            custom_id="jobs_result_cancel",
-        )
-        cancel_btn.callback = on_result_cancel
-        cancel_btn.disabled = grace_left <= 0
+        # Outcomes are final — the roll is locked the moment Send Crew is clicked.
+        # No Undo (strategic re-rolling defeats the gamble).
         back_btn = Button(label="📋 Back to board", style=ButtonStyle.gray, custom_id="jobs_result_back")
         back_btn.callback = on_result_back
         result_help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_result_help")
         result_help_btn.callback = on_help
-        items.append(ActionRow(cancel_btn, back_btn, result_help_btn))
+        items.append(ActionRow(back_btn, result_help_btn))
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         container = Container(*items)
@@ -8722,6 +8650,18 @@ async def jobs(message: discord.Interaction):
         if not send_state:
             await interaction.response.send_message("Add at least one cat first.", ephemeral=True)
             return
+        # Daily cap check before doing any work. Cancelled commits don't count
+        # (committed_at is zeroed on cancel), so misclicks aren't punished.
+        now_check = int(time.time())
+        today_count = await _jobs_commits_today(int(message.user.id), int(message.guild.id), now_check)
+        if today_count >= JOBS_MAX_DAILY_COMMITS:
+            day_end = _jobs_start_of_utc_day(now_check) + 86400
+            await interaction.response.send_message(
+                f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
+                f"Resets <t:{day_end}:R>. Come back tomorrow.",
+                ephemeral=True,
+            )
+            return
         await interaction.response.defer()
         # Atomic: lock profile, lock offer (FOR UPDATE), verify inventory, escrow,
         # roll, apply outcome. The whole thing in one transaction.
@@ -8824,43 +8764,6 @@ async def jobs(message: discord.Interaction):
             logging.info("jobs: show_result returned")
         except Exception:
             logging.exception("jobs: show_result failed")
-
-    async def on_result_cancel(interaction: discord.Interaction):
-        await interaction.response.defer()
-        try:
-            async with transaction() as conn:
-                fresh = await Profile.get_or_create(
-                    connection=conn,
-                    user_id=int(message.user.id),
-                    guild_id=int(message.guild.id),
-                )
-                job = await JobInstance.get_or_none(id=mode["job_id"])
-                if not job or int(job.user_id) != int(message.user.id):
-                    last_toast.append("⚠️ That job is gone.")
-                    mode["screen"] = "board"
-                    send_state.clear()
-                    await show_board(interaction)
-                    return
-                if _jobs_cancel_grace_remaining(job) <= 0:
-                    last_toast.append("⚠️ Roll is locked — too late to undo.")
-                    await show_result(interaction)
-                    return
-                send_snapshot = _jobs_coerce_dict(job.send_snapshot)
-                await _jobs_reverse_commit(fresh, job, send_snapshot)
-                await job.save()
-                await fresh.save()
-                # See note in on_send_commit: skipping profile.refresh_from_db()
-                # inside the transaction to avoid the FOR UPDATE self-deadlock.
-        except Exception:
-            logging.exception("jobs: cancel-grace reverse failed")
-            last_toast.append("⚠️ Undo failed. Try again.")
-            await show_result(interaction)
-            return
-
-        send_state.clear()
-        mode["screen"] = "board"
-        last_toast.append("-# Undid the commit. The offer is back on your board.")
-        await show_board(interaction)
 
     async def on_result_back(interaction: discord.Interaction):
         mode["screen"] = "board"

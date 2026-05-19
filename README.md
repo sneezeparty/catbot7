@@ -2,7 +2,9 @@
 
 A self-hosted variant of [milenakos/cat-bot](https://github.com/milenakos/cat-bot) (the public Cat Bot for Discord — [top.gg](https://top.gg/bot/966695034340663367), [wiki](https://wiki.minkos.lol)).
 
-This fork tracks upstream and layers on extras useful for running a private/small instance:
+This is a **snapshot fork**, not a tracking one — taken from upstream and then diverged. There is no `upstream` git remote configured and no plan to merge new upstream changes back in. The divergence is intentional: this instance has removed voting, restructured the catnip perks and battlepass quests, added a webui, and made schema changes that wouldn't cleanly merge anyway. Upstream is credited and linked, but treated as a separate project from here on.
+
+On top of that snapshot, this fork layers on extras useful for running a private/small instance:
 
 - **`webui/`** — local-only admin panel on `127.0.0.1:9445` for editing live game state and JSON configs.
 - **`docs/design/`** — evergreen design docs for the economy, battlepass, catnip, and achievements.
@@ -13,7 +15,7 @@ This fork tracks upstream and layers on extras useful for running a private/smal
 - **`setup-pg.sh`** — one-shot podman/Postgres bootstrap.
 - **`.claude/`** — Claude Code agents (`webui-sync`, `design-docs-sync`, `changelog-sync`) and `PostToolUse` hooks that keep the webui/docs/changelog aligned with bot-surface edits.
 
-Original upstream is still the canonical source for the public bot; this repo only diverges where the self-hosted scenario differs.
+Upstream remains the canonical source for the public bot; this repo is a separate project for the self-hosted scenario.
 
 # Development
 

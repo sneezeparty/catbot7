@@ -1,4 +1,8 @@
-# ![Cat Bot PFP](https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/main/images/cat.png&h=25) Cat Bot — self-hosted fork
+<p align="center">
+  <img src="images/derpycat.png" alt="Cat Bot" width="400">
+</p>
+
+# Cat Bot — self-hosted fork
 
 A self-hosted variant of [milenakos/cat-bot](https://github.com/milenakos/cat-bot) (the public Cat Bot for Discord — [top.gg](https://top.gg/bot/966695034340663367), [wiki](https://wiki.minkos.lol)).
 

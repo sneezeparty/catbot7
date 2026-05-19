@@ -2772,6 +2772,13 @@
         "xp_min": 175,
         "xp_max": 225,
         "progress": 1
+      },
+      "define": {
+        "emoji": "🤓",
+        "title": "/Define a word",
+        "xp_min": 250,
+        "xp_max": 290,
+        "progress": 1
       }
     },
     "extra": {
@@ -2803,6 +2810,50 @@
         "xp_max": 0,
         "progress": 1,
         "dynamic_reward": true
+      },
+      "gift3": {
+        "emoji": "🎁",
+        "title": "/Gift 3 different players",
+        "xp_min": 320,
+        "xp_max": 380,
+        "progress": 3
+      }
+    },
+    "challenge": {
+      "under3": {
+        "emoji": "⏱️",
+        "title": "Catch in under 3 sec",
+        "xp_min": 320,
+        "xp_max": 370,
+        "progress": 1
+      },
+      "slow": {
+        "emoji": "😴",
+        "title": "Catch after the cat sits there for a full minute",
+        "xp_min": 250,
+        "xp_max": 290,
+        "progress": 1
+      },
+      "legendary+": {
+        "emoji": "legendarycat",
+        "title": "Catch a Legendary or rarer cat",
+        "xp_min": 380,
+        "xp_max": 400,
+        "progress": 1
+      },
+      "catnip_catch": {
+        "emoji": "catnip",
+        "title": "Catch 10 cats while catnip is active",
+        "xp_min": 280,
+        "xp_max": 340,
+        "progress": 10
+      },
+      "streak10": {
+        "emoji": "🔥",
+        "title": "Catch 10 cats in a row without missing",
+        "xp_min": 320,
+        "xp_max": 380,
+        "progress": 1
       }
     }
   }

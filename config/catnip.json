@@ -145,20 +145,20 @@
       "exclusive": false,
       "name": "Time Manipulator",
       "desc": "**percent%** chance of adding **5 minutes** to catnip timer on catch.",
-      "weight": 12.5,
+      "weight": 0,
       "values": [
-        1,
-        1.5,
-        2.5,
-        5,
-        7.5
+        0,
+        0,
+        0,
+        0,
+        0
       ]
     },
     {
-      "id": "timer_add_streak",
+      "id": "loyalty_streak",
       "exclusive": true,
-      "name": "Voting Booster",
-      "desc": "Your vote streak **(timer_add_streak)** boosts catnip duration.",
+      "name": "Loyalty Streak",
+      "desc": "Your daily catch streak **(daily_catch_streak)** boosts catnip duration.",
       "weight": 5,
       "values": [
         0,
@@ -194,6 +194,48 @@
         20,
         40,
         60
+      ]
+    },
+    {
+      "id": "combo",
+      "exclusive": false,
+      "name": "Snowballer",
+      "desc": "Each consecutive catch builds a stack (cap **30**). **percent%** chance per stack of doubling on catch. Stack resets after 5 minutes idle.",
+      "weight": 8,
+      "values": [
+        0.5,
+        0.75,
+        1.25,
+        2.0,
+        3.0
+      ]
+    },
+    {
+      "id": "bp_xp",
+      "exclusive": false,
+      "name": "Battlepass Booster",
+      "desc": "**percent%** chance per catch of granting **+5** battlepass XP.",
+      "weight": 10,
+      "values": [
+        5,
+        8,
+        12,
+        20,
+        30
+      ]
+    },
+    {
+      "id": "respawn",
+      "exclusive": false,
+      "name": "Bait & Switch",
+      "desc": "**percent%** chance per catch of immediately spawning another cat in the channel.",
+      "weight": 5,
+      "values": [
+        1,
+        1.5,
+        2.5,
+        5,
+        8
       ]
     }
   ],

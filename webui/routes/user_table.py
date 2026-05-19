@@ -9,8 +9,8 @@ from webui import state
 INT_FIELDS = [
     "rain_minutes",
     "rain_minutes_bought",
-    "vote_streak",
-    "max_vote_streak",
+    "daily_catch_streak",
+    "max_daily_streak",
     "streak_freezes",
     "total_votes",
     "vote_time_topgg",

@@ -28,6 +28,10 @@ INT_FIELDS = [
     "extra_progress",
     "extra_cooldown",
     "extra_reward",
+    "challenge_progress",
+    "challenge_cooldown",
+    "challenge_reward",
+    "reminder_challenge",
     # Streak / misc counters
     "catch_streak",
     # Rain / inventory
@@ -54,6 +58,7 @@ INT_FIELDS = [
     "catnip_level",
     "catnip_total_cats",
     "catnip_amount",
+    "combo_stack",
     # Bounties
     "bounty_id_one",
     "bounty_id_two",
@@ -96,6 +101,8 @@ STR_FIELDS = [
     "catch_quest",
     "misc_quest",
     "extra_quest",
+    "challenge_quest",
+    "gift3_recipients",
     "custom",
     "perk1",
     "perk2",

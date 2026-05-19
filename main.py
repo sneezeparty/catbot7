@@ -90,6 +90,11 @@ cattypes = list(type_dict.keys())
 # generate a dict with lowercase'd keys
 cattype_lc_dict = {i.lower(): i for i in cattypes}
 
+# Cat tiers from "Legendary" downward (rarer). Used by the `legendary+`
+# challenge quest trigger. The list in type_dict is ordered most-common to
+# rarest, so slicing from Legendary onward gives the full rarer-than-Epic set.
+LEGENDARY_PLUS = frozenset(cattypes[cattypes.index("Legendary"):])
+
 # XP awarded per cat for the "sacrifice" battlepass quest. Hidden from users —
 # they only see "depends on the cat". Range is 25 (most common) to 300 (rarest).
 SACRIFICE_XP = {
@@ -449,21 +454,19 @@ async def fetch_dm_channel(user: User) -> discord.PartialMessageable:
         return person.dm_channel
 
 
-# vote_streak is repurposed as a daily catch streak while VOTING_ENABLED is False.
-# Increments on the first catch of each new UTC day; resets after a missed day.
-# When voting is restored, give voting its own column rather than reusing this one.
-# Returns True if this was the first catch of the UTC day (caller uses this to
-# award the first-catch-of-day XP bonus).
-async def update_catch_streak(user: User) -> bool:
+# Increments on the first catch of each new UTC day; resets to 1 if the user
+# skipped a day entirely. Returns True iff this was the first catch of the UTC
+# day, so the caller can award the first-catch-of-day passive XP.
+async def update_daily_catch_streak(user: User) -> bool:
     today = int(time.time() // 86400)
     if user.last_catch_day == today:
         return False
     if user.last_catch_day == today - 1:
-        user.vote_streak += 1
+        user.daily_catch_streak += 1
     else:
-        user.vote_streak = 1
-    if user.vote_streak > user.max_vote_streak:
-        user.max_vote_streak = user.vote_streak
+        user.daily_catch_streak = 1
+    if user.daily_catch_streak > user.max_daily_streak:
+        user.max_daily_streak = user.daily_catch_streak
     user.last_catch_day = today
     await user.save()
     return True
@@ -1007,7 +1010,7 @@ async def grant_catnip_levelup_xp(user: Profile) -> list[discord.Embed]:
 
 async def grant_first_catch_of_day_xp(user: Profile) -> list[discord.Embed]:
     """+50 XP on the first catch of each UTC day. Caller decides whether to
-    call (uses the bool returned by update_catch_streak)."""
+    call (uses the bool returned by update_daily_catch_streak)."""
     return await grant_achievement_xp(user, 50)
 
 
@@ -1193,6 +1196,11 @@ async def generate_quest(user: Profile, quest_type: str):
         user.extra_quest = quest
         user.extra_cooldown = 0
         user.casino_progress_temp = 0
+        user.gift3_recipients = ""
+    elif quest_type == "challenge":
+        user.challenge_reward = random.randint(quest_data["xp_min"] // 10, quest_data["xp_max"] // 10) * 10
+        user.challenge_quest = quest
+        user.challenge_cooldown = 0
     await user.save()
 
 
@@ -1225,7 +1233,13 @@ async def refresh_quests(user):
         user.extra_cooldown = 1
         user.extra_reward = 0
         user.casino_progress_temp = 0
+        user.gift3_recipients = ""
         user.catnip_xp_awarded = 0
+
+        user.challenge_quest = ""
+        user.challenge_progress = 0
+        user.challenge_cooldown = 1
+        user.challenge_reward = 0
 
         user.season = full_months_passed
         await user.save()
@@ -1246,6 +1260,12 @@ async def refresh_quests(user):
         user.extra_cooldown = 1
         user.extra_reward = 0
         user.casino_progress_temp = 0
+        user.gift3_recipients = ""
+    if user.challenge_quest and user.challenge_quest not in config.battle["quests"]["challenge"]:
+        user.challenge_quest = ""
+        user.challenge_progress = 0
+        user.challenge_cooldown = 1
+        user.challenge_reward = 0
     if QUEST_COOLDOWN < user.vote_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "vote")
     if QUEST_COOLDOWN < user.catch_cooldown + QUEST_COOLDOWN < time.time():
@@ -1254,6 +1274,12 @@ async def refresh_quests(user):
         await generate_quest(user, "misc")
     if QUEST_COOLDOWN < user.extra_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "extra")
+    # Challenge slot was added after the original schema, so existing profiles
+    # have challenge_cooldown=0 (which the inequality above misses) and an
+    # empty challenge_quest. Treat empty as "needs first generation" so the
+    # /battlepass UI never sees an unset slot.
+    if not user.challenge_quest or QUEST_COOLDOWN < user.challenge_cooldown + QUEST_COOLDOWN < time.time():
+        await generate_quest(user, "challenge")
 
 
 async def multi_progress(message: discord.Message | discord.Interaction, user: Profile, quests: list[str], is_belated: Optional[bool] = False):
@@ -1298,7 +1324,7 @@ async def progress(
         if voted_at.weekday() >= 4:
             user.vote_reward *= 2
 
-        streak_data = get_streak_reward(global_user.vote_streak)
+        streak_data = get_streak_reward(global_user.daily_catch_streak)
         if streak_data["reward"]:
             user[f"pack_{streak_data['reward']}"] += 1
 
@@ -1326,6 +1352,18 @@ async def progress(
             current_xp = user.progress + user.extra_reward
             user.extra_progress = 0
             user.casino_progress_temp = 0
+            user.gift3_recipients = ""
+    elif user.challenge_quest == quest:
+        if user.challenge_cooldown != 0:
+            return user
+        quest_data = config.battle["quests"]["challenge"][quest]
+        user.challenge_progress += 1
+        if user.challenge_progress >= quest_data["progress"]:
+            quest_complete = True
+            user.challenge_cooldown = int(time.time())
+            current_xp = user.progress + user.challenge_reward
+            user.challenge_progress = 0
+            user.reminder_challenge = 1
     else:
         return user
 
@@ -1446,7 +1484,7 @@ async def progress_embed(message, user, level_data, current_xp, old_xp, quest_da
         reward_text = get_emoji(level_data["reward"].lower() + "pack")
 
     global_user = await User.get_or_create(user_id=user.user_id)
-    streak_data = get_streak_reward(global_user.vote_streak)
+    streak_data = get_streak_reward(global_user.daily_catch_streak)
     if streak_data["reward"] and "top.gg" in quest_data["title"]:
         streak_reward = f"\n🔥 **Streak Bonus!** +1 {streak_data['emoji']} {streak_data['reward'].capitalize()} pack"
     else:
@@ -1724,6 +1762,8 @@ async def postpone_reminder(interaction):
         user = await Profile.get_or_create(guild_id=int(guild_id), user_id=interaction.user.id)
         if reminder_type.startswith("catch"):
             user.reminder_catch = int(time.time()) + 30 * 60
+        elif reminder_type.startswith("challenge"):
+            user.reminder_challenge = int(time.time()) + 30 * 60
         else:
             user.reminder_misc = int(time.time()) + 30 * 60
         await user.save()
@@ -1888,7 +1928,7 @@ async def background_loop():
             try:
                 user_dm = await fetch_dm_channel(user)
                 await user_dm.send(
-                    "You can vote now!" if user.vote_streak < 10 else f"Vote now to keep your {user.vote_streak} streak going!",
+                    "You can vote now!" if user.daily_catch_streak < 10 else f"Vote now to keep your {user.daily_catch_streak} streak going!",
                     view=view,
                 )
             except Exception:
@@ -1991,6 +2031,51 @@ async def background_loop():
         await user.save()
 
     logging.debug("Reminders sent: %d, type: %s", reminder_count, "misc")
+
+    # challenge reminders
+    reminder_count = 0
+    while True:
+        user = await Profile.collect(
+            f"(reminders_enabled = true AND reminder_challenge != 0) AND ((challenge_cooldown != 0 AND challenge_cooldown + 43200 < {start_time}) OR (reminder_challenge > 1 AND reminder_challenge < {start_time})) LIMIT 1",
+        )
+        if not user or not user[0]:
+            break
+        user = user[0]
+        await asyncio.sleep(0.2)
+
+        await refresh_quests(user)
+        await user.refresh_from_db()
+
+        quest_data = config.battle["quests"]["challenge"][user.challenge_quest]
+
+        embed = discord.Embed(
+            title=f"{get_emoji(quest_data['emoji'])} {quest_data['title']}",
+            description=f"Reward: **{user.challenge_reward}** XP",
+            color=Colors.green,
+        )
+
+        view = View(timeout=VIEW_TIMEOUT)
+        button = Button(label="Postpone", custom_id=f"challenge_{user.guild_id}")
+        button.callback = postpone_reminder
+        view.add_item(button)
+
+        guild = bot.get_guild(user.guild_id)
+        if not guild:
+            guild_name = "a server"
+        else:
+            guild_name = guild.name
+
+        try:
+            user_user = await User.get_or_create(user_id=user.user_id)
+            user_dm = await fetch_dm_channel(user_user)
+            await user_dm.send(f"A new quest is available in {guild_name}!", embed=embed, view=view)
+        except Exception:
+            pass
+        user.reminder_challenge = 0
+        reminder_count += 1
+        await user.save()
+
+    logging.debug("Reminders sent: %d, type: %s", reminder_count, "challenge")
 
     # manual reminders
     async for reminder in Reminder.filter("time < $1", time.time()):
@@ -2421,14 +2506,23 @@ async def on_message(message: discord.Message):
                         quests.append("2fine")
                     if channel.cattype == "Good":
                         quests.append("good")
-                    if belated.get("time", 10) + current_time - belated.get("timestamp", 0) < 10:
+                    belated_time = belated.get("time", 10) + current_time - belated.get("timestamp", 0)
+                    if belated_time < 10:
                         quests.append("under10")
+                    if belated_time < 3:
+                        quests.append("under3")
+                    # `slow` (>60s) can't physically fire here — belated catches
+                    # only register when the original catch happened within 3s.
                     if random.randint(0, 1) == 0:
                         quests.append("even")
                     else:
                         quests.append("odd")
                     if channel.cattype and channel.cattype not in ["Fine", "Nice", "Good"]:
                         quests.append("rare+")
+                    if channel.cattype in LEGENDARY_PLUS:
+                        quests.append("legendary+")
+                    if user.catnip_active > time.time():
+                        quests.append("catnip_catch")
                     total_count = await Prism.count("guild_id = $1", message.guild.id)
                     user_count = await Prism.count("guild_id = $1 AND user_id = $2", message.guild.id, message.author.id)
                     prism_boost = PRISM_BOOST_GLOBAL_COEF * math.log(2 * total_count + 1) + PRISM_BOOST_USER_COEF * math.log(2 * user_count + 1)
@@ -2573,7 +2667,10 @@ async def on_message(message: discord.Message):
                 packs = []
                 double_boost = False
                 double_first = 0
-                timer_add_chance = 0
+                combo_per_stack = 0
+                bp_xp_chance = 0
+                respawn_chance = 0
+                do_respawn = False
                 packs_gained = []
 
                 if user.perks:
@@ -2612,12 +2709,16 @@ async def on_message(message: discord.Message):
                             double_boost_chance += perks_info[8]["values"][rarity]
                         elif id == "triple_ach":
                             purr_all_triple = True
-                        elif id == "timer_add":
-                            timer_add_chance += perks_info[10]["values"][rarity]
                         elif id == "rain_boost":
                             rain_chance += perks_info[12]["values"][rarity]
                         elif id == "double_first":
                             double_first += perks_info[13]["values"][rarity]
+                        elif id == "combo":
+                            combo_per_stack += perks_info[14]["values"][rarity]
+                        elif id == "bp_xp":
+                            bp_xp_chance += perks_info[15]["values"][rarity]
+                        elif id == "respawn":
+                            respawn_chance += perks_info[16]["values"][rarity]
 
                     for i in packs:
                         chance = random.random() * 100
@@ -2630,10 +2731,36 @@ async def on_message(message: discord.Message):
                     if chance <= double_boost_chance:
                         double_boost = True
 
-                    chance = random.random() * 100
-                    if chance <= timer_add_chance:
-                        user.catnip_active += CATNIP_TIMER_EXTEND
-                        suffix_string += f"\n⏰ You got +{CATNIP_TIMER_EXTEND // 60} minutes on your catnip timer! It will now expire <t:{user.catnip_active}:R>"
+                    # Snowballer: each consecutive catch grows the stack (cap 30);
+                    # idle for >5 min resets to 1. Per-stack % feeds the double pool.
+                    # user.last_catch still holds the PREVIOUS catch time at this point —
+                    # it's not updated to "now" until later in this handler.
+                    if combo_per_stack > 0:
+                        if time.time() - user.last_catch > 300:
+                            user.combo_stack = 1
+                        else:
+                            user.combo_stack = min(30, user.combo_stack + 1)
+                        combo_chance = min(combo_per_stack * user.combo_stack, 100.0)
+                        double_chance += combo_chance
+                        single_chance -= combo_chance
+
+                    # Battlepass Booster: % chance per catch of +5 XP nugget.
+                    # grant_achievement_xp saves the user internally; if the proc
+                    # happens to push a level, send the level-up embeds inline.
+                    if bp_xp_chance > 0 and random.random() * 100 < bp_xp_chance:
+                        bp_xp_embeds = await grant_achievement_xp(user, 5)
+                        suffix_string += f"\n{get_emoji('catnip')} +5 battlepass XP!"
+                        if bp_xp_embeds:
+                            try:
+                                await message.channel.send(f"<@{user.user_id}>", embeds=bp_xp_embeds)
+                            except Exception:
+                                logging.exception("bp_xp level-up embed send failed")
+
+                    # Bait & Switch: roll the chance now, fire the respawn after
+                    # channel state has been persisted (see post-save hook below).
+                    if respawn_chance > 0 and random.random() * 100 < respawn_chance and channel.cat_rains == 0:
+                        do_respawn = True
+                        suffix_string += f"\n{get_emoji('catnip')} Bait & Switch! Another cat appears..."
 
                     if double_first > user.catnip_total_cats:
                         user.catnip_total_cats += 1
@@ -2883,20 +3010,6 @@ async def on_message(message: discord.Message):
                         label=random.choice(vote_button_texts),
                         url="https://top.gg/bot/966695034340663367/vote",
                     )
-                elif random.randint(0, 20) == 0:
-                    button = Button(label="Join our Discord!", url="https://discord.gg/staring")
-                elif random.randint(0, 500) == 0:
-                    button = Button(label="John Discord 🤠", url="https://discord.gg/staring")
-                elif random.randint(0, 50000) == 0:
-                    button = Button(
-                        label="DAVE DISCORD 😀💀⚠️🥺",
-                        url="https://discord.gg/staring",
-                    )
-                elif random.randint(0, 5000000) == 0:
-                    button = Button(
-                        label="JOHN AND DAVE HAD A SON 💀🤠😀⚠️🥺",
-                        url="https://discord.gg/staring",
-                    )
 
                 if button:
                     view = View(timeout=VIEW_TIMEOUT)
@@ -2962,7 +3075,7 @@ async def on_message(message: discord.Message):
                 await user.save()
 
                 global_user_for_streak = await User.get_or_create(user_id=message.author.id)
-                first_catch_of_day = await update_catch_streak(global_user_for_streak)
+                first_catch_of_day = await update_daily_catch_streak(global_user_for_streak)
 
                 # Passive XP: first catch of the day = +50, every 10-catch
                 # streak boundary = +20. We aggregate any resulting level-up
@@ -2976,6 +3089,12 @@ async def on_message(message: discord.Message):
                         await message.channel.send(f"<@{user.user_id}>", embeds=passive_xp_embeds)
                     except Exception:
                         logging.exception("passive XP embed send failed")
+
+                # Streaker challenge quest: fires once when a streak crosses a
+                # multiple of 10. progress() short-circuits on its own cooldown,
+                # so streaks of 20/30/etc. don't re-complete the quest.
+                if user.catch_streak > 0 and user.catch_streak % 10 == 0:
+                    await progress(message, user, "streak10")
 
                 if random.randint(0, 1000) == 69 and not user.lucky:
                     await achemb(message, "lucky", "send")
@@ -3032,12 +3151,20 @@ async def on_message(message: discord.Message):
                     quests.append("good")
                 if time_caught >= 0 and time_caught < 10:
                     quests.append("under10")
+                if time_caught >= 0 and time_caught < 3:
+                    quests.append("under3")
+                if time_caught >= 60:
+                    quests.append("slow")
                 if time_caught >= 0 and int(time_caught) % 2 == 0:
                     quests.append("even")
                 if time_caught >= 0 and int(time_caught) % 2 == 1:
                     quests.append("odd")
                 if channel.cattype and channel.cattype not in ["Fine", "Nice", "Good"]:
                     quests.append("rare+")
+                if channel.cattype in LEGENDARY_PLUS:
+                    quests.append("legendary+")
+                if user.catnip_active > time.time():
+                    quests.append("catnip_catch")
                 if did_boost:
                     quests.append("prism")
                 if user.catch_quest == "finenice":
@@ -3076,6 +3203,12 @@ async def on_message(message: discord.Message):
 
                     await channel.save()
 
+                    # Bait & Switch: schedule an immediate respawn that races
+                    # the normal post-cooldown spawn. spawn_cat is self-guarded
+                    # against double-spawn, so whichever lands first wins.
+                    if do_respawn:
+                        bot.loop.create_task(spawn_cat(str(message.channel.id)))
+
                     await asyncio.sleep(decided_time)
                     try:
                         temp_catches_storage.remove(pls_remove_me_later_k_thanks)
@@ -3084,6 +3217,8 @@ async def on_message(message: discord.Message):
                     await spawn_cat(str(message.channel.id))
                 else:
                     await channel.save()
+                    if do_respawn:
+                        bot.loop.create_task(spawn_cat(str(message.channel.id)))
                     try:
                         temp_catches_storage.remove(pls_remove_me_later_k_thanks)
                     except Exception:
@@ -4304,7 +4439,7 @@ async def gen_stats(profile, star):
     # battlepass
     stats.append(["⬆️", "Cattlepass & Voting"])
     stats.append(["total_votes", get_emoji("topgg"), f"Total votes: {user.total_votes:,}{star}"])
-    stats.append(["current_vote_streak", "🔥", f"Current vote streak: {user.vote_streak} (max {max(user.vote_streak, user.max_vote_streak):,}){star}"])
+    stats.append(["current_daily_catch_streak", "🔥", f"Current daily catch streak: {user.daily_catch_streak} (max {max(user.daily_catch_streak, user.max_daily_streak):,}){star}"])
     seasons_complete = 0
     levels_complete = 0
     max_level = 0
@@ -5582,8 +5717,8 @@ async def battlepass(message: discord.Interaction):
         # vote
         if config.VOTING_ENABLED:
             streak_string = ""
-            if global_user.vote_streak >= 5:
-                streak_string = f" (🔥 {global_user.vote_streak}x streak)"
+            if global_user.daily_catch_streak >= 5:
+                streak_string = f" (🔥 {global_user.daily_catch_streak}x streak)"
             if user.vote_cooldown != 0:
                 description += f"✅ ~~Vote on Top.gg~~\n- Refreshes <t:{int(user.vote_cooldown + QUEST_COOLDOWN)}:R>{streak_string}\n"
             else:
@@ -5600,13 +5735,13 @@ async def battlepass(message: discord.Interaction):
                 else:
                     description += f"- Reward: {user.vote_reward} XP"
 
-                next_streak_data = get_streak_reward(global_user.vote_streak + 1)
+                next_streak_data = get_streak_reward(global_user.daily_catch_streak + 1)
                 if next_streak_data["reward"] and global_user.vote_time_topgg + 24 * 3600 > time.time():
                     description += f" + {next_streak_data['emoji']} 1 {next_streak_data['reward'].capitalize()} pack"
 
                 description += f"{streak_string}\n"
-        elif global_user.vote_streak >= 5:
-            description += f"🔥 {global_user.vote_streak}x catch streak\n"
+        elif global_user.daily_catch_streak >= 5:
+            description += f"🔥 {global_user.daily_catch_streak}-day catch streak\n"
 
         # catch
         catch_quest = config.battle["quests"]["catch"][user.catch_quest]
@@ -5638,7 +5773,7 @@ async def battlepass(message: discord.Interaction):
         # extra (third slot)
         extra_quest = config.battle["quests"]["extra"][user.extra_quest]
         if user.extra_cooldown != 0:
-            description += f"✅ ~~{extra_quest['title']}~~\n- Refreshes <t:{int(user.extra_cooldown + QUEST_COOLDOWN if user.extra_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n\n"
+            description += f"✅ ~~{extra_quest['title']}~~\n- Refreshes <t:{int(user.extra_cooldown + QUEST_COOLDOWN if user.extra_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n"
         else:
             progress_string = ""
             if extra_quest["progress"] != 1:
@@ -5647,7 +5782,17 @@ async def battlepass(message: discord.Interaction):
                 reward_line = "- Reward: depends on the cat 🎲"
             else:
                 reward_line = f"- Reward: {user.extra_reward} XP"
-            description += f"{get_emoji(extra_quest['emoji'])} {extra_quest['title']}{progress_string}\n{reward_line}\n\n"
+            description += f"{get_emoji(extra_quest['emoji'])} {extra_quest['title']}{progress_string}\n{reward_line}\n"
+
+        # challenge (fifth slot — harder catch-condition quests)
+        challenge_quest = config.battle["quests"]["challenge"][user.challenge_quest]
+        if user.challenge_cooldown != 0:
+            description += f"✅ ~~{challenge_quest['title']}~~\n- Refreshes <t:{int(user.challenge_cooldown + QUEST_COOLDOWN if user.challenge_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n\n"
+        else:
+            progress_string = ""
+            if challenge_quest["progress"] != 1:
+                progress_string = f" ({user.challenge_progress}/{challenge_quest['progress']})"
+            description += f"{get_emoji(challenge_quest['emoji'])} {challenge_quest['title']}{progress_string}\n- Reward: {user.challenge_reward} XP\n\n"
 
         if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
             description += f"**Extra Rewards** [{user.progress}/1500 XP]\n"
@@ -7052,6 +7197,16 @@ async def gift(
     # Social quest: any /gift to another player (not the bot) counts.
     if person_id != bot.user.id:
         await progress(message, user, "social")
+    # Generous quest (`gift3`): each unique non-bot recipient ticks progress
+    # once per quest cycle. We persist the recipient list as comma-separated
+    # IDs on the profile; it's cleared on quest completion and on season roll.
+    if person_id != bot.user.id and user.extra_quest == "gift3" and user.extra_cooldown == 0:
+        recipients = [r for r in user.gift3_recipients.split(",") if r]
+        if str(person_id) not in recipients:
+            recipients.append(str(person_id))
+            user.gift3_recipients = ",".join(recipients)
+            await user.save()
+            await progress(message, user, "gift3")
     # Sacrifice quest: gifting cats to the bot. XP depends on the cat type
     # (hidden from the user — the quest text only says "depends on the cat"),
     # multiplied by amount and capped at 300.
@@ -8562,6 +8717,8 @@ if config.WORDNIK_API_KEY:
                                 ephemeral=any([test in text for test in ["vulgar", "slur", "offensive", "profane", "insult", "abusive", "derogatory"]]),
                             )
                             await achemb(message, "define", "followup")
+                            profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+                            await progress(message, profile, "define")
                             return
 
                     raise Exception
@@ -9239,7 +9396,7 @@ You can stop. That's okay. Seriously.
                 perk_data.get("desc", "")
                 .replace("percent", f"{effect:,}")
                 .replace("triple_none", f"{effect / 2:g}")
-                .replace("timer_add_streak", f"{global_user.vote_streak:,}")
+                .replace("daily_catch_streak", f"{global_user.daily_catch_streak:,}")
             )
             full_desc += f"{rarity_colors[perk_rarity]} {perk_data.get('name', '')} ({rarities[perk_rarity]})\n{desc}\n\n"
             emojied_options[index + 1] = (f"{perk_data.get('name', '')} ({rarities[perk_rarity]})", rarity_colors[perk_rarity], desc.replace("**", ""))
@@ -9276,7 +9433,7 @@ You can stop. That's okay. Seriously.
                 perk_data.get("desc", "")
                 .replace("percent", f"{effect:,}")
                 .replace("triple_none", f"{effect / 2:g}")
-                .replace("timer_add_streak", f"{global_user.vote_streak:,}")
+                .replace("daily_catch_streak", f"{global_user.daily_catch_streak:,}")
             )
             full_desc += f"{rarity_colors[perk_rarity]} {perk_data.get('name', '')} ({rarities[perk_rarity]})\n{desc}\n\n"
 
@@ -9365,7 +9522,7 @@ You can stop. That's okay. Seriously.
                     f"## {rarity_colors[int(perk.split('_')[0])]} {perk_data.get('name', '')} ({rarities[int(perk.split('_')[0])]})",
                     f"{perk_data.get('desc', '')}".replace("percent", str(effect))
                     .replace("triple_none", str(effect / 2))
-                    .replace("timer_add_streak", str(global_user.vote_streak)),
+                    .replace("daily_catch_streak", str(global_user.daily_catch_streak)),
                     button,
                 )
             )
@@ -9437,13 +9594,13 @@ You can stop. That's okay. Seriously.
         if user.perks:
             for perk in user.perks:
                 perk_data = perks[int(perk.split("_")[1]) - 1]
-                if perk_data["id"] == "timer_add_streak":
+                if perk_data["id"] == "loyalty_streak":
                     global_user = await User.get_or_create(user_id=interaction.user.id)
                     duration_bonus = 0
-                    for i in range(int(global_user.vote_streak / 100)):
+                    for i in range(int(global_user.daily_catch_streak / 100)):
                         i = i + 1
                         duration_bonus += 6000 / i
-                    duration_bonus += 60 * (global_user.vote_streak % 100) / (int(global_user.vote_streak / 100) + 1)
+                    duration_bonus += 60 * (global_user.daily_catch_streak % 100) / (int(global_user.daily_catch_streak / 100) + 1)
 
         user.catnip_active = int(time.time()) + 3600 * duration + duration_bonus
         user.pack_attempts = (3600 * duration + duration_bonus) // 60
@@ -10452,13 +10609,13 @@ async def recieve_vote(request):
 
 
 async def do_vote(user: User, created_at: float):
-    if user.vote_streak < 10:
+    if user.daily_catch_streak < 10:
         extend_time = 24
-    elif user.vote_streak < 20:
+    elif user.daily_catch_streak < 20:
         extend_time = 36
-    elif user.vote_streak < 50:
+    elif user.daily_catch_streak < 50:
         extend_time = 48
-    elif user.vote_streak < 100:
+    elif user.daily_catch_streak < 100:
         extend_time = 60
     else:
         extend_time = 72
@@ -10472,41 +10629,41 @@ async def do_vote(user: User, created_at: float):
     if user.vote_time_topgg + extend_time * 3600 <= created_at:
         # streak end
         if user.streak_freezes < 1:
-            if user.max_vote_streak < user.vote_streak:
-                user.max_vote_streak = user.vote_streak
-            user.vote_streak = 1
+            if user.max_daily_streak < user.daily_catch_streak:
+                user.max_daily_streak = user.daily_catch_streak
+            user.daily_catch_streak = 1
         else:
             # i initially wanted streak freezes to not increase up
             # but that could result in unexpected repeated milestone rewards
-            user.vote_streak += 1
+            user.daily_catch_streak += 1
 
             user.streak_freezes -= 1
             freeze_note = "\n🧊 Streak Freeze Used!"
     else:
-        user.vote_streak += 1
+        user.daily_catch_streak += 1
 
     user.vote_time_topgg = created_at
 
     channeley = await fetch_dm_channel(user)
 
-    if user.vote_streak == 1:
+    if user.daily_catch_streak == 1:
         streak_progress = "🟦⬛⬛⬛⬛⬛⬛⬛⬛⬛\n⬆️"
     else:
         streak_progress = ""
-        if user.vote_streak > 0:
-            streak_progress += get_streak_reward(user.vote_streak - 1)["done_emoji"]
-        streak_progress += get_streak_reward(user.vote_streak)["done_emoji"]
+        if user.daily_catch_streak > 0:
+            streak_progress += get_streak_reward(user.daily_catch_streak - 1)["done_emoji"]
+        streak_progress += get_streak_reward(user.daily_catch_streak)["done_emoji"]
 
-        for i in range(user.vote_streak + 1, user.vote_streak + 9):
+        for i in range(user.daily_catch_streak + 1, user.daily_catch_streak + 9):
             streak_progress += get_streak_reward(i)["emoji"]
 
         streak_progress += f"\n{get_emoji('empty')}⬆️"
 
-    special_reward = math.ceil(user.vote_streak / 25) * 25
-    if special_reward not in range(user.vote_streak, user.vote_streak + 9):
+    special_reward = math.ceil(user.daily_catch_streak / 25) * 25
+    if special_reward not in range(user.daily_catch_streak, user.daily_catch_streak + 9):
         streak_progress += f"\nNext Special Reward: {get_streak_reward(special_reward)['emoji']} at {special_reward} streak"
 
-    streak_top_position = await User.count("vote_streak > $1", user.vote_streak) + 1
+    streak_top_position = await User.count("daily_catch_streak > $1", user.daily_catch_streak) + 1
     top_text = f" (top #{streak_top_position}!)" if streak_top_position < 1000 else ""
 
     try:
@@ -10516,13 +10673,13 @@ async def do_vote(user: User, created_at: float):
                     "Thanks for voting! To claim your rewards, run `/battlepass` in every server you want.",
                     f"You can vote again <t:{int(created_at) + 43200}:R>.",
                     "",
-                    f":fire: **Streak:** {user.vote_streak:,}{top_text} expires <t:{int(created_at) + extend_time * 3600}:R>{freeze_note}",
+                    f":fire: **Streak:** {user.daily_catch_streak:,}{top_text} expires <t:{int(created_at) + extend_time * 3600}:R>{freeze_note}",
                     f"{streak_progress}",
                 ]
             ),
         )
 
-        logging.debug("User voted, streak %d", user.vote_streak)
+        logging.debug("User voted, streak %d", user.daily_catch_streak)
     except Exception:
         # Ignore errors when DMing the user (e.g. if they have DMs closed)
         pass

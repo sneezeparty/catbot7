@@ -2,7 +2,7 @@
 
 Two surfaces:
 - Seasons: 17 × 30 levels, each {xp, reward, amount}
-- Quests: vote/catch/misc, each entry {emoji, title, xp_min, xp_max, progress}
+- Quests: vote/catch/misc/extra/challenge, each entry {emoji, title, xp_min, xp_max, progress}
 
 Deleting a quest requires reference-counting: if any profile row still has
 that quest assigned, refuse the delete.
@@ -22,6 +22,8 @@ QUEST_PROFILE_COLUMN = {
     "vote": None,
     # "extra" quests use profile.extra_quest; dynamic_reward entries have xp_min=xp_max=0
     "extra": "extra_quest",
+    # "challenge" quests use profile.challenge_quest; 5th quest slot added in season with challenge track
+    "challenge": "challenge_quest",
 }
 
 
@@ -212,7 +214,7 @@ def register(app: web.Application) -> None:
     app.router.add_get(r"/battlepass/season/{n:\d+}/level/{i:\d+}/edit", edit_level)
     app.router.add_get(r"/battlepass/season/{n:\d+}/level/{i:\d+}/cancel", cancel_level)
     app.router.add_post(r"/battlepass/season/{n:\d+}/level/{i:\d+}", save_level)
-    app.router.add_get(r"/battlepass/quest/{qtype:vote|catch|misc|extra}/{name:[A-Za-z0-9_+\-]+}/edit", edit_quest)
-    app.router.add_get(r"/battlepass/quest/{qtype:vote|catch|misc|extra}/{name:[A-Za-z0-9_+\-]+}/cancel", cancel_quest)
-    app.router.add_post(r"/battlepass/quest/{qtype:vote|catch|misc|extra}/{name:[A-Za-z0-9_+\-]+}", save_quest)
-    app.router.add_post(r"/battlepass/quest/{qtype:vote|catch|misc|extra}/{name:[A-Za-z0-9_+\-]+}/delete", delete_quest)
+    app.router.add_get(r"/battlepass/quest/{qtype:vote|catch|misc|extra|challenge}/{name:[A-Za-z0-9_+\-]+}/edit", edit_quest)
+    app.router.add_get(r"/battlepass/quest/{qtype:vote|catch|misc|extra|challenge}/{name:[A-Za-z0-9_+\-]+}/cancel", cancel_quest)
+    app.router.add_post(r"/battlepass/quest/{qtype:vote|catch|misc|extra|challenge}/{name:[A-Za-z0-9_+\-]+}", save_quest)
+    app.router.add_post(r"/battlepass/quest/{qtype:vote|catch|misc|extra|challenge}/{name:[A-Za-z0-9_+\-]+}/delete", delete_quest)

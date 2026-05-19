@@ -34,12 +34,15 @@ Effects include:
 - Double/triple catches with some probability
 - Timer extensions on catches (extending the session)
 - Pack drops on catch (Wooden through Platinum)
-- Streak-scaled bonuses (e.g., timer extension proportional to vote_streak)
+- Streak-scaled bonuses — **Loyalty Streak (`loyalty_streak`):** timer extension proportional to `user.daily_catch_streak` (UTC-day granularity streak, distinct from `profile.catch_streak` which is the per-catch counter)
 - Rain triggers on catch
+- **Snowballer (`combo`):** each consecutive catch within 5 minutes adds 1 to `profile.combo_stack` (cap 30); per-stack % feeds into the double-catch pool. Values [0.5, 0.75, 1.25, 2.0, 3.0]% per stack. Weight 8, non-exclusive.
+- **Battlepass Booster (`bp_xp`):** per-catch % chance of +5 battlepass XP via `grant_achievement_xp`. Level-up embeds are sent inline if the XP pushes a level boundary. Values [5, 8, 12, 20, 30]%. Weight 10, non-exclusive.
+- **Bait & Switch (`respawn`):** per-catch % chance of immediately spawning an additional cat in the same channel via `spawn_cat`. Guarded against rain channels (`channel.cat_rains == 0`). Values [1, 1.5, 2.5, 5, 8]%. Weight 5, non-exclusive.
 
-**Design intent:** the perk grid is intentionally not balanced for "best build" — every perk is useful, but the random-3 picker means users can't optimize. The cap is the picker, not the perks themselves.
+**Time Manipulator (`timer_add`) is retired:** weight set to 0 and all values zeroed in `config/catnip.json`. It remains in the JSON array (rather than being deleted) because stored perks reference entries by 1-indexed array position — removing the entry would re-bind every perk that followed it on existing users' `profile.perks` arrays. This freeze-in-place convention must be preserved when retiring any future perk.
 
-> **STALE:** the Time Manipulator perk (`timer_add`) description in `config/catnip.json` still reads "+5 minutes", but `main.py` derives the displayed value from `config/tuning.json:catnip_timer_extend_seconds` (currently 1800 s = 30 minutes). The perk description string in `catnip.json` needs updating to match the tuning value.
+**Design intent:** the perk grid is intentionally not balanced for "best build" — every perk is useful, but the random-3 picker means users can't optimize. The cap is the picker, not the perks themselves. The three new perks (Snowballer, Battlepass Booster, Bait & Switch) each target a different engagement axis: sustained-session play, cross-system progression spillover, and spawn density respectively.
 
 ## Bounties
 

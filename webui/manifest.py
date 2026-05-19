@@ -43,7 +43,7 @@ SECTIONS: dict[str, dict] = {
         "source": ["config/battlepass.json"],
         "schema": {
             "seasons": "dict[str, list[{xp, reward, amount}]]",
-            "quests": "dict[vote|catch|misc|extra, dict[name, {emoji, title, xp_min, xp_max, progress, dynamic_reward?}]]",
+            "quests": "dict[vote|catch|misc|extra|challenge, dict[name, {emoji, title, xp_min, xp_max, progress, dynamic_reward?}]]",
         },
         "routes": [
             "GET /battlepass",
@@ -56,13 +56,14 @@ SECTIONS: dict[str, dict] = {
             ("quests.catch.<name>", "profile.catch_quest (delete-guard via COUNT)"),
             ("quests.misc.<name>",  "profile.misc_quest (delete-guard via COUNT)"),
             ("quests.extra.<name>", "profile.extra_quest (delete-guard via COUNT)"),
+            ("quests.challenge.<name>", "profile.challenge_quest (delete-guard via COUNT)"),
             ("seasons.<n>.<i>.reward", "cattypes / pack_data names"),
         ],
     },
     "catnip": {
         "source": ["config/catnip.json"],
         "schema": {
-            "perks": "list[{id, name, desc, weight, values, exclusive}]",
+            "perks": "list[{id, name, desc, weight, values, exclusive}]  — 17 entries (index 10 timer_add retired weight=0, MUST NOT be removed)",
             "levels": "list[{level, name, duration, cost, bounty_*, bonus, max_amount, weights}]",
             "quotes": "list[{level, name, quotes:{first, normal, levelup, leveldown}}]",
             "bounties": "list[{id, desc}]",
@@ -76,6 +77,10 @@ SECTIONS: dict[str, dict] = {
         "references": [
             ("levels.<i>.level", "profile.catnip_level"),
             ("perks.<i>.id",      "profile.perk1/perk2/perk3/perk_selected"),
+            # perks[14] combo "Snowballer" reads/writes profile.combo_stack
+            ("perks[14].id=combo", "profile.combo_stack (reset-on-idle counter, see INT_FIELDS in profile_table.py)"),
+            # perks array is append-only — deleting any entry silently rebinds all later stored user perks
+            ("perks.<i> (index)", "profile.perk1/perk2/perk3 store 1-indexed positions; deletions are FORBIDDEN"),
         ],
     },
     "server_table": {
@@ -104,6 +109,10 @@ SECTIONS: dict[str, dict] = {
             # catch_streak — incremented per catch, awards XP at multiples of 10
             # casino_progress_temp — bitmask for casino quest; internal state counter (not in edit whitelist)
             # catnip_xp_awarded — catnip XP cap tracker; internal counter (not in edit whitelist)
+            # combo_stack — Snowballer perk consecutive-catch counter (cap 30, resets after 5-min idle); in INT_FIELDS edit whitelist
+            # challenge_quest/progress/cooldown/reward — 5th battlepass quest slot (challenge track); in STR_FIELDS/INT_FIELDS
+            # reminder_challenge — challenge quest DM reminder flag; in INT_FIELDS
+            # gift3_recipients — comma-separated user IDs who received gifts this quest cycle (gift3 challenge quest); in STR_FIELDS
         ],
     },
     "user_table": {

@@ -38,8 +38,8 @@ DONOR_CHANNEL_ID = int(os.environ["donor_channel_id"]) if os.environ.get("donor_
 # cat!rain commands here can be used without author check and will dm reciever a thanks message
 RAIN_CHANNEL_ID = int(os.environ["rain_channel_id"]) if os.environ.get("rain_channel_id") else None
 
-# Voting is currently disabled. Set voting_enabled=1 to re-register /vote, the
-# top.gg webhook route, vote-replay/reminder loops, and the catch-message vote
-# button. The vote_streak column is repurposed as a daily catch streak while
-# this is False.
+# Voting is permanently retired on this self-hosted instance. The flag is kept
+# so the gated /vote command + top.gg webhook + vote-replay loop can be flipped
+# back on without code surgery if you ever decide to re-list. Daily catch
+# streaks live in `user.daily_catch_streak` regardless of this setting.
 VOTING_ENABLED = os.environ.get("voting_enabled", "0") == "1"

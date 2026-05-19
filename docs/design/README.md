@@ -12,7 +12,7 @@ Read these when:
 | Doc | What it covers |
 | --- | --- |
 | [economy.md](economy.md) | Cats, packs, XP, currency, pricing & balance philosophy |
-| [battlepass.md](battlepass.md) | Seasons, three quest slots, level rewards, XP curves |
+| [battlepass.md](battlepass.md) | Seasons, five quest slots, level rewards, XP curves |
 | [catnip.md](catnip.md) | Catnip levels, bounties, perks, hibernation, decay |
 | [achievements.md](achievements.md) | Trigger engine vs hardcoded grants, unlock storage, balance |
 

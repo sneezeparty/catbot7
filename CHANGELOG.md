@@ -4,7 +4,10 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
-## [Unreleased]
+## [0.0.5.144121052026]
+
+### Fixed
+- **`/perks` no longer crashes with `Section.__init__() missing 1 required keyword-only argument: 'accessory'`.** Components V2 `Section` requires an accessory widget (Button/Thumbnail); the perk rows were info-only, so they now render as plain title + body strings instead of being wrapped in a Section. Same visual result.
 
 ### Added
 - **Mafia favors (job perks) — full system.** A third reward axis on top of coins and cats/packs. **Every successful `/jobs` drops a perk** (chance is 1.0 across all tiers; tier shapes *which* perk you get rather than *whether* you get one). 31 perks across catch-loop, economy, pack, jobs-feedback, catnip-side, and quirky buckets, weighted so weak perks are common and capstone perks are rare. Each NPC has a personality-flavored pool: Whiskers does reliability + pack, Lucian Jr is impulsive + pack-heavy, Jinx is catnip-side, Jeremy is coins-everywhere, Lucian Sr is vendetta/rep, Sofia is the dealer, Big Score is capstone-rare. Perks live on `profile.job_perks` (JSONB), pruned lazily on read, **NOT** suspended by the Cat Police Pinch (unlike catnip perks — mafia perks were earned, so they keep working). Refresh-or-extend stacking; 5-perk cap with oldest-timed eviction; charge-based perks are sticky. New `/perks` command shows active favors with remaining time/charges. Result screen surfaces drop block + which perks fired this commit. Send screen shows active commit-time perks. Reroll Board adds a button to `/jobs` when active that re-rolls the current window's offer board. Tunable end-to-end via the admin webui under `/jobs` — drop chance, per-(NPC, tier) pools, and per-perk strength tables, with referential warnings on bad references. See `docs/design/jobs.md` for the system writeup.

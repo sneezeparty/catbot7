@@ -10633,14 +10633,14 @@ async def perks(message: discord.Interaction):
         for entry in active:
             npc_disp = _jobs_npc_display(entry.get("npc", "")) or "—"
             tier_disp = f"T{entry.get('tier', '?')}"
-            body = (
+            # Plain text — Section needs an `accessory` widget (button/thumbnail)
+            # but each perk row is info-only, so just append a title + body
+            # block. Same visual shape, no widget required.
+            items.append(f"### 🎁 {entry.get('name', entry.get('id', '?'))}")
+            items.append(
                 f"{entry.get('desc', '') or '*(no description)*'}\n"
                 f"-# from **{npc_disp}** ({tier_disp})  ·  {entry.get('status', '')}"
             )
-            items.append(Section(
-                f"### 🎁 {entry.get('name', entry.get('id', '?'))}",
-                body,
-            ))
         items.append(ActionRow(help_btn))
 
     container = Container(*items)

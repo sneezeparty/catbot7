@@ -126,6 +126,10 @@ All four hooks (the three above plus `webui-sync`) are registered in `.claude/se
 
 Because `cat!restart` re-imports `main` (and optionally `database`/`catpg`), avoid stashing state on module globals you expect to survive a reload. Cross-reload state lives on the `config` module (e.g. `config.cat_cought_rain`, `config.rain_starter`, `config.HARD_RESTART_TIME`, `config.SOFT_RESTART_TIME`) — `bot.py` initializes those before `bot.run` and `setup` updates `SOFT_RESTART_TIME`.
 
+### Jobs perks (`_perks_*`)
+
+A third reward axis on `/jobs` alongside coins/cats/packs. NPCs drop perks on successful job completion based on a per-(NPC, tier) weighted pool. Perks live on `profile.job_perks` (JSONB list) and are pruned lazily on read by `_perks_prune` — no background task. Each entry has `{id, granted_at, expires_at, npc, tier, charges}`; `expires_at=0` means non-timed, `charges=0` means non-charge-based. Helpers (`_perks_load`, `_perks_grant`, `_perks_consume_charge`, `_perks_roll_drop`, …) live in `main.py` next to `_jobs_perks_suspended`. **Job perks are NOT suspended by `perks_suspended_until`** — that flag only gates catnip perks. The asymmetry is intentional: mafia-reward perks were earned, so they keep working through the Pinch. Pools and the catalog live in `config/jobs.json → perks`.
+
 ## Conventions worth knowing
 
 - Code uses 4-space indent, double quotes, type hints sporadic. Match the surrounding style; this is not a strictly-typed codebase.

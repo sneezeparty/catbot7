@@ -152,6 +152,7 @@ JSONB_FIELDS = [
     "discovered_cats",          # JSONB list of rarity names ever owned (catstore/catch)
     "store_purchased_rarities", # JSONB list of rarity names ever bought from /catstore
     "faction_rep",              # JSONB dict[npc_key -> int]; per-NPC reputation (jobs system)
+    "job_perks",                # JSONB list of active mafia-reward perks; writer is main._perks_grant
 ]
 
 

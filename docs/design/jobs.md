@@ -80,6 +80,62 @@ A small `complication_quips` block lets specific events pull a themed line in pr
 
 The voice is rendered as a single quote block at the bottom of the result screen. **One line, always.** This is texture, not a wall of text.
 
+## Perks — third reward axis
+
+Job perks ("mafia favors") are a third reward bucket on top of coins and cats/packs. Every successful job rolls an independent **perk die** — separate from the success die and the complication die. If it fires, the NPC slips the player a card from a personality-flavored pool.
+
+### Drop math
+
+Two-stage roll on success:
+
+1. **Drop die** — per-tier chance `perks.drop_chance_by_tier`. Defaults: T1 8%, T2 15%, T3 25%, T4 35%, T5 100% (Big Score *always* drops a capstone perk).
+2. **Pool pick** — weighted choice from `perks.drop_pools[npc][tier]`. Each entry is `{id, weight}`. Weights are relative; they don't have to sum to anything specific.
+
+The two dice are independent of the success die and the complication die. **Drops are success-only** — near-miss and total-failure never drop a perk (Crew Insurance is the exception: it's a *consumption* mechanic that converts an outcome, not a drop mechanic).
+
+A perk drop failure inside `_jobs_apply_outcome` is caught and swallowed — the job resolution always wins.
+
+### Perk personalities
+
+Each NPC's perk pool encodes who they are (same idea as `reward_recipes`, expressed in a different reward axis):
+
+- **Whiskers** — reliability + pack-flavor. heat_shield, complication_insurance, pack_tier_upgrade, pack_floor, crew_insurance, eagle_eye. The disciplinarian who teaches the player to be careful.
+- **Lucian Jr** — impulsive, pack-heavy, mischievous. free_pack, pack_bonus_cat, pack_drop_boost, pack_tier_upgrade, daily_cap_extension, lightning_hands, reroll_board. The "dad doesn't know I'm doing this" guy.
+- **Jinx** — chill, catnip-side. cooling_off, catnip_extension, free_catnip, streak_protector, combo_shield. Low-heat low-stress, pairs naturally with the cat side of the game.
+- **Jeremy** — coins everywhere. roulette_luck, roulette_mercy, free_spin, catstore_sell_premium, cat_rain_coin_yield, stock_dividend_boost, bakery_discount. The money guy with a wink.
+- **Lucian Sr** — vendetta / rarity / consequence. send_power_boost, rep_windfall, rarity_bump, bounty_boost, bounty_refresh, quest_xp_boost. Old-school don who knows the rep economy.
+- **Sofia** — the dealer. catstore_discount_stack, pack_bonus_cat, discovery_shortcut, double_cat, perk_amplifier, catch_xp_boost. Catalog + cat-flavor perks.
+- **Big Score (Whiskers, T5)** — capstone-flavored, all rare. heat_reset, crew_insurance, pack_tier_upgrade (Celestial cap), double_cat (24h variant). One-shot per season, so the pool is brutal.
+
+A perk can appear in multiple NPCs' pools at different weights (e.g. `pack_tier_upgrade` is in both Whiskers and Lucian Jr — but it's Whiskers's main pack tool and only one entry in Lucian Jr's pack-heavy stable).
+
+### Tier scaling
+
+T2 is the baseline. T3 is ~1.5–2× baseline. T4 is ~3× baseline. T5 (Big Score variants) is a one-shot capstone — `double_cat` at T5 is 24h, `pack_tier_upgrade` at T5 uncaps to Celestial.
+
+Missing tier entries fall back to T2 automatically (see `_perks_tier_entry`), so adding a single T2 entry to a new perk is enough to make it grantable at any tier.
+
+### Stacking + lifetime
+
+- **Refresh-or-extend, never stack.** Granting the same perk again resets its timer / refills its charges. Two consecutive Double Cat drops give you one fresh 2h window, not 4h.
+- **Five-perk cap.** A 6th distinct grant evicts the oldest *timed* perk. Charge-based perks are sticky — they never get evicted to make room, because that would steal a one-shot the player hasn't used yet.
+- **Lifetime tracking.** `profile.perks_received` records every distinct perk ID the player has ever gotten. Backs the `perk_collector` hidden ach (own them all) and the Mafia Favors leaderboard.
+
+### Pinch immunity (the asymmetry with catnip)
+
+The Cat Police Pinch (`perks_suspended_until`) suspends **catnip** perks. It does **not** suspend job perks. Mafia perks were earned in the field — they're not a side benefit of an active session that gets paused, they're a card in your pocket. The asymmetry is intentional and gives the two perk systems distinct identity.
+
+`_jobs_perks_suspended` only checks catnip; `_perks_*` helpers never check it. This is doc'd in CLAUDE.md as well so it doesn't accidentally get "consistency-fixed."
+
+### Whiskers's Favor coexistence
+
+Phase 2 Whiskers's Favor (Whiskers ≥+100 rep → next pack-open upgrades one tier, season-gated, uncapped to Diamond) is **kept** as a separate mechanic. The two perk systems coexist:
+
+- **`pack_tier_upgrade`** (job perk) is the everyday version — charge-based, drops from Whiskers + Lucian Jr at T2/T3/T4, caps at Silver (T2), Gold (T3), Platinum (T4), or Celestial (T5 only).
+- **Whiskers's Favor** (rep reward) is the rep capstone version — once-per-season, no per-pack-tier cap (any → Diamond), unlocked by sustained rep work rather than a single job drop.
+
+Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops constantly. Both can be active at the same time.
+
 ## Open questions
 
 > **TODO(design):** the recipe weights for Sofia T4 include a 5%-weight "Mythic + Silver pack" jackpot. If post-launch data shows it firing often enough to bend the late-game cat supply, drop it to weight 2-3 or move it to a separate `jackpot_pool` that requires +50 Sofia rep to unlock. Right now any Lv8 Sofia commit can hit it.

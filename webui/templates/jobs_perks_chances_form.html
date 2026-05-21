@@ -1,0 +1,75 @@
+{#
+  Inline form for perks.drop_chance_by_tier + perks.max_active.
+  perks keys read here:
+    max_active            — int [1-50]
+    drop_chance_by_tier   — dict[tier_key, float in [0,1]]
+  Target: #jobs-perks-chances
+#}
+<div id="jobs-perks-chances" class="{% if just_saved %}just-saved{% endif %}">
+  {% if editing %}
+    <form id="jobs-perks-chances-form"
+          hx-post="/jobs/perks/chances"
+          hx-target="#jobs-perks-chances"
+          hx-swap="outerHTML">
+    <table class="editor-table">
+      <thead>
+        <tr><th>Field</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>max_active</code>
+            <span class="muted" style="font-size:var(--fs-xs)">Cap on simultaneous active perks per player [1-50]</span></td>
+          <td><input class="numeric" name="max_active"
+                     value="{{ perks.get('max_active', 5) }}" style="width:5em" step="1"
+                     form="jobs-perks-chances-form"></td>
+        </tr>
+        {% for tier in ["1","2","3","4","5"] %}
+          {% set chance = perks.get("drop_chance_by_tier", {}).get(tier, "") %}
+          <tr>
+            <td><code>drop_chance_by_tier[{{ tier }}]</code>
+              <span class="muted" style="font-size:var(--fs-xs)">
+                {% if tier == "5" %}Big Score — typically 1.0 (always drops){% else %}
+                Probability of a perk dropping on a successful T{{ tier }} job [0-1]
+                {% endif %}
+              </span></td>
+            <td><input class="numeric" name="chance_{{ tier }}"
+                       value="{{ chance }}" style="width:7em" step="0.01"
+                       form="jobs-perks-chances-form"></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions" style="margin-top:var(--sp-2)">
+      <button class="btn btn-primary" type="submit" form="jobs-perks-chances-form">Save</button>
+      <button class="btn btn-ghost" type="button"
+              hx-get="/jobs/perks/chances/cancel"
+              hx-target="#jobs-perks-chances"
+              hx-swap="outerHTML">Cancel</button>
+    </div>
+    </form>
+  {% else %}
+    <table class="editor-table">
+      <thead>
+        <tr><th>Field</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>max_active</code></td>
+          <td class="numeric">{{ perks.get("max_active", 5) }}</td>
+        </tr>
+        {% for tier in ["1","2","3","4","5"] %}
+          <tr>
+            <td><code>drop_chance_by_tier[{{ tier }}]</code></td>
+            <td class="numeric">{{ perks.get("drop_chance_by_tier", {}).get(tier, "—") }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions" style="margin-top:var(--sp-2)">
+      <button class="btn" type="button"
+              hx-get="/jobs/perks/chances/edit"
+              hx-target="#jobs-perks-chances"
+              hx-swap="outerHTML">Edit</button>
+    </div>
+  {% endif %}
+</div>

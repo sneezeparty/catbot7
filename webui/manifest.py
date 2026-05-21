@@ -175,6 +175,10 @@ SECTIONS: dict[str, dict] = {
             ("profile.heat", "main._jobs_* helpers — written on every job submission; decays hourly"),
             ("profile.faction_rep", "main._jobs_faction_rep() — per-NPC rep dict; updated on job success/failure"),
             ("profile.perks_suspended_until", "main._jobs_pinch() — catnip perks suspended for 12h after Pinch; set 0 to lift"),
+            # job_perks — JSONB list of active mafia-reward perks (third reward axis); writer is main._perks_grant.
+            # Each entry: {id, granted_at, expires_at, npc, tier, charges}. Pruned lazily on read by _perks_prune.
+            # NOT suspended by perks_suspended_until — that flag only gates catnip perks.
+            ("profile.job_perks", "main._perks_grant() — active job perks; pruned lazily on read; NOT suspended by perks_suspended_until"),
         ],
     },
     "user_table": {
@@ -228,6 +232,12 @@ SECTIONS: dict[str, dict] = {
             "cat_voices": "dict[rarity, {success:list[str], near_miss:list[str], total_failure:list[str]}] — 22 rarities",
             "complication_quips": "dict[event_id, dict[rarity, list[str]]] — subset of rarities per event",
             "complication_flavor": "dict[event_id, list[str]] — rarity-agnostic narrative lines",
+            "perks": (
+                "{max_active:int (default 5), drop_chance_by_tier: dict[tier,float], "
+                "drop_pools: dict[npc_key, dict[tier, list[{id,weight}]]], "
+                "catalog: dict[perk_id, {name?, desc?, tier_table: dict[tier,{duration_seconds?, charges?, ...}]}]} "
+                "— Phase 1 ships empty; pools/catalog populated in Phase 4. Drops only on success outcomes."
+            ),
         },
         "routes": [
             "GET /jobs",
@@ -287,6 +297,18 @@ SECTIONS: dict[str, dict] = {
             "GET /jobs/flavor/{event_id}/edit",
             "GET /jobs/flavor/{event_id}/cancel",
             "POST /jobs/flavor/{event_id}",
+            # perks — drop_chance_by_tier + max_active (single form)
+            "GET /jobs/perks/chances/edit",
+            "GET /jobs/perks/chances/cancel",
+            "POST /jobs/perks/chances",
+            # perks — drop_pools[npc][tier] (per-(NPC,tier) JSON list)
+            "GET /jobs/perks/pool/{npc}/{tier}/edit",
+            "GET /jobs/perks/pool/{npc}/{tier}/cancel",
+            "POST /jobs/perks/pool/{npc}/{tier}",
+            # perks — catalog[perk_id] (per-perk name + desc + tier_table JSON)
+            "GET /jobs/perks/catalog/{perk_id}/edit",
+            "GET /jobs/perks/catalog/{perk_id}/cancel",
+            "POST /jobs/perks/catalog/{perk_id}",
         ],
         "templates": [
             "jobs.html",
@@ -304,6 +326,9 @@ SECTIONS: dict[str, dict] = {
             "jobs_voice_row.html",
             "jobs_quip_row.html",
             "jobs_flavor_row.html",
+            "jobs_perks_chances_form.html",
+            "jobs_perks_pool_row.html",
+            "jobs_perks_catalog_row.html",
         ],
         "references": [
             # NPC tiers_offered must reference keys in tiers — checked at save time (hard block)
@@ -331,6 +356,27 @@ SECTIONS: dict[str, dict] = {
             ("npcs.<key>.reward_recipes[*].pack", "validators.PACK_TIER_LIST — save blocked if unknown pack tier"),
             # complications.sloppy_target pack tiers must be valid — validated on save
             ("complications.sloppy_target_default_pack_tier_by_tier[*]", "validators.PACK_TIER_LIST — save blocked if unknown"),
+            # jobinstance.perk_drop — per-offer pre-rolled perk_id (text, '' = no perk).
+            # Rolled at offer-generation in main._jobs_generate_offers with seeded RNG;
+            # read at success time in main._jobs_apply_outcome to grant. Surfaced on
+            # board / send / accept-embed / result screen. No webui editor — operator
+            # tunes pools/catalog and the bot re-rolls future offers from there.
+            ("jobinstance.perk_drop", "main._jobs_generate_offers — pre-rolled perk_id; read at outcome time"),
+            # perks pool entries reference perks catalog — save blocked if id missing
+            ("perks.drop_pools[*][*].id", "perks.catalog keys — save blocked if perk id unknown"),
+            # perks pool tier keys should be in jobs.tiers — soft warning
+            ("perks.drop_pools[npc][tier]", "jobs.tiers keys — soft warning if tier missing"),
+            # perks pool (npc, tier) should be one this NPC actually offers — soft warning (Big Score under whiskers/5 exempted)
+            ("perks.drop_pools[npc][tier]", "npcs[npc].tiers_offered — soft warning if mismatch (Big Score whiskers/5 exempted)"),
+            # perks catalog tier_table keys should be in jobs.tiers — hard block on save
+            ("perks.catalog[id].tier_table keys", "jobs.tiers keys — save blocked if unknown tier"),
+            # drop_chance_by_tier values must be in [0,1] — hard block on save
+            ("perks.drop_chance_by_tier[tier]", "float in [0,1] — save blocked if out of range"),
+            # perks catalog perk used at runtime
+            ("perks.catalog", "main.PERKS_CATALOG (re-read on cat!restart). Per-perk tier_table feeds _perks_grant / _perks_strength"),
+            ("perks.drop_pools", "main.PERKS_DROP_POOLS — read by _perks_roll_drop at job-success time"),
+            ("perks.drop_chance_by_tier", "main.PERKS_DROP_CHANCE_BY_TIER — top-die for whether a perk drops at all"),
+            ("perks.max_active", "main.PERKS_MAX_ACTIVE — cap on simultaneous active perks; oldest TIMED perk evicted on overflow"),
         ],
     },
     "jobs_help": {

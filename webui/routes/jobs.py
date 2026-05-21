@@ -94,6 +94,52 @@ def _referential_warnings(jobs: dict) -> list[str]:
         if pack_tier and pack_tier not in PACK_TIER_LIST:
             warnings.append(f"complications.sloppy_target_default_pack_tier_by_tier[{tier_key}]={pack_tier!r} is not a known pack tier")
 
+    # --- Perks (Phase 4) ---
+    perks_block = jobs.get("perks", {}) or {}
+    catalog_ids = set((perks_block.get("catalog", {}) or {}).keys())
+    drop_pools = perks_block.get("drop_pools", {}) or {}
+    # Pools: every entry's id must be in catalog; tier keys should be in jobs.tiers
+    # (or "5" if it lives under "whiskers" — the Big Score patron).
+    for npc_key, by_tier in drop_pools.items():
+        if npc_key not in npc_keys:
+            warnings.append(f"perks.drop_pools: NPC {npc_key!r} is not in npcs")
+            continue
+        npc_offered = {str(t) for t in (jobs.get("npcs", {}).get(npc_key, {}).get("tiers_offered") or [])}
+        for tk, pool in (by_tier or {}).items():
+            if tk not in tier_keys:
+                warnings.append(f"perks.drop_pools[{npc_key}][{tk}]: tier {tk!r} is not in jobs.tiers")
+            if tk not in npc_offered and not (tk == "5" and npc_key == "whiskers"):
+                warnings.append(f"perks.drop_pools[{npc_key}][{tk}]: NPC doesn't offer tier {tk}")
+            for entry in (pool or []):
+                pid = (entry or {}).get("id")
+                if pid and catalog_ids and pid not in catalog_ids:
+                    warnings.append(f"perks.drop_pools[{npc_key}][{tk}]: perk {pid!r} not in catalog")
+                # tier-table check: pool tier should have an entry in catalog[pid].tier_table
+                if pid and pid in catalog_ids:
+                    tt = (perks_block.get("catalog", {}).get(pid, {}).get("tier_table", {}) or {})
+                    if tk not in tt and "2" not in tt:
+                        warnings.append(f"perks.drop_pools[{npc_key}][{tk}]: perk {pid!r} has no T{tk} or T2 tier_table entry")
+    # Catalog: every tier_table key should be a known tier.
+    for pid, cat in (perks_block.get("catalog", {}) or {}).items():
+        for tk in (cat.get("tier_table", {}) or {}).keys():
+            if tk not in tier_keys:
+                warnings.append(f"perks.catalog[{pid}].tier_table: tier {tk!r} is not in jobs.tiers")
+    # Catalog perks not in any pool → unreachable (soft warn).
+    pool_ids = {(e or {}).get("id") for by_tier in drop_pools.values() for pool in (by_tier or {}).values() for e in (pool or [])}
+    for pid in catalog_ids:
+        if pid not in pool_ids:
+            warnings.append(f"perks.catalog[{pid}] is not in any drop_pool (unreachable in-game)")
+    # drop_chance_by_tier sanity
+    chances = perks_block.get("drop_chance_by_tier", {}) or {}
+    for tk in tier_keys:
+        if tk in chances:
+            v = chances[tk]
+            try:
+                if float(v) < 0 or float(v) > 1:
+                    warnings.append(f"perks.drop_chance_by_tier[{tk}]={v!r} should be in [0, 1]")
+            except (ValueError, TypeError):
+                warnings.append(f"perks.drop_chance_by_tier[{tk}]={v!r} is not a number")
+
     return warnings
 
 
@@ -147,6 +193,22 @@ async def index(request):
             "cat_voices": jobs.get("cat_voices", {}),
             "complication_quips": jobs.get("complication_quips", {}),
             "complication_flavor": jobs.get("complication_flavor", {}),
+            # Perks (Phase 4 + 5 — sub-section editors)
+            "perks_block": jobs.get("perks", {}) or {},
+            "perks_drop_chance_by_tier": (jobs.get("perks", {}) or {}).get("drop_chance_by_tier", {}),
+            "perks_drop_pools": (jobs.get("perks", {}) or {}).get("drop_pools", {}),
+            "perks_catalog": (jobs.get("perks", {}) or {}).get("catalog", {}),
+            "perks_pools_json": {
+                npc: {
+                    tk: _json.dumps(pool, indent=2)
+                    for tk, pool in (by_tier or {}).items()
+                }
+                for npc, by_tier in ((jobs.get("perks", {}) or {}).get("drop_pools", {}) or {}).items()
+            },
+            "perks_catalog_tier_table_json": {
+                pid: _json.dumps(cat.get("tier_table", {}), indent=2)
+                for pid, cat in ((jobs.get("perks", {}) or {}).get("catalog", {}) or {}).items()
+            },
             "warnings": warnings,
         },
     )
@@ -1113,6 +1175,231 @@ async def save_flavor(request):
     )
 
 
+# --------------------------------------------------- perks routes  ----------
+#
+# Three sub-editors for the Phase 4 perks block in config/jobs.json:
+#   perks.drop_chance_by_tier  — 5 floats (one per tier), inline form
+#   perks.drop_pools           — per-(NPC, tier) JSON list of {id, weight}
+#   perks.catalog              — per-perk name/desc/tier_table
+#
+# Referential warnings (rendered on the index alongside the rest):
+#   - any perk id in a drop_pool that's not in the catalog
+#   - any tier key in drop_pools that's not in jobs.tiers (or "5" for Big Score)
+#   - any tier key in a catalog tier_table that's not in jobs.tiers
+
+async def edit_perks_chances(request):
+    jobs = state.get_jobs()
+    perks = jobs.get("perks", {}) or {}
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_chances_form.html",
+        request,
+        {"perks": perks, "editing": True},
+    )
+
+
+async def cancel_perks_chances(request):
+    jobs = state.get_jobs()
+    perks = jobs.get("perks", {}) or {}
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_chances_form.html",
+        request,
+        {"perks": perks, "editing": False},
+    )
+
+
+async def save_perks_chances(request):
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    form = await request.post()
+    perks = jobs.setdefault("perks", {})
+    chances = dict(perks.get("drop_chance_by_tier", {}))
+    tier_keys = sorted(jobs.get("tiers", {}).keys(), key=lambda x: int(x))
+    for tk in tier_keys:
+        raw = form.get(f"chance_{tk}")
+        if raw is None or raw == "":
+            chances.pop(tk, None)
+            continue
+        try:
+            v = float(raw)
+        except ValueError:
+            return web.Response(status=400, text=f"drop_chance_by_tier[{tk}] must be a float")
+        if v < 0 or v > 1:
+            return web.Response(status=400, text=f"drop_chance_by_tier[{tk}] must be in [0, 1]")
+        chances[tk] = v
+    # Also accept max_active.
+    raw_max = form.get("max_active")
+    if raw_max is not None and raw_max != "":
+        try:
+            ma = int(raw_max)
+        except ValueError:
+            return web.Response(status=400, text="max_active must be an integer")
+        if ma < 1 or ma > 50:
+            return web.Response(status=400, text="max_active must be in [1, 50]")
+        perks["max_active"] = ma
+    async with io_locks.lock_for(JOBS_PATH):
+        perks["drop_chance_by_tier"] = chances
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_chances_form.html",
+        request,
+        {"perks": perks, "editing": False, "just_saved": True},
+    )
+
+
+async def edit_perks_pool(request):
+    import json as _json
+    npc = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    pool = ((jobs.get("perks", {}).get("drop_pools", {}) or {}).get(npc, {}) or {}).get(tier_key, [])
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_pool_row.html",
+        request,
+        {"npc_key": npc, "tier_key": tier_key, "entries_json": _json.dumps(pool, indent=2), "editing": True},
+    )
+
+
+async def cancel_perks_pool(request):
+    import json as _json
+    npc = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = state.get_jobs()
+    pool = ((jobs.get("perks", {}).get("drop_pools", {}) or {}).get(npc, {}) or {}).get(tier_key, [])
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_pool_row.html",
+        request,
+        {"npc_key": npc, "tier_key": tier_key, "entries_json": _json.dumps(pool, indent=2), "editing": False},
+    )
+
+
+async def save_perks_pool(request):
+    import json as _json
+    npc = request.match_info["npc"]
+    tier_key = request.match_info["tier"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    form = await request.post()
+    raw = form.get("entries_json", "[]")
+    try:
+        entries = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        return web.Response(status=400, text=f"Invalid JSON: {exc}")
+    if not isinstance(entries, list):
+        return web.Response(status=400, text="drop_pools entry must be a JSON array")
+    catalog_ids = set((jobs.get("perks", {}).get("catalog", {}) or {}).keys())
+    for e in entries:
+        if not isinstance(e, dict):
+            return web.Response(status=400, text="each entry must be a {id, weight} object")
+        pid = e.get("id")
+        w = e.get("weight")
+        if not isinstance(pid, str) or not pid:
+            return web.Response(status=400, text="entry.id must be a non-empty string")
+        if not isinstance(w, (int, float)) or w < 0:
+            return web.Response(status=400, text=f"entry.weight for {pid!r} must be a non-negative number")
+        # Hard block: unknown perk id (the player would silently see nothing).
+        if catalog_ids and pid not in catalog_ids:
+            return web.Response(status=400, text=f"unknown perk id {pid!r} (not in perks.catalog)")
+    async with io_locks.lock_for(JOBS_PATH):
+        perks = jobs.setdefault("perks", {})
+        pools = perks.setdefault("drop_pools", {})
+        pools.setdefault(npc, {})[tier_key] = entries
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_pool_row.html",
+        request,
+        {"npc_key": npc, "tier_key": tier_key, "entries_json": _json.dumps(entries, indent=2), "editing": False, "just_saved": True},
+    )
+
+
+async def edit_perks_catalog(request):
+    import json as _json
+    perk_id = request.match_info["perk_id"]
+    jobs = state.get_jobs()
+    cat = (jobs.get("perks", {}).get("catalog", {}) or {}).get(perk_id, {})
+    tier_table_json = _json.dumps(cat.get("tier_table", {}), indent=2)
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_catalog_row.html",
+        request,
+        {
+            "perk_id": perk_id,
+            "name": cat.get("name", ""),
+            "desc": cat.get("desc", ""),
+            "tier_table_json": tier_table_json,
+            "editing": True,
+        },
+    )
+
+
+async def cancel_perks_catalog(request):
+    import json as _json
+    perk_id = request.match_info["perk_id"]
+    jobs = state.get_jobs()
+    cat = (jobs.get("perks", {}).get("catalog", {}) or {}).get(perk_id, {})
+    tier_table_json = _json.dumps(cat.get("tier_table", {}), indent=2)
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_catalog_row.html",
+        request,
+        {
+            "perk_id": perk_id,
+            "name": cat.get("name", ""),
+            "desc": cat.get("desc", ""),
+            "tier_table_json": tier_table_json,
+            "editing": False,
+        },
+    )
+
+
+async def save_perks_catalog(request):
+    import json as _json
+    perk_id = request.match_info["perk_id"]
+    jobs = _get_jobs_mutable()
+    if jobs is None:
+        return web.Response(status=503, text="config.jobs not loaded")
+    form = await request.post()
+    name = (form.get("name") or "").strip()
+    desc = (form.get("desc") or "").strip()
+    raw = form.get("tier_table_json", "{}")
+    try:
+        tier_table = _json.loads(raw)
+    except _json.JSONDecodeError as exc:
+        return web.Response(status=400, text=f"Invalid JSON in tier_table: {exc}")
+    if not isinstance(tier_table, dict):
+        return web.Response(status=400, text="tier_table must be a JSON object {tier: {...}}")
+    tier_keys = set(jobs.get("tiers", {}).keys())
+    for tk, tdata in tier_table.items():
+        if tk not in tier_keys:
+            return web.Response(status=400, text=f"tier_table key {tk!r} is not a known tier (got: {sorted(tier_keys)})")
+        if not isinstance(tdata, dict):
+            return web.Response(status=400, text=f"tier_table[{tk}] must be an object")
+    async with io_locks.lock_for(JOBS_PATH):
+        catalog = jobs.setdefault("perks", {}).setdefault("catalog", {})
+        existing = catalog.get(perk_id, {})
+        if name:
+            existing["name"] = name
+        if desc:
+            existing["desc"] = desc
+        existing["tier_table"] = tier_table
+        catalog[perk_id] = existing
+        await io_locks.atomic_write_json(JOBS_PATH, jobs)
+        state.mark_dirty("jobs")
+    return aiohttp_jinja2.render_template(
+        "jobs_perks_catalog_row.html",
+        request,
+        {
+            "perk_id": perk_id,
+            "name": existing.get("name", ""),
+            "desc": existing.get("desc", ""),
+            "tier_table_json": _json.dumps(tier_table, indent=2),
+            "editing": False,
+            "just_saved": True,
+        },
+    )
+
+
 # --------------------------------------------------- register  --------------
 
 def register(app: web.Application) -> None:
@@ -1187,3 +1474,18 @@ def register(app: web.Application) -> None:
     app.router.add_get(r"/jobs/flavor/{event_id}/edit", edit_flavor)
     app.router.add_get(r"/jobs/flavor/{event_id}/cancel", cancel_flavor)
     app.router.add_post(r"/jobs/flavor/{event_id}", save_flavor)
+
+    # perks.drop_chance_by_tier + max_active (single form)
+    app.router.add_get("/jobs/perks/chances/edit", edit_perks_chances)
+    app.router.add_get("/jobs/perks/chances/cancel", cancel_perks_chances)
+    app.router.add_post("/jobs/perks/chances", save_perks_chances)
+
+    # perks.drop_pools[npc][tier] (one row per (NPC, tier))
+    app.router.add_get(r"/jobs/perks/pool/{npc}/{tier}/edit", edit_perks_pool)
+    app.router.add_get(r"/jobs/perks/pool/{npc}/{tier}/cancel", cancel_perks_pool)
+    app.router.add_post(r"/jobs/perks/pool/{npc}/{tier}", save_perks_pool)
+
+    # perks.catalog[perk_id] (one row per perk; name + desc + tier_table JSON)
+    app.router.add_get(r"/jobs/perks/catalog/{perk_id}/edit", edit_perks_catalog)
+    app.router.add_get(r"/jobs/perks/catalog/{perk_id}/cancel", cancel_perks_catalog)
+    app.router.add_post(r"/jobs/perks/catalog/{perk_id}", save_perks_catalog)

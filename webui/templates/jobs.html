@@ -257,5 +257,60 @@
     </tbody>
   </table>
 
+  {# ============================================================ perks — drop chance #}
+  <h2 class="section">Perks — drop chance by tier</h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Per-tier probability a successful job awards a perk. T5 (Big Score) is typically <code>1.0</code>
+    (always drops). <code>max_active</code> caps how many perks a player can hold at once — granting
+    a perk past the cap evicts the oldest timed perk (charge-based perks are sticky).
+  </p>
+  <div id="jobs-perks-chances">
+    {% with perks = perks_block, editing = false %}
+      {% include "jobs_perks_chances_form.html" %}
+    {% endwith %}
+  </div>
+
+  {# ============================================================ perks — drop pools #}
+  <h2 class="section">Perks — drop pools <span class="heading-count">per-NPC per-tier</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Weighted perk pools per (NPC, tier). Each entry: <code>{"id": "perk_id", "weight": int}</code>.
+    A perk can appear in multiple pools (e.g. <code>pack_tier_upgrade</code> in both Whiskers and
+    Lucian Jr). The bot also recognizes a synthetic <code>whiskers / 5</code> pool for the Big Score
+    capstone.
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>NPC</th><th>Tier</th><th>Entries</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for npc_key, by_tier in perks_drop_pools.items() %}
+        {% for tier_key, entries_json in perks_pools_json.get(npc_key, {}).items() %}
+          {% include "jobs_perks_pool_row.html" %}
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ============================================================ perks — catalog #}
+  <h2 class="section">Perks — catalog <span class="heading-count">{{ perks_catalog|length }} perks</span></h2>
+  <p class="muted" style="margin-bottom:var(--sp-3)">
+    Per-perk display name, description, and per-tier strength table. Strength keys depend on the
+    perk — see the placeholder in each edit form. Missing tier entries fall back to T2 at runtime
+    (so adding a single T2 entry is enough to make a perk grantable at any tier).
+  </p>
+  <table class="editor-table">
+    <thead>
+      <tr><th>Perk ID</th><th>Name</th><th>Description</th><th>tier_table</th></tr>
+    </thead>
+    <tbody>
+      {% for perk_id, cat in perks_catalog.items() %}
+        {% set name = cat.get("name", "") %}
+        {% set desc = cat.get("desc", "") %}
+        {% set tier_table_json = perks_catalog_tier_table_json.get(perk_id, "{}") %}
+        {% include "jobs_perks_catalog_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
 </section>
 {% endblock %}

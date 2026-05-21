@@ -4,6 +4,26 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [Unreleased]
+
+### Added
+- **Mafia favors (job perks) — full system.** A third reward axis on top of coins and cats/packs. **Every successful `/jobs` drops a perk** (chance is 1.0 across all tiers; tier shapes *which* perk you get rather than *whether* you get one). 31 perks across catch-loop, economy, pack, jobs-feedback, catnip-side, and quirky buckets, weighted so weak perks are common and capstone perks are rare. Each NPC has a personality-flavored pool: Whiskers does reliability + pack, Lucian Jr is impulsive + pack-heavy, Jinx is catnip-side, Jeremy is coins-everywhere, Lucian Sr is vendetta/rep, Sofia is the dealer, Big Score is capstone-rare. Perks live on `profile.job_perks` (JSONB), pruned lazily on read, **NOT** suspended by the Cat Police Pinch (unlike catnip perks — mafia perks were earned, so they keep working). Refresh-or-extend stacking; 5-perk cap with oldest-timed eviction; charge-based perks are sticky. New `/perks` command shows active favors with remaining time/charges. Result screen surfaces drop block + which perks fired this commit. Send screen shows active commit-time perks. Reroll Board adds a button to `/jobs` when active that re-rolls the current window's offer board. Tunable end-to-end via the admin webui under `/jobs` — drop chance, per-(NPC, tier) pools, and per-perk strength tables, with referential warnings on bad references. See `docs/design/jobs.md` for the system writeup.
+- **Perks are previewed on the offer card.** The perk roll happens at offer-generation time, not outcome time, and is persisted on the `JobInstance` row. Every surface that shows a job shows the perk it's offering: `/jobs` board cards (🎁 line under the reward), the send screen ("You'll receive on success: …"), the public Accept embed posted to the channel, and the result screen. On near-miss or wipe the result screen shows a faded "💨 The bonus walks" line so the missed perk feels material. The roll uses an independent seeded RNG stream so the same window/slot deterministically produces the same perk preview, and tuning the perk pool won't shift difficulty/reward determinism.
+- **6 job offers per window, paginated 3 per page.** `/jobs` now generates 6 contracts every 6h (up from 3). The board shows Page 1/2 with `← Prev` / `Next →` buttons next to Help. Pagination state survives accepts/declines; rerolling resets to page 1.
+- **5 new achievements for the perks system:** First Favor (first perk received • 300 XP), Pocket Full of Favors (5 active at once • 400 XP), Made of Favors (hidden — receive every perk • 600 XP), Lucky Strike (hidden — fire Crew Insurance to convert a near-miss • 500 XP), Made Man (hidden — earn a Tier 5 perk from the Big Score • 700 XP).
+- **`perk_user` battlepass extra quest** — have a job perk active • 220–280 XP. Fires from `/perks`, idempotent per quest period.
+- **"Mafia Favors" leaderboard category** — ranks players by lifetime distinct perk IDs received. Backed by the new `profile.perks_received` JSONB column.
+- **Jobs help page "Perks"** at `min_level_to_see: 3`. Reputation page amended with a note about per-NPC perk personalities.
+
+### Changed
+- **Job offers now display proper cat-rarity icons in the reward summary.** The reward line on every offer/send/result surface was using `get_emoji(<rarity_lower>)` instead of the convention `get_emoji(<rarity_lower>+"cat")`, which made every cat icon render as 🔳. One-line fix; affects all `/jobs` views.
+
+### Internal
+- Migrations: `010_jobs_perks.py` (`profile.job_perks JSONB`), `011_perks_received.py` (`profile.perks_received JSONB`), `012_jobs_perk_drop.py` (`jobinstance.perk_drop TEXT`).
+- `_perks_*` helper namespace in `main.py` alongside `_jobs_*`. New constants: `PERKS_CATALOG`, `PERKS_DROP_POOLS`, `PERKS_DROP_CHANCE_BY_TIER`, `PERKS_MAX_ACTIVE`, `RESOLVING_PERKS`, `JOBS_BOARD_PAGE_SIZE`. Re-read on `cat!restart` like the other `JOBS_*` constants.
+- 3 new webui sections under `/jobs` (drop chance + pools + catalog), 3 new templates, 9 new HTTP routes. `webui-sync` referential warnings extended to catch unknown perk IDs in pools, missing tier_table entries, and unreachable catalog perks.
+- Catalog tuning during the launch arc: removed 7 perks that didn't fit current gameplay — the heat trio (Heat Shield, Heat Reset, Cooling Off) plus Combo Shield, Eagle Eye, Lightning Hands, and Bake.gg Comp. Hook code stays in place (inert without catalog entries) so any of them can be revived by a webui edit alone. Final live catalog: 31 perks.
+
 ## [0.0.5.151919052026]
 
 ### Added

@@ -1,21 +1,38 @@
 {
   "send_power": {
-    "Fine": 1, "Nice": 2, "Good": 3, "Rare": 5, "Wild": 7, "Baby": 9,
-    "Epic": 12, "Sus": 15, "Brave": 18, "Rickroll": 22, "Reverse": 26,
-    "Superior": 31, "Trash": 37, "Legendary": 44, "Mythic": 52,
-    "8bit": 61, "Corrupt": 71, "Professor": 83, "Divine": 97,
-    "Real": 115, "Ultimate": 140, "eGirl": 180
+    "Fine": 1,
+    "Nice": 2,
+    "Good": 3,
+    "Rare": 5,
+    "Wild": 7,
+    "Baby": 9,
+    "Epic": 12,
+    "Sus": 15,
+    "Brave": 18,
+    "Rickroll": 22,
+    "Reverse": 26,
+    "Superior": 31,
+    "Trash": 37,
+    "Legendary": 44,
+    "Mythic": 52,
+    "8bit": 61,
+    "Corrupt": 71,
+    "Professor": 83,
+    "Divine": 97,
+    "Real": 115,
+    "Ultimate": 140,
+    "eGirl": 180
   },
   "probability": {
     "k": 2.5,
     "floor": 0.05,
     "ceiling": 0.95,
-    "near_miss_band": 0.10
+    "near_miss_band": 0.1
   },
   "tuning": {
     "offer_refresh_window_seconds": 21600,
     "decline_cooldown_seconds": 3600,
-    "max_concurrent_offers": 3,
+    "max_concurrent_offers": 6,
     "cancel_grace_seconds": 30,
     "heat_decay_per_hour": 2,
     "pinch_threshold": 100,
@@ -25,177 +42,786 @@
     "max_commits_per_day": 3
   },
   "tiers": {
-    "1": { "name": "Errand",        "difficulty_range": [15, 30],    "reward_coin_range": [50, 150],      "heat": 0,   "min_catnip_level": 2 },
-    "2": { "name": "Casual",        "difficulty_range": [50, 100],   "reward_coin_range": [150, 400],     "heat": 8,   "min_catnip_level": 4 },
-    "3": { "name": "Professional", "difficulty_range": [150, 250],  "reward_coin_range": [500, 1500],    "heat": 15,  "min_catnip_level": 6 },
-    "4": { "name": "High-Stakes",   "difficulty_range": [400, 600],  "reward_coin_range": [2000, 6000],   "heat": 25,  "min_catnip_level": 8 },
-    "5": { "name": "The Big Score", "difficulty_range": [800, 800],  "reward_coin_range": [15000, 15000], "heat": 100, "min_catnip_level": 10 }
+    "1": {
+      "name": "Errand",
+      "difficulty_range": [
+        15,
+        30
+      ],
+      "reward_coin_range": [
+        50,
+        150
+      ],
+      "heat": 0,
+      "min_catnip_level": 2
+    },
+    "2": {
+      "name": "Casual",
+      "difficulty_range": [
+        50,
+        100
+      ],
+      "reward_coin_range": [
+        150,
+        400
+      ],
+      "heat": 8,
+      "min_catnip_level": 4
+    },
+    "3": {
+      "name": "Professional",
+      "difficulty_range": [
+        150,
+        250
+      ],
+      "reward_coin_range": [
+        500,
+        1500
+      ],
+      "heat": 15,
+      "min_catnip_level": 6
+    },
+    "4": {
+      "name": "High-Stakes",
+      "difficulty_range": [
+        400,
+        600
+      ],
+      "reward_coin_range": [
+        2000,
+        6000
+      ],
+      "heat": 25,
+      "min_catnip_level": 8
+    },
+    "5": {
+      "name": "The Big Score",
+      "difficulty_range": [
+        800,
+        800
+      ],
+      "reward_coin_range": [
+        15000,
+        15000
+      ],
+      "heat": 100,
+      "min_catnip_level": 10
+    }
   },
   "npcs": {
     "whiskers": {
       "display_name": "Whiskers",
       "min_hire_level": 1,
-      "tiers_offered": [2, 3, 4],
-      "hires_against": ["bailey", "wilson", "lalo"],
+      "tiers_offered": [
+        2,
+        3,
+        4
+      ],
+      "hires_against": [
+        "bailey",
+        "wilson",
+        "lalo"
+      ],
       "reward_mult": 1.0,
       "heat_mult": 0.9,
       "reward_bias": "standard",
       "rep_unlock_at_100": "favor",
       "reward_recipes": {
         "2": [
-          { "weight": 50, "coins": [180, 350], "cats": {"Good": 1} },
-          { "weight": 25, "coins": [200, 380], "cats": {"Rare": 1} },
-          { "weight": 15, "coins": [150, 300], "cats": {"Nice": 1, "Good": 1} },
-          { "weight": 10, "coins": [250, 400], "cats": {"Rare": 1}, "pack": "wooden" }
+          {
+            "weight": 50,
+            "coins": [
+              180,
+              350
+            ],
+            "cats": {
+              "Good": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              200,
+              380
+            ],
+            "cats": {
+              "Rare": 1
+            }
+          },
+          {
+            "weight": 15,
+            "coins": [
+              150,
+              300
+            ],
+            "cats": {
+              "Nice": 1,
+              "Good": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              250,
+              400
+            ],
+            "cats": {
+              "Rare": 1
+            },
+            "pack": "wooden"
+          }
         ],
         "3": [
-          { "weight": 45, "coins": [700, 1200], "cats": {"Epic": 1} },
-          { "weight": 25, "coins": [500, 900],  "cats": {"Rare": 3} },
-          { "weight": 15, "coins": [800, 1300], "cats": {"Rare": 2, "Epic": 1} },
-          { "weight": 15, "coins": [600, 1000], "cats": {"Epic": 1}, "pack": "stone" }
+          {
+            "weight": 45,
+            "coins": [
+              700,
+              1200
+            ],
+            "cats": {
+              "Epic": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              500,
+              900
+            ],
+            "cats": {
+              "Rare": 3
+            }
+          },
+          {
+            "weight": 15,
+            "coins": [
+              800,
+              1300
+            ],
+            "cats": {
+              "Rare": 2,
+              "Epic": 1
+            }
+          },
+          {
+            "weight": 15,
+            "coins": [
+              600,
+              1000
+            ],
+            "cats": {
+              "Epic": 1
+            },
+            "pack": "stone"
+          }
         ],
         "4": [
-          { "weight": 40, "coins": [3000, 4500], "cats": {"Ultimate": 1} },
-          { "weight": 25, "coins": [2500, 4000], "cats": {"Legendary": 1}, "pack": "bronze" },
-          { "weight": 20, "coins": [3500, 5000], "cats": {"Legendary": 2} },
-          { "weight": 10, "coins": [2000, 3000], "cats": {"Ultimate": 2} },
-          { "weight": 5,  "coins": [5000, 6000], "cats": {"Mythic": 1},   "pack": "silver" }
+          {
+            "weight": 40,
+            "coins": [
+              3000,
+              4500
+            ],
+            "cats": {
+              "Ultimate": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              2500,
+              4000
+            ],
+            "cats": {
+              "Legendary": 1
+            },
+            "pack": "bronze"
+          },
+          {
+            "weight": 20,
+            "coins": [
+              3500,
+              5000
+            ],
+            "cats": {
+              "Legendary": 2
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              2000,
+              3000
+            ],
+            "cats": {
+              "Ultimate": 2
+            }
+          },
+          {
+            "weight": 5,
+            "coins": [
+              5000,
+              6000
+            ],
+            "cats": {
+              "Mythic": 1
+            },
+            "pack": "silver"
+          }
         ]
       }
     },
     "lucian_jr": {
       "display_name": "Lucian Jr",
       "min_hire_level": 2,
-      "tiers_offered": [1, 2],
-      "hires_against": ["whiskers", "sofia", "jinx"],
+      "tiers_offered": [
+        1,
+        2
+      ],
+      "hires_against": [
+        "whiskers",
+        "sofia",
+        "jinx"
+      ],
       "reward_mult": 1.3,
       "heat_mult": 1.15,
       "reward_bias": "standard",
       "reward_recipes": {
         "1": [
-          { "weight": 35, "coins": [80, 150] },
-          { "weight": 35, "coins": [60, 120], "cats": {"Nice": 1} },
-          { "weight": 20, "coins": [70, 140], "cats": {"Fine": 1, "Nice": 1} },
-          { "weight": 10, "coins": [80, 150], "cats": {"Fine": 1}, "pack": "wooden" }
+          {
+            "weight": 35,
+            "coins": [
+              80,
+              150
+            ]
+          },
+          {
+            "weight": 35,
+            "coins": [
+              60,
+              120
+            ],
+            "cats": {
+              "Nice": 1
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              70,
+              140
+            ],
+            "cats": {
+              "Fine": 1,
+              "Nice": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              80,
+              150
+            ],
+            "cats": {
+              "Fine": 1
+            },
+            "pack": "wooden"
+          }
         ],
         "2": [
-          { "weight": 55, "coins": [220, 380], "cats": {"Nice": 1} },
-          { "weight": 25, "coins": [180, 320], "cats": {"Good": 1} },
-          { "weight": 20, "coins": [200, 350], "cats": {"Good": 1}, "pack": "stone" }
+          {
+            "weight": 55,
+            "coins": [
+              220,
+              380
+            ],
+            "cats": {
+              "Nice": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              180,
+              320
+            ],
+            "cats": {
+              "Good": 1
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              200,
+              350
+            ],
+            "cats": {
+              "Good": 1
+            },
+            "pack": "stone"
+          }
         ]
       }
     },
     "jinx": {
       "display_name": "Jinx",
       "min_hire_level": 3,
-      "tiers_offered": [1, 2, 3],
-      "hires_against": ["wilson", "sofia"],
+      "tiers_offered": [
+        1,
+        2,
+        3
+      ],
+      "hires_against": [
+        "wilson",
+        "sofia"
+      ],
       "reward_mult": 0.9,
       "heat_mult": 0.7,
       "reward_bias": "coin_heavy",
       "reward_recipes": {
         "1": [
-          { "weight": 20, "coins": [90, 150] },
-          { "weight": 50, "coins": [70, 130], "cats": {"Fine": 2} },
-          { "weight": 20, "coins": [100, 150], "cats": {"Nice": 1} },
-          { "weight": 10, "coins": [80, 140], "cats": {"Fine": 1}, "pack": "wooden" }
+          {
+            "weight": 20,
+            "coins": [
+              90,
+              150
+            ]
+          },
+          {
+            "weight": 50,
+            "coins": [
+              70,
+              130
+            ],
+            "cats": {
+              "Fine": 2
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              100,
+              150
+            ],
+            "cats": {
+              "Nice": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              80,
+              140
+            ],
+            "cats": {
+              "Fine": 1
+            },
+            "pack": "wooden"
+          }
         ],
         "2": [
-          { "weight": 20, "coins": [250, 400] },
-          { "weight": 40, "coins": [200, 350], "cats": {"Nice": 1} },
-          { "weight": 22, "coins": [220, 380], "cats": {"Good": 1} },
-          { "weight": 8,  "coins": [180, 300], "cats": {"Rare": 1} },
-          { "weight": 10, "coins": [240, 380], "cats": {"Nice": 1}, "pack": "wooden" }
+          {
+            "weight": 20,
+            "coins": [
+              250,
+              400
+            ]
+          },
+          {
+            "weight": 40,
+            "coins": [
+              200,
+              350
+            ],
+            "cats": {
+              "Nice": 1
+            }
+          },
+          {
+            "weight": 22,
+            "coins": [
+              220,
+              380
+            ],
+            "cats": {
+              "Good": 1
+            }
+          },
+          {
+            "weight": 8,
+            "coins": [
+              180,
+              300
+            ],
+            "cats": {
+              "Rare": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              240,
+              380
+            ],
+            "cats": {
+              "Nice": 1
+            },
+            "pack": "wooden"
+          }
         ],
         "3": [
-          { "weight": 25, "coins": [900, 1500] },
-          { "weight": 40, "coins": [700, 1200], "cats": {"Rare": 1} },
-          { "weight": 20, "coins": [600, 1100], "cats": {"Epic": 1} },
-          { "weight": 15, "coins": [800, 1300], "cats": {"Rare": 2}, "pack": "wooden" }
+          {
+            "weight": 25,
+            "coins": [
+              900,
+              1500
+            ]
+          },
+          {
+            "weight": 40,
+            "coins": [
+              700,
+              1200
+            ],
+            "cats": {
+              "Rare": 1
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              600,
+              1100
+            ],
+            "cats": {
+              "Epic": 1
+            }
+          },
+          {
+            "weight": 15,
+            "coins": [
+              800,
+              1300
+            ],
+            "cats": {
+              "Rare": 2
+            },
+            "pack": "wooden"
+          }
         ]
       }
     },
     "jeremy": {
       "display_name": "Jeremy",
       "min_hire_level": 4,
-      "tiers_offered": [2],
-      "hires_against": ["bailey"],
+      "tiers_offered": [
+        2
+      ],
+      "hires_against": [
+        "bailey"
+      ],
       "reward_mult": 1.2,
       "heat_mult": 1.0,
       "reward_bias": "coins_only",
       "reward_recipes": {
         "2": [
-          { "weight": 60, "coins": [280, 400] },
-          { "weight": 25, "coins": [200, 350], "pack": "stone" },
-          { "weight": 15, "coins": [220, 360], "cats": {"Good": 1} }
+          {
+            "weight": 60,
+            "coins": [
+              280,
+              400
+            ]
+          },
+          {
+            "weight": 25,
+            "coins": [
+              200,
+              350
+            ],
+            "pack": "stone"
+          },
+          {
+            "weight": 15,
+            "coins": [
+              220,
+              360
+            ],
+            "cats": {
+              "Good": 1
+            }
+          }
         ]
       }
     },
     "lucian_sr": {
       "display_name": "Lucian Sr",
       "min_hire_level": 5,
-      "tiers_offered": [2, 3],
-      "hires_against": ["dynamic_higher_rank"],
+      "tiers_offered": [
+        2,
+        3
+      ],
+      "hires_against": [
+        "dynamic_higher_rank"
+      ],
       "reward_mult": 1.0,
       "heat_mult": 1.0,
       "reward_bias": "mid_rare_cats",
       "ally_protection_threshold": 50,
       "reward_recipes": {
         "2": [
-          { "weight": 40, "coins": [100, 200], "cats": {"Trash": 1} },
-          { "weight": 30, "coins": [150, 250], "cats": {"Superior": 1} },
-          { "weight": 20, "coins": [80, 180],  "cats": {"Legendary": 1} },
-          { "weight": 10, "coins": [120, 220], "cats": {"Superior": 1}, "pack": "stone" }
+          {
+            "weight": 40,
+            "coins": [
+              100,
+              200
+            ],
+            "cats": {
+              "Trash": 1
+            }
+          },
+          {
+            "weight": 30,
+            "coins": [
+              150,
+              250
+            ],
+            "cats": {
+              "Superior": 1
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              80,
+              180
+            ],
+            "cats": {
+              "Legendary": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              120,
+              220
+            ],
+            "cats": {
+              "Superior": 1
+            },
+            "pack": "stone"
+          }
         ],
         "3": [
-          { "weight": 35, "coins": [500, 900],  "cats": {"Superior": 2} },
-          { "weight": 30, "coins": [400, 800],  "cats": {"Legendary": 1} },
-          { "weight": 15, "coins": [600, 1000], "cats": {"Trash": 2, "Legendary": 1} },
-          { "weight": 10, "coins": [300, 600],  "cats": {"Legendary": 2} },
-          { "weight": 10, "coins": [500, 900],  "cats": {"Legendary": 1}, "pack": "bronze" }
+          {
+            "weight": 35,
+            "coins": [
+              500,
+              900
+            ],
+            "cats": {
+              "Superior": 2
+            }
+          },
+          {
+            "weight": 30,
+            "coins": [
+              400,
+              800
+            ],
+            "cats": {
+              "Legendary": 1
+            }
+          },
+          {
+            "weight": 15,
+            "coins": [
+              600,
+              1000
+            ],
+            "cats": {
+              "Trash": 2,
+              "Legendary": 1
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              300,
+              600
+            ],
+            "cats": {
+              "Legendary": 2
+            }
+          },
+          {
+            "weight": 10,
+            "coins": [
+              500,
+              900
+            ],
+            "cats": {
+              "Legendary": 1
+            },
+            "pack": "bronze"
+          }
         ]
       }
     },
     "sofia": {
       "display_name": "Sofia",
       "min_hire_level": 6,
-      "tiers_offered": [3, 4],
-      "hires_against": ["commoners"],
+      "tiers_offered": [
+        3,
+        4
+      ],
+      "hires_against": [
+        "commoners"
+      ],
       "reward_mult": 1.25,
       "heat_mult": 1.1,
       "reward_bias": "cat_heavy",
       "rep_unlock_at_100": "premium_menu",
       "reward_recipes": {
         "3": [
-          { "weight": 40, "coins": [700, 1200], "cats": {"Epic": 1} },
-          { "weight": 25, "coins": [500, 900],  "cats": {"Rare": 2} },
-          { "weight": 25, "coins": [400, 700],  "cats": {"Epic": 1}, "pack": "stone" },
-          { "weight": 10, "coins": [600, 1100], "cats": {"Epic": 2} }
+          {
+            "weight": 40,
+            "coins": [
+              700,
+              1200
+            ],
+            "cats": {
+              "Epic": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              500,
+              900
+            ],
+            "cats": {
+              "Rare": 2
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              400,
+              700
+            ],
+            "cats": {
+              "Epic": 1
+            },
+            "pack": "stone"
+          },
+          {
+            "weight": 10,
+            "coins": [
+              600,
+              1100
+            ],
+            "cats": {
+              "Epic": 2
+            }
+          }
         ],
         "4": [
-          { "weight": 35, "coins": [2500, 4000], "cats": {"Ultimate": 1} },
-          { "weight": 25, "coins": [2000, 3500], "cats": {"Legendary": 2} },
-          { "weight": 20, "coins": [3000, 4500], "cats": {"Ultimate": 1}, "pack": "bronze" },
-          { "weight": 15, "coins": [2500, 4000], "cats": {"Legendary": 1}, "pack": "silver" },
-          { "weight": 5,  "coins": [4000, 6000], "cats": {"Mythic": 1},   "pack": "silver" }
+          {
+            "weight": 35,
+            "coins": [
+              2500,
+              4000
+            ],
+            "cats": {
+              "Ultimate": 1
+            }
+          },
+          {
+            "weight": 25,
+            "coins": [
+              2000,
+              3500
+            ],
+            "cats": {
+              "Legendary": 2
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              3000,
+              4500
+            ],
+            "cats": {
+              "Ultimate": 1
+            },
+            "pack": "bronze"
+          },
+          {
+            "weight": 15,
+            "coins": [
+              2500,
+              4000
+            ],
+            "cats": {
+              "Legendary": 1
+            },
+            "pack": "silver"
+          },
+          {
+            "weight": 5,
+            "coins": [
+              4000,
+              6000
+            ],
+            "cats": {
+              "Mythic": 1
+            },
+            "pack": "silver"
+          }
         ]
       }
     }
   },
   "targets_only": {
-    "bailey":   { "display_name": "Bailey",     "min_catnip_level": 7 },
-    "wilson":   { "display_name": "Wilson",     "min_catnip_level": 8, "owns_egirl_vault": true },
-    "lalo":     { "display_name": "Lalo",       "min_catnip_level": 9 },
-    "commoners":{ "display_name": "Commoners",  "min_catnip_level": 0 }
+    "bailey": {
+      "display_name": "Bailey",
+      "min_catnip_level": 7
+    },
+    "wilson": {
+      "display_name": "Wilson",
+      "min_catnip_level": 8,
+      "owns_egirl_vault": true
+    },
+    "lalo": {
+      "display_name": "Lalo",
+      "min_catnip_level": 9
+    },
+    "commoners": {
+      "display_name": "Commoners",
+      "min_catnip_level": 0
+    }
   },
   "big_score": {
     "difficulty": 800,
     "patron_npc": "whiskers",
     "target_npc": "wilson",
-    "reward": { "eGirl": 3, "coins": 15000, "perk": "big_score" },
+    "reward": {
+      "eGirl": 3,
+      "coins": 15000,
+      "perk": "big_score"
+    },
     "near_miss_consolation_coins": 5000,
     "heat_cost": 100,
-    "rep_changes": { "success": { "whiskers": 20, "wilson": -50 }, "failure": { "whiskers": -5 } },
+    "rep_changes": {
+      "success": {
+        "whiskers": 20,
+        "wilson": -50
+      },
+      "failure": {
+        "whiskers": -5
+      }
+    },
     "once_per_season": true,
     "perk_one_time_only": true,
     "perk_spawn_extra_bonus": 0.05
@@ -208,8 +834,20 @@
     "unlock_threshold": 100,
     "refuse_threshold": -25,
     "hostile_threshold": -75,
-    "tier_rep_gain": { "1": 3, "2": 5, "3": 8, "4": 12, "5": 20 },
-    "tier_rep_loss": { "1": -5, "2": -8, "3": -12, "4": -20, "5": -50 },
+    "tier_rep_gain": {
+      "1": 3,
+      "2": 5,
+      "3": 8,
+      "4": 12,
+      "5": 20
+    },
+    "tier_rep_loss": {
+      "1": -5,
+      "2": -8,
+      "3": -12,
+      "4": -20,
+      "5": -50
+    },
     "failure_penalty": -2,
     "premium_reward_bonus_at_100": 0.15,
     "hostile_target_heat_discount": 0.25,
@@ -247,17 +885,27 @@
     ],
     "sofia": [
       "Mythics in a vault. The vault is mine if you can get in. Half what you bring out is yours.",
-      "There's a kennel of rares I want. Bring them home alive — well, you know what I mean."
+      "There's a kennel of rares I want. Bring them home alive \u2014 well, you know what I mean."
     ]
   },
   "narrative_pools_big_score": [
     "I've been waiting to ask you this since I met you. Wilson's eGirl vault. I tried in '08. You're the one who's going to do it for me."
   ],
   "complications": {
-    "base_chance_by_tier": { "1": 0.05, "2": 0.10, "3": 0.15, "4": 0.25, "5": 0.35 },
-    "heat_modifier": { "low": 0.0, "watching": 0.10, "scrutiny": 0.25 },
+    "base_chance_by_tier": {
+      "1": 0.05,
+      "2": 0.1,
+      "3": 0.15,
+      "4": 0.25,
+      "5": 0.35
+    },
+    "heat_modifier": {
+      "low": 0.0,
+      "watching": 0.1,
+      "scrutiny": 0.25
+    },
     "rep_discount_per_point": 0.004,
-    "rep_discount_cap": 0.40,
+    "rep_discount_cap": 0.4,
     "sloppy_target_default_pack_tier_by_tier": {
       "2": "wooden",
       "3": "stone",
@@ -267,215 +915,722 @@
   },
   "complication_pools": {
     "1": [
-      { "id": "easy_mark", "weight": 100, "phase": "post_roll" }
+      {
+        "id": "easy_mark",
+        "weight": 100,
+        "phase": "post_roll"
+      }
     ],
     "2": [
-      { "id": "cat_police_raid", "weight": 25, "phase": "post_roll", "heat_bonus": 30 },
-      { "id": "double_cross",    "weight": 15, "phase": "post_roll" },
-      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
-      { "id": "easy_mark",       "weight": 20, "phase": "post_roll" },
-      { "id": "found_a_stash",   "weight": 12, "phase": "post_roll" },
-      { "id": "sloppy_target",   "weight": 8,  "phase": "post_roll" },
-      { "id": "witness",         "weight": 10, "phase": "aftermath", "difficulty_mult": 1.20 },
-      { "id": "loose_end",       "weight": 5,  "phase": "aftermath", "heat_bonus": 10 }
+      {
+        "id": "cat_police_raid",
+        "weight": 25,
+        "phase": "post_roll",
+        "heat_bonus": 30
+      },
+      {
+        "id": "double_cross",
+        "weight": 15,
+        "phase": "post_roll"
+      },
+      {
+        "id": "informant",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "easy_mark",
+        "weight": 20,
+        "phase": "post_roll"
+      },
+      {
+        "id": "found_a_stash",
+        "weight": 12,
+        "phase": "post_roll"
+      },
+      {
+        "id": "sloppy_target",
+        "weight": 8,
+        "phase": "post_roll"
+      },
+      {
+        "id": "witness",
+        "weight": 10,
+        "phase": "aftermath",
+        "difficulty_mult": 1.2
+      },
+      {
+        "id": "loose_end",
+        "weight": 5,
+        "phase": "aftermath",
+        "heat_bonus": 10
+      }
     ],
     "3": [
-      { "id": "cat_police_raid", "weight": 22, "phase": "post_roll", "heat_bonus": 30 },
-      { "id": "rival_crew",      "weight": 20, "phase": "pre_roll",  "wall_fraction": 0.40 },
-      { "id": "double_cross",    "weight": 12, "phase": "post_roll" },
-      { "id": "boss_arrives",    "weight": 13, "phase": "pre_roll",  "difficulty_mult": 1.40 },
-      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
-      { "id": "easy_mark",       "weight": 10, "phase": "post_roll" },
-      { "id": "found_a_stash",   "weight": 8,  "phase": "post_roll" },
-      { "id": "sloppy_target",   "weight": 5,  "phase": "post_roll" },
-      { "id": "witness",         "weight": 3,  "phase": "aftermath", "difficulty_mult": 1.20 },
-      { "id": "loose_end",       "weight": 2,  "phase": "aftermath", "heat_bonus": 10 }
+      {
+        "id": "cat_police_raid",
+        "weight": 22,
+        "phase": "post_roll",
+        "heat_bonus": 30
+      },
+      {
+        "id": "rival_crew",
+        "weight": 20,
+        "phase": "pre_roll",
+        "wall_fraction": 0.4
+      },
+      {
+        "id": "double_cross",
+        "weight": 12,
+        "phase": "post_roll"
+      },
+      {
+        "id": "boss_arrives",
+        "weight": 13,
+        "phase": "pre_roll",
+        "difficulty_mult": 1.4
+      },
+      {
+        "id": "informant",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "easy_mark",
+        "weight": 10,
+        "phase": "post_roll"
+      },
+      {
+        "id": "found_a_stash",
+        "weight": 8,
+        "phase": "post_roll"
+      },
+      {
+        "id": "sloppy_target",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "witness",
+        "weight": 3,
+        "phase": "aftermath",
+        "difficulty_mult": 1.2
+      },
+      {
+        "id": "loose_end",
+        "weight": 2,
+        "phase": "aftermath",
+        "heat_bonus": 10
+      }
     ],
     "4": [
-      { "id": "cat_police_raid", "weight": 20, "phase": "post_roll", "heat_bonus": 30 },
-      { "id": "rival_crew",      "weight": 22, "phase": "pre_roll",  "wall_fraction": 0.40 },
-      { "id": "double_cross",    "weight": 13, "phase": "post_roll" },
-      { "id": "boss_arrives",    "weight": 18, "phase": "pre_roll",  "difficulty_mult": 1.40 },
-      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
-      { "id": "easy_mark",       "weight": 7,  "phase": "post_roll" },
-      { "id": "found_a_stash",   "weight": 7,  "phase": "post_roll" },
-      { "id": "sloppy_target",   "weight": 5,  "phase": "post_roll" },
-      { "id": "witness",         "weight": 2,  "phase": "aftermath", "difficulty_mult": 1.20 },
-      { "id": "loose_end",       "weight": 1,  "phase": "aftermath", "heat_bonus": 10 }
+      {
+        "id": "cat_police_raid",
+        "weight": 20,
+        "phase": "post_roll",
+        "heat_bonus": 30
+      },
+      {
+        "id": "rival_crew",
+        "weight": 22,
+        "phase": "pre_roll",
+        "wall_fraction": 0.4
+      },
+      {
+        "id": "double_cross",
+        "weight": 13,
+        "phase": "post_roll"
+      },
+      {
+        "id": "boss_arrives",
+        "weight": 18,
+        "phase": "pre_roll",
+        "difficulty_mult": 1.4
+      },
+      {
+        "id": "informant",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "easy_mark",
+        "weight": 7,
+        "phase": "post_roll"
+      },
+      {
+        "id": "found_a_stash",
+        "weight": 7,
+        "phase": "post_roll"
+      },
+      {
+        "id": "sloppy_target",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "witness",
+        "weight": 2,
+        "phase": "aftermath",
+        "difficulty_mult": 1.2
+      },
+      {
+        "id": "loose_end",
+        "weight": 1,
+        "phase": "aftermath",
+        "heat_bonus": 10
+      }
     ],
     "5": [
-      { "id": "cat_police_raid", "weight": 10, "phase": "post_roll", "heat_bonus": 30 },
-      { "id": "rival_crew",      "weight": 25, "phase": "pre_roll",  "wall_fraction": 0.40 },
-      { "id": "double_cross",    "weight": 18, "phase": "post_roll" },
-      { "id": "boss_arrives",    "weight": 25, "phase": "pre_roll",  "difficulty_mult": 1.40 },
-      { "id": "informant",       "weight": 5,  "phase": "post_roll" },
-      { "id": "easy_mark",       "weight": 5,  "phase": "post_roll" },
-      { "id": "found_a_stash",   "weight": 5,  "phase": "post_roll" },
-      { "id": "sloppy_target",   "weight": 2,  "phase": "post_roll" }
+      {
+        "id": "cat_police_raid",
+        "weight": 10,
+        "phase": "post_roll",
+        "heat_bonus": 30
+      },
+      {
+        "id": "rival_crew",
+        "weight": 25,
+        "phase": "pre_roll",
+        "wall_fraction": 0.4
+      },
+      {
+        "id": "double_cross",
+        "weight": 18,
+        "phase": "post_roll"
+      },
+      {
+        "id": "boss_arrives",
+        "weight": 25,
+        "phase": "pre_roll",
+        "difficulty_mult": 1.4
+      },
+      {
+        "id": "informant",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "easy_mark",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "found_a_stash",
+        "weight": 5,
+        "phase": "post_roll"
+      },
+      {
+        "id": "sloppy_target",
+        "weight": 2,
+        "phase": "post_roll"
+      }
     ]
   },
   "cat_voices": {
     "Fine": {
-      "success":       ["meow.", "we got the thing i think", "easy", "did we do good?", "ok that worked"],
-      "near_miss":     ["is...is jerry coming back?", "that was scary", "half of us are home. that's fine right"],
-      "total_failure": ["tell my owner i did my best", "purr… cough", "meo—"]
+      "success": [
+        "meow.",
+        "we got the thing i think",
+        "easy",
+        "did we do good?",
+        "ok that worked"
+      ],
+      "near_miss": [
+        "is...is jerry coming back?",
+        "that was scary",
+        "half of us are home. that's fine right"
+      ],
+      "total_failure": [
+        "tell my owner i did my best",
+        "purr\u2026 cough",
+        "meo\u2014"
+      ]
     },
     "Nice": {
-      "success":       ["well-executed.", "a pleasant outing.", "all accounted for, thank you"],
-      "near_miss":     ["we did what we could.", "regrettable but expected.", "the survivors mourn the others"],
-      "total_failure": ["tell my mother i was good", "i hope they remember me kindly"]
+      "success": [
+        "well-executed.",
+        "a pleasant outing.",
+        "all accounted for, thank you"
+      ],
+      "near_miss": [
+        "we did what we could.",
+        "regrettable but expected.",
+        "the survivors mourn the others"
+      ],
+      "total_failure": [
+        "tell my mother i was good",
+        "i hope they remember me kindly"
+      ]
     },
     "Good": {
-      "success":       ["good job team", "smooth one", "we did the thing right"],
-      "near_miss":     ["could have been worse", "half is still something", "we'll bounce back"],
-      "total_failure": ["i'm sorry", "we tried", "tell the others to be careful out there"]
+      "success": [
+        "good job team",
+        "smooth one",
+        "we did the thing right"
+      ],
+      "near_miss": [
+        "could have been worse",
+        "half is still something",
+        "we'll bounce back"
+      ],
+      "total_failure": [
+        "i'm sorry",
+        "we tried",
+        "tell the others to be careful out there"
+      ]
     },
     "Rare": {
-      "success":       ["of course we got it", "what did you expect", "another easy night"],
-      "near_miss":     ["we still got out. mostly.", "next one is clean", "I told you to bring more Mythics"],
-      "total_failure": ["this isn't how i pictured it ending", "tell whiskers i won't be in tomorrow"]
+      "success": [
+        "of course we got it",
+        "what did you expect",
+        "another easy night"
+      ],
+      "near_miss": [
+        "we still got out. mostly.",
+        "next one is clean",
+        "I told you to bring more Mythics"
+      ],
+      "total_failure": [
+        "this isn't how i pictured it ending",
+        "tell whiskers i won't be in tomorrow"
+      ]
     },
     "Wild": {
-      "success":       ["AAAAAAA WE GOT IT", "i bit a guy. it was awesome.", "the spiders were a distraction"],
-      "near_miss":     ["half of us became spiders!! the rest of us are FINE", "i don't remember most of it tbh"],
-      "total_failure": ["i went down screaming and i'd do it again", "tell the bees i love them"]
+      "success": [
+        "AAAAAAA WE GOT IT",
+        "i bit a guy. it was awesome.",
+        "the spiders were a distraction"
+      ],
+      "near_miss": [
+        "half of us became spiders!! the rest of us are FINE",
+        "i don't remember most of it tbh"
+      ],
+      "total_failure": [
+        "i went down screaming and i'd do it again",
+        "tell the bees i love them"
+      ]
     },
     "Baby": {
-      "success":       ["i did a big job! :3", "owner will be proud i think", "yay we won"],
-      "near_miss":     ["where are the other kitties going", "i don't like this part", "mama?"],
-      "total_failure": ["i was supposed to be in bed", "i want my mom", "i'm scared"]
+      "success": [
+        "i did a big job! :3",
+        "owner will be proud i think",
+        "yay we won"
+      ],
+      "near_miss": [
+        "where are the other kitties going",
+        "i don't like this part",
+        "mama?"
+      ],
+      "total_failure": [
+        "i was supposed to be in bed",
+        "i want my mom",
+        "i'm scared"
+      ]
     },
     "Epic": {
-      "success":       ["an EPIC victory!", "behold, the legend grows", "this will be sung about"],
-      "near_miss":     ["an EPIC tragedy. mostly EPIC.", "even legends bleed", "the saga continues"],
-      "total_failure": ["an EPIC end befitting an EPIC hero", "tell the bards to write a sad one"]
+      "success": [
+        "an EPIC victory!",
+        "behold, the legend grows",
+        "this will be sung about"
+      ],
+      "near_miss": [
+        "an EPIC tragedy. mostly EPIC.",
+        "even legends bleed",
+        "the saga continues"
+      ],
+      "total_failure": [
+        "an EPIC end befitting an EPIC hero",
+        "tell the bards to write a sad one"
+      ]
     },
     "Sus": {
-      "success":       ["the impostor was the bag the whole time", "ඞ", "task complete", "i KNEW that vent was rigged"],
-      "near_miss":     ["i saw who tipped them off. it was YOU", "vote them out. all of them.", "sussy outcome tbh"],
-      "total_failure": ["i knew this would happe—", "report the body", "ඞ —"]
+      "success": [
+        "the impostor was the bag the whole time",
+        "\u0d9e",
+        "task complete",
+        "i KNEW that vent was rigged"
+      ],
+      "near_miss": [
+        "i saw who tipped them off. it was YOU",
+        "vote them out. all of them.",
+        "sussy outcome tbh"
+      ],
+      "total_failure": [
+        "i knew this would happe\u2014",
+        "report the body",
+        "\u0d9e \u2014"
+      ]
     },
     "Brave": {
-      "success":       ["Honor preserved. The crew rides on.", "We did as we said we would.", "Another job, another night."],
-      "near_miss":     ["The fallen knew the cost.", "I would do it again. So would they.", "We honor the lost by living well."],
-      "total_failure": ["It was a good ending. A worthy one.", "I regret nothing.", "Save your tears for those who need them."]
+      "success": [
+        "Honor preserved. The crew rides on.",
+        "We did as we said we would.",
+        "Another job, another night."
+      ],
+      "near_miss": [
+        "The fallen knew the cost.",
+        "I would do it again. So would they.",
+        "We honor the lost by living well."
+      ],
+      "total_failure": [
+        "It was a good ending. A worthy one.",
+        "I regret nothing.",
+        "Save your tears for those who need them."
+      ]
     },
     "Rickroll": {
-      "success":       ["🎵 never gonna give that mark up 🎵", "🎵 never gonna stop our hustle 🎵", "🎵 we just rolled them, didn't we 🎵"],
-      "near_miss":     ["🎵 we know the game and we're gonna play it 🎵", "🎵 inside we both know what's been happening 🎵"],
-      "total_failure": ["🎵 don't say goodbye 🎵", "🎵 i just wanted to tell you how i'm feeling 🎵", "🎵 never gonna..."]
+      "success": [
+        "\ud83c\udfb5 never gonna give that mark up \ud83c\udfb5",
+        "\ud83c\udfb5 never gonna stop our hustle \ud83c\udfb5",
+        "\ud83c\udfb5 we just rolled them, didn't we \ud83c\udfb5"
+      ],
+      "near_miss": [
+        "\ud83c\udfb5 we know the game and we're gonna play it \ud83c\udfb5",
+        "\ud83c\udfb5 inside we both know what's been happening \ud83c\udfb5"
+      ],
+      "total_failure": [
+        "\ud83c\udfb5 don't say goodbye \ud83c\udfb5",
+        "\ud83c\udfb5 i just wanted to tell you how i'm feeling \ud83c\udfb5",
+        "\ud83c\udfb5 never gonna..."
+      ]
     },
     "Reverse": {
-      "success":       ["we did .ti got we", "?neirf ,doog si tahT", "esle gnihtemos ot oG"],
-      "near_miss":     ["drah si gniyD", "?yltsom emoh emaC", "...maerd a saw ti"],
-      "total_failure": ["emoh og t'nac eW", "...won kaerf a ma I", "ereh ma I yhw wonk t'nod I"]
+      "success": [
+        "we did .ti got we",
+        "?neirf ,doog si tahT",
+        "esle gnihtemos ot oG"
+      ],
+      "near_miss": [
+        "drah si gniyD",
+        "?yltsom emoh emaC",
+        "...maerd a saw ti"
+      ],
+      "total_failure": [
+        "emoh og t'nac eW",
+        "...won kaerf a ma I",
+        "ereh ma I yhw wonk t'nod I"
+      ]
     },
     "Superior": {
-      "success":       ["as anticipated.", "the operation went exactly as I projected.", "what did you expect."],
-      "near_miss":     ["an acceptable margin of loss.", "a few subordinates, regrettable.", "below my projections, but not catastrophic."],
-      "total_failure": ["miscalculation. mine, regrettably.", "the variables were not as advertised."]
+      "success": [
+        "as anticipated.",
+        "the operation went exactly as I projected.",
+        "what did you expect."
+      ],
+      "near_miss": [
+        "an acceptable margin of loss.",
+        "a few subordinates, regrettable.",
+        "below my projections, but not catastrophic."
+      ],
+      "total_failure": [
+        "miscalculation. mine, regrettably.",
+        "the variables were not as advertised."
+      ]
     },
     "Trash": {
-      "success":       ["i told you that fence was sketchy. it was. but we got the take anyway.", "luck. all luck. we are not built for this.", "wait, we won?"],
-      "near_miss":     ["of course we lost half. it's us. what did you think.", "story of our lives", "expected"],
-      "total_failure": ["another tuesday", "i should never have come", "we deserved this"]
+      "success": [
+        "i told you that fence was sketchy. it was. but we got the take anyway.",
+        "luck. all luck. we are not built for this.",
+        "wait, we won?"
+      ],
+      "near_miss": [
+        "of course we lost half. it's us. what did you think.",
+        "story of our lives",
+        "expected"
+      ],
+      "total_failure": [
+        "another tuesday",
+        "i should never have come",
+        "we deserved this"
+      ]
     },
     "Legendary": {
-      "success":       ["Another tale to add to the chronicles.", "The legend continues.", "Mark this night."],
-      "near_miss":     ["The price of legend is steep.", "We carry the lost with us.", "Names will be sung."],
-      "total_failure": ["Even legends fall. Sing them well.", "A worthy end. Remember us."]
+      "success": [
+        "Another tale to add to the chronicles.",
+        "The legend continues.",
+        "Mark this night."
+      ],
+      "near_miss": [
+        "The price of legend is steep.",
+        "We carry the lost with us.",
+        "Names will be sung."
+      ],
+      "total_failure": [
+        "Even legends fall. Sing them well.",
+        "A worthy end. Remember us."
+      ]
     },
     "Mythic": {
-      "success":       ["I FORGED THIS NIGHT WITH MY OWN PAWS", "THE HEAVENS WILL HEAR OF IT", "MARK THIS DATE"],
-      "near_miss":     ["EVEN THE GODS BLEED", "A REVERSAL — TEMPORARY", "MY CLAWS REMEMBER"],
-      "total_failure": ["I FELL AS I LIVED — LOUDLY", "REMEMBER MY NAME", "I REGRET NOTHING"]
+      "success": [
+        "I FORGED THIS NIGHT WITH MY OWN PAWS",
+        "THE HEAVENS WILL HEAR OF IT",
+        "MARK THIS DATE"
+      ],
+      "near_miss": [
+        "EVEN THE GODS BLEED",
+        "A REVERSAL \u2014 TEMPORARY",
+        "MY CLAWS REMEMBER"
+      ],
+      "total_failure": [
+        "I FELL AS I LIVED \u2014 LOUDLY",
+        "REMEMBER MY NAME",
+        "I REGRET NOTHING"
+      ]
     },
     "8bit": {
-      "success":       ["▓▓ MISSION COMPLETE ▓▓", "[GET_LOOT] >> 100%", "MEEEOOWW.exe"],
-      "near_miss":     ["[ERROR] PARTIAL RECOVERY", "▓░░ HEALTH 50% ░░▓", "RESPAWN_AT_HIDEOUT_OK"],
-      "total_failure": ["▓▓ CONNECTION LOST ▓▓", "GAME OVER. INSERT QUARTER.", "[FATAL_ERROR] cat_not_found"]
+      "success": [
+        "\u2593\u2593 MISSION COMPLETE \u2593\u2593",
+        "[GET_LOOT] >> 100%",
+        "MEEEOOWW.exe"
+      ],
+      "near_miss": [
+        "[ERROR] PARTIAL RECOVERY",
+        "\u2593\u2591\u2591 HEALTH 50% \u2591\u2591\u2593",
+        "RESPAWN_AT_HIDEOUT_OK"
+      ],
+      "total_failure": [
+        "\u2593\u2593 CONNECTION LOST \u2593\u2593",
+        "GAME OVER. INSERT QUARTER.",
+        "[FATAL_ERROR] cat_not_found"
+      ]
     },
     "Corrupt": {
-      "success":       ["we... we did the t̸h̸i̵n̴g̵.", "the t҉ake came home", "🜂 it is done 🜂"],
-      "near_miss":     ["half the c̴r̴e̴w̴ came home. half.", "the others are... elsewhere.", "i can hear them still"],
-      "total_failure": ["ę̴̢̛r̷̢r̴͠ŏ̴r̵̛ ̷̛̪i̸̛͝n̵̟͠ ̷̛t̵͠h̸̛e̷̪ ̸͜v̸̢̛o̵i̶̟d̷", "everything ends. eventually.", "we were never here."]
+      "success": [
+        "we... we did the t\u0338h\u0338i\u0335n\u0334g\u0335.",
+        "the t\u0489ake came home",
+        "\ud83d\udf02 it is done \ud83d\udf02"
+      ],
+      "near_miss": [
+        "half the c\u0334r\u0334e\u0334w\u0334 came home. half.",
+        "the others are... elsewhere.",
+        "i can hear them still"
+      ],
+      "total_failure": [
+        "\u0119\u0334\u0322\u031br\u0337\u0322r\u0334\u0360\u014f\u0334r\u0335\u031b \u0337\u031b\u032ai\u0338\u031b\u035dn\u0335\u031f\u0360 \u0337\u031bt\u0335\u0360h\u0338\u031be\u0337\u032a \u0338\u035cv\u0338\u0322\u031bo\u0335i\u0336\u031fd\u0337",
+        "everything ends. eventually.",
+        "we were never here."
+      ]
     },
     "Professor": {
-      "success":       ["A clean operation. The variables aligned.", "Statistically expected; pleasingly so.", "The methodology held."],
-      "near_miss":     ["Outliers in the data. Regrettable but informative.", "Half our test subjects did not return.", "We will adjust the model."],
-      "total_failure": ["An object lesson in respecting the variance.", "Catastrophic data loss.", "My findings will not be published."]
+      "success": [
+        "A clean operation. The variables aligned.",
+        "Statistically expected; pleasingly so.",
+        "The methodology held."
+      ],
+      "near_miss": [
+        "Outliers in the data. Regrettable but informative.",
+        "Half our test subjects did not return.",
+        "We will adjust the model."
+      ],
+      "total_failure": [
+        "An object lesson in respecting the variance.",
+        "Catastrophic data loss.",
+        "My findings will not be published."
+      ]
     },
     "Divine": {
-      "success":       ["It was written.", "Praise be — the path opened.", "The Holy One smiled."],
-      "near_miss":     ["A trial. We are not unscathed.", "The faithful pass through fire.", "We honor the fallen martyrs."],
-      "total_failure": ["We commend our souls.", "It was foretold.", "Light eternal."]
+      "success": [
+        "It was written.",
+        "Praise be \u2014 the path opened.",
+        "The Holy One smiled."
+      ],
+      "near_miss": [
+        "A trial. We are not unscathed.",
+        "The faithful pass through fire.",
+        "We honor the fallen martyrs."
+      ],
+      "total_failure": [
+        "We commend our souls.",
+        "It was foretold.",
+        "Light eternal."
+      ]
     },
     "Real": {
-      "success":       ["got it. let's go home.", "done. next.", "clean."],
-      "near_miss":     ["half of us. let's move.", "it is what it is.", "we live."],
-      "total_failure": ["rough one.", "that's how it goes sometimes.", "—"]
+      "success": [
+        "got it. let's go home.",
+        "done. next.",
+        "clean."
+      ],
+      "near_miss": [
+        "half of us. let's move.",
+        "it is what it is.",
+        "we live."
+      ],
+      "total_failure": [
+        "rough one.",
+        "that's how it goes sometimes.",
+        "\u2014"
+      ]
     },
     "Ultimate": {
-      "success":       ["another one.", "done.", "easy."],
-      "near_miss":     ["next time.", "still here.", "tch."],
-      "total_failure": ["huh.", "...", "didn't see that one."]
+      "success": [
+        "another one.",
+        "done.",
+        "easy."
+      ],
+      "near_miss": [
+        "next time.",
+        "still here.",
+        "tch."
+      ],
+      "total_failure": [
+        "huh.",
+        "...",
+        "didn't see that one."
+      ]
     },
     "eGirl": {
-      "success":       ["omg that was so fun bestie 💅", "we ATE that job ✨", "no thoughts just W's", "slayed it not even kidding", "PERIODT"],
-      "near_miss":     ["ok that was rough but we're literally fine bestie 💔", "girlies didn't all make it but we vibing", "rip bestie 😔"],
-      "total_failure": ["babe... we're not okay", "this is so giving funeral 😭", "rip babes i never even got to post 💀"]
+      "success": [
+        "omg that was so fun bestie \ud83d\udc85",
+        "we ATE that job \u2728",
+        "no thoughts just W's",
+        "slayed it not even kidding",
+        "PERIODT"
+      ],
+      "near_miss": [
+        "ok that was rough but we're literally fine bestie \ud83d\udc94",
+        "girlies didn't all make it but we vibing",
+        "rip bestie \ud83d\ude14"
+      ],
+      "total_failure": [
+        "babe... we're not okay",
+        "this is so giving funeral \ud83d\ude2d",
+        "rip babes i never even got to post \ud83d\udc80"
+      ]
     }
   },
   "complication_quips": {
     "cat_police_raid": {
-      "Sus":       ["i told you that guy was a fed", "i CALLED IT. he was sus.", "police? ඞ"],
-      "Trash":     ["we always get caught. always.", "this is just how it ends for us"],
-      "Real":      ["heat. shoulda known.", "cops. typical."]
+      "Sus": [
+        "i told you that guy was a fed",
+        "i CALLED IT. he was sus.",
+        "police? \u0d9e"
+      ],
+      "Trash": [
+        "we always get caught. always.",
+        "this is just how it ends for us"
+      ],
+      "Real": [
+        "heat. shoulda known.",
+        "cops. typical."
+      ]
     },
     "rival_crew": {
-      "Brave":     ["Another crew. Worthy adversaries.", "Steel against steel."],
-      "Sus":       ["see? OTHER crew. sussssssss", "i bet they were impostors too"],
-      "eGirl":     ["omg the OTHER girls?? rude 💅"],
-      "Mythic":    ["TWO CREWS DARE THE SAME NIGHT — ONE LEAVES."]
+      "Brave": [
+        "Another crew. Worthy adversaries.",
+        "Steel against steel."
+      ],
+      "Sus": [
+        "see? OTHER crew. sussssssss",
+        "i bet they were impostors too"
+      ],
+      "eGirl": [
+        "omg the OTHER girls?? rude \ud83d\udc85"
+      ],
+      "Mythic": [
+        "TWO CREWS DARE THE SAME NIGHT \u2014 ONE LEAVES."
+      ]
     },
     "double_cross": {
-      "Sus":       ["the offerer was the impostor 😤", "TOLD YOU not to trust them"],
-      "Trash":     ["always us. always.", "of course they short us"],
-      "Professor": ["An interesting data point on offerer trustworthiness."],
-      "Real":      ["short. typical."]
+      "Sus": [
+        "the offerer was the impostor \ud83d\ude24",
+        "TOLD YOU not to trust them"
+      ],
+      "Trash": [
+        "always us. always.",
+        "of course they short us"
+      ],
+      "Professor": [
+        "An interesting data point on offerer trustworthiness."
+      ],
+      "Real": [
+        "short. typical."
+      ]
     },
     "boss_arrives": {
-      "Mythic":    ["FINALLY A WORTHY OPPONENT", "BRING THEM"],
-      "Brave":     ["The Boss themself. So be it.", "Honor demands a fair fight."],
-      "Ultimate":  ["finally."]
+      "Mythic": [
+        "FINALLY A WORTHY OPPONENT",
+        "BRING THEM"
+      ],
+      "Brave": [
+        "The Boss themself. So be it.",
+        "Honor demands a fair fight."
+      ],
+      "Ultimate": [
+        "finally."
+      ]
     },
     "informant": {
-      "Sus":       ["imPOSTOR! they were the impostor!!", "report. now. report.", "i'm calling an emergency meeting"],
-      "Real":      ["tipped off. typical."],
-      "Trash":     ["of course there was a snitch"]
+      "Sus": [
+        "imPOSTOR! they were the impostor!!",
+        "report. now. report.",
+        "i'm calling an emergency meeting"
+      ],
+      "Real": [
+        "tipped off. typical."
+      ],
+      "Trash": [
+        "of course there was a snitch"
+      ]
     },
     "easy_mark": {
-      "eGirl":     ["literally so easy bestie 💅", "we ATE down 🍴", "no notes ✨"],
-      "Trash":     ["wait... it actually worked?", "this never happens to us"],
-      "Real":      ["clean. let's go."]
+      "eGirl": [
+        "literally so easy bestie \ud83d\udc85",
+        "we ATE down \ud83c\udf74",
+        "no notes \u2728"
+      ],
+      "Trash": [
+        "wait... it actually worked?",
+        "this never happens to us"
+      ],
+      "Real": [
+        "clean. let's go."
+      ]
     },
     "found_a_stash": {
-      "Wild":      ["I FOUND A SECRET CRATE!!!", "what's in the boooooox", "bonus loot lets goooo"],
-      "Professor": ["An undocumented cache. Fascinating.", "Side data was preserved."]
+      "Wild": [
+        "I FOUND A SECRET CRATE!!!",
+        "what's in the boooooox",
+        "bonus loot lets goooo"
+      ],
+      "Professor": [
+        "An undocumented cache. Fascinating.",
+        "Side data was preserved."
+      ]
     },
     "sloppy_target": {
-      "8bit":      ["[INVENTORY] PACK_ACQUIRED", "▓ LOOT.exe ▓", "[BONUS_ITEM] >> 1"],
-      "Trash":     ["the cats weren't even there. of course."],
-      "Real":      ["wrong stash. better one."]
+      "8bit": [
+        "[INVENTORY] PACK_ACQUIRED",
+        "\u2593 LOOT.exe \u2593",
+        "[BONUS_ITEM] >> 1"
+      ],
+      "Trash": [
+        "the cats weren't even there. of course."
+      ],
+      "Real": [
+        "wrong stash. better one."
+      ]
     },
     "witness": {
-      "Brave":     ["A face I will remember.", "We were seen. So be it."],
-      "Sus":       ["did you see that guy?? imPOSTOR for sure", "i'm reporting him next round"]
+      "Brave": [
+        "A face I will remember.",
+        "We were seen. So be it."
+      ],
+      "Sus": [
+        "did you see that guy?? imPOSTOR for sure",
+        "i'm reporting him next round"
+      ]
     },
     "loose_end": {
-      "Real":      ["missed something. fix it later."],
-      "Professor": ["A loose variable. We will resolve it next iteration."],
-      "Trash":     ["of course we left a thread loose"]
+      "Real": [
+        "missed something. fix it later."
+      ],
+      "Professor": [
+        "A loose variable. We will resolve it next iteration."
+      ],
+      "Trash": [
+        "of course we left a thread loose"
+      ]
     }
   },
   "accept_announcements": {
@@ -496,7 +1651,7 @@
     ],
     "jeremy": [
       "**Jeremy** is putting {player} on the books.",
-      "{player} took **Jeremy**'s job — pure coin, no questions.",
+      "{player} took **Jeremy**'s job \u2014 pure coin, no questions.",
       "{player} is doing the laundry for **Jeremy** tonight."
     ],
     "lucian_sr": [
@@ -523,12 +1678,12 @@
       "Job's done. {player} is back at the hideout."
     ],
     "near_miss": [
-      "{player}'s crew came home short — **{casualties}** cats didn't make it. {npc}'s take walked.",
+      "{player}'s crew came home short \u2014 **{casualties}** cats didn't make it. {npc}'s take walked.",
       "Half a crew is better than none. {player}'s smaller team is back.",
       "{player}'s crew got out, but **{casualties}** cats didn't. The job's a wash."
     ],
     "total_failure": [
-      "**{npc}**'s job is dust. {player}'s crew is gone — **{casualties}** cats lost.",
+      "**{npc}**'s job is dust. {player}'s crew is gone \u2014 **{casualties}** cats lost.",
       "{player} sent a crew. {player} did not get one back.",
       "Total wipe. **{casualties}** of {player}'s cats are in the bay now."
     ]
@@ -571,7 +1726,7 @@
     ],
     "sloppy_target": [
       "The mark had keys to a *different* stash. You take that instead.",
-      "The cats they were guarding turn out to be the wrong cats. The container, though…",
+      "The cats they were guarding turn out to be the wrong cats. The container, though\u2026",
       "You leave with a sealed pack instead of the cats. Worth more, maybe."
     ],
     "witness": [
@@ -584,5 +1739,828 @@
       "A cat got separated. They'll find their way home, but not before someone asks questions.",
       "Something small went wrong. It'll cost you on the next run."
     ]
+  },
+  "perks": {
+    "max_active": 5,
+    "drop_chance_by_tier": {
+      "1": 1.0,
+      "2": 1.0,
+      "3": 1.0,
+      "4": 1.0,
+      "5": 1.0
+    },
+    "drop_pools": {
+      "whiskers": {
+        "2": [
+          {
+            "id": "pack_floor",
+            "weight": 50
+          },
+          {
+            "id": "complication_insurance",
+            "weight": 30
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 14
+          },
+          {
+            "id": "crew_insurance",
+            "weight": 6
+          }
+        ],
+        "3": [
+          {
+            "id": "pack_floor",
+            "weight": 45
+          },
+          {
+            "id": "complication_insurance",
+            "weight": 28
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 18
+          },
+          {
+            "id": "crew_insurance",
+            "weight": 9
+          }
+        ],
+        "4": [
+          {
+            "id": "pack_floor",
+            "weight": 45
+          },
+          {
+            "id": "complication_insurance",
+            "weight": 28
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 18
+          },
+          {
+            "id": "crew_insurance",
+            "weight": 9
+          }
+        ],
+        "5": [
+          {
+            "id": "crew_insurance",
+            "weight": 54
+          },
+          {
+            "id": "double_cat",
+            "weight": 31
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 15
+          }
+        ]
+      },
+      "lucian_jr": {
+        "1": [
+          {
+            "id": "pack_drop_boost",
+            "weight": 50
+          },
+          {
+            "id": "daily_cap_extension",
+            "weight": 30
+          },
+          {
+            "id": "free_pack",
+            "weight": 20
+          }
+        ],
+        "2": [
+          {
+            "id": "pack_drop_boost",
+            "weight": 31
+          },
+          {
+            "id": "pack_bonus_cat",
+            "weight": 25
+          },
+          {
+            "id": "daily_cap_extension",
+            "weight": 19
+          },
+          {
+            "id": "free_pack",
+            "weight": 10
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 9
+          },
+          {
+            "id": "reroll_board",
+            "weight": 6
+          }
+        ]
+      },
+      "jinx": {
+        "1": [
+          {
+            "id": "streak_protector",
+            "weight": 100
+          }
+        ],
+        "2": [
+          {
+            "id": "streak_protector",
+            "weight": 47
+          },
+          {
+            "id": "catnip_extension",
+            "weight": 36
+          },
+          {
+            "id": "free_catnip",
+            "weight": 17
+          }
+        ],
+        "3": [
+          {
+            "id": "streak_protector",
+            "weight": 44
+          },
+          {
+            "id": "catnip_extension",
+            "weight": 28
+          },
+          {
+            "id": "free_catnip",
+            "weight": 28
+          }
+        ]
+      },
+      "jeremy": {
+        "2": [
+          {
+            "id": "roulette_luck",
+            "weight": 28
+          },
+          {
+            "id": "cat_rain_coin_yield",
+            "weight": 24
+          },
+          {
+            "id": "roulette_mercy",
+            "weight": 18
+          },
+          {
+            "id": "catstore_sell_premium",
+            "weight": 12
+          },
+          {
+            "id": "stock_dividend_boost",
+            "weight": 12
+          },
+          {
+            "id": "free_spin",
+            "weight": 6
+          }
+        ]
+      },
+      "lucian_sr": {
+        "2": [
+          {
+            "id": "bounty_boost",
+            "weight": 30
+          },
+          {
+            "id": "quest_xp_boost",
+            "weight": 20
+          },
+          {
+            "id": "bounty_refresh",
+            "weight": 20
+          },
+          {
+            "id": "rarity_bump",
+            "weight": 15
+          },
+          {
+            "id": "send_power_boost",
+            "weight": 10
+          },
+          {
+            "id": "rep_windfall",
+            "weight": 5
+          }
+        ],
+        "3": [
+          {
+            "id": "bounty_boost",
+            "weight": 25
+          },
+          {
+            "id": "quest_xp_boost",
+            "weight": 20
+          },
+          {
+            "id": "bounty_refresh",
+            "weight": 20
+          },
+          {
+            "id": "rarity_bump",
+            "weight": 15
+          },
+          {
+            "id": "send_power_boost",
+            "weight": 12
+          },
+          {
+            "id": "rep_windfall",
+            "weight": 8
+          }
+        ]
+      },
+      "sofia": {
+        "3": [
+          {
+            "id": "catstore_discount_stack",
+            "weight": 25
+          },
+          {
+            "id": "discovery_shortcut",
+            "weight": 20
+          },
+          {
+            "id": "pack_bonus_cat",
+            "weight": 20
+          },
+          {
+            "id": "catch_xp_boost",
+            "weight": 15
+          },
+          {
+            "id": "double_cat",
+            "weight": 10
+          },
+          {
+            "id": "perk_amplifier",
+            "weight": 10
+          }
+        ],
+        "4": [
+          {
+            "id": "catstore_discount_stack",
+            "weight": 20
+          },
+          {
+            "id": "discovery_shortcut",
+            "weight": 20
+          },
+          {
+            "id": "pack_bonus_cat",
+            "weight": 20
+          },
+          {
+            "id": "catch_xp_boost",
+            "weight": 15
+          },
+          {
+            "id": "double_cat",
+            "weight": 15
+          },
+          {
+            "id": "perk_amplifier",
+            "weight": 10
+          }
+        ]
+      }
+    },
+    "catalog": {
+      "double_cat": {
+        "name": "Double Cat",
+        "desc": "Every catch counts twice while the perk is active.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200
+          },
+          "3": {
+            "duration_seconds": 14400
+          },
+          "4": {
+            "duration_seconds": 21600
+          },
+          "5": {
+            "duration_seconds": 86400
+          }
+        }
+      },
+      "rarity_bump": {
+        "name": "Rarity Bump",
+        "desc": "Catches have a chance to upgrade one rarity tier (capped at Mythic).",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "chance": 0.05
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "chance": 0.07
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "chance": 0.1
+          }
+        }
+      },
+      "catch_xp_boost": {
+        "name": "XP Hustle",
+        "desc": "Catch-quest XP is multiplied while active.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "multiplier": 1.25
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "multiplier": 1.4
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "multiplier": 1.6
+          }
+        }
+      },
+      "pack_drop_boost": {
+        "name": "Crate Sniffer",
+        "desc": "Bonus-pack drop rate on every catch is multiplied.",
+        "tier_table": {
+          "1": {
+            "duration_seconds": 3600,
+            "multiplier": 1.25
+          },
+          "2": {
+            "duration_seconds": 7200,
+            "multiplier": 1.5
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "multiplier": 2.0
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "multiplier": 2.5
+          }
+        }
+      },
+      "streak_protector": {
+        "name": "Streak Saver",
+        "desc": "Daily catch streak survives one skipped day while active.",
+        "tier_table": {
+          "1": {
+            "duration_seconds": 86400
+          },
+          "2": {
+            "duration_seconds": 172800
+          },
+          "3": {
+            "duration_seconds": 345600
+          },
+          "4": {
+            "duration_seconds": 604800
+          }
+        }
+      },
+      "catstore_discount_stack": {
+        "name": "Mafia Markdown",
+        "desc": "Stacks extra discount onto /catstore purchases.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "discount_pp": 5
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "discount_pp": 8
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "discount_pp": 12
+          }
+        }
+      },
+      "catstore_sell_premium": {
+        "name": "Fence Connection",
+        "desc": "Boosts /catstore sell rate (capped at buy \u2212 5pp).",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "sell_pp": 5
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "sell_pp": 8
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "sell_pp": 12
+          }
+        }
+      },
+      "roulette_luck": {
+        "name": "Loaded Wheel",
+        "desc": "Small chance roulette spins land in your favor.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "bonus_pp": 0.02
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "bonus_pp": 0.03
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "bonus_pp": 0.05
+          }
+        }
+      },
+      "roulette_mercy": {
+        "name": "House Mercy",
+        "desc": "Refunds a portion of losing roulette bets.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "refund_pct": 0.25
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "refund_pct": 0.4
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "refund_pct": 0.5
+          }
+        }
+      },
+      "free_spin": {
+        "name": "Free Spin",
+        "desc": "One roulette bet up to the cap is fully refunded if it loses.",
+        "tier_table": {
+          "2": {
+            "charges": 1,
+            "max_bet": 1000
+          },
+          "3": {
+            "charges": 1,
+            "max_bet": 2500
+          },
+          "4": {
+            "charges": 1,
+            "max_bet": 5000
+          }
+        }
+      },
+      "stock_dividend_boost": {
+        "name": "Insider Tip",
+        "desc": "Bonus coins on top of stock reward payouts.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "amount_bonus_pct": 0.25
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "amount_bonus_pct": 0.4
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "amount_bonus_pct": 0.6
+          }
+        }
+      },
+      "cat_rain_coin_yield": {
+        "name": "Cloudburst Wages",
+        "desc": "Earns coins per cat caught during a rain.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "coins_per_catch": 25
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "coins_per_catch": 50
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "coins_per_catch": 100
+          }
+        }
+      },
+      "pack_tier_upgrade": {
+        "name": "Crate Polish",
+        "desc": "Your next pack open is bumped up one tier (cap Silver).",
+        "tier_table": {
+          "2": {
+            "charges": 1,
+            "cap_tier": "silver"
+          },
+          "3": {
+            "charges": 1,
+            "cap_tier": "gold"
+          },
+          "4": {
+            "charges": 1,
+            "cap_tier": "platinum"
+          },
+          "5": {
+            "charges": 1,
+            "cap_tier": "celestial"
+          }
+        }
+      },
+      "pack_bonus_cat": {
+        "name": "Padded Crate",
+        "desc": "Pack opens grant +1 extra random cat while active.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200
+          },
+          "3": {
+            "duration_seconds": 14400
+          },
+          "4": {
+            "duration_seconds": 21600
+          }
+        }
+      },
+      "pack_floor": {
+        "name": "No Fines",
+        "desc": "Your next pack's lowest possible cat is Nice (no Fines).",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 1
+          }
+        }
+      },
+      "free_pack": {
+        "name": "Comped Crate",
+        "desc": "A pack lands in your inventory immediately on grant.",
+        "tier_table": {
+          "2": {
+            "pack_tier": "wooden"
+          },
+          "3": {
+            "pack_tier": "stone"
+          },
+          "4": {
+            "pack_tier": "bronze"
+          },
+          "5": {
+            "pack_tier": "silver"
+          },
+          "1": {
+            "pack_tier": "wooden"
+          }
+        }
+      },
+      "complication_insurance": {
+        "name": "Sweep Pattern",
+        "desc": "Lowers complication chance on your next commit.",
+        "tier_table": {
+          "2": {
+            "charges": 1,
+            "reduction_pp": 0.2
+          },
+          "3": {
+            "charges": 1,
+            "reduction_pp": 0.3
+          },
+          "4": {
+            "charges": 1,
+            "reduction_pp": 0.4
+          }
+        }
+      },
+      "crew_insurance": {
+        "name": "Crew Insurance",
+        "desc": "Converts your next near-miss into a clean success.",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 1
+          },
+          "5": {
+            "charges": 1
+          }
+        }
+      },
+      "daily_cap_extension": {
+        "name": "Overtime",
+        "desc": "Adds one extra job commit to today's limit.",
+        "tier_table": {
+          "1": {
+            "duration_seconds": 86400,
+            "charges": 1
+          },
+          "2": {
+            "duration_seconds": 86400,
+            "charges": 1
+          },
+          "3": {
+            "duration_seconds": 86400,
+            "charges": 1
+          },
+          "4": {
+            "duration_seconds": 86400,
+            "charges": 1
+          }
+        }
+      },
+      "send_power_boost": {
+        "name": "Iron Grip",
+        "desc": "Inflates your next commit's effective Send Power.",
+        "tier_table": {
+          "2": {
+            "charges": 1,
+            "multiplier": 1.5
+          },
+          "3": {
+            "charges": 1,
+            "multiplier": 1.75
+          },
+          "4": {
+            "charges": 1,
+            "multiplier": 2.0
+          }
+        }
+      },
+      "rep_windfall": {
+        "name": "Rep Windfall",
+        "desc": "Doubles offerer rep gain on your next successful job.",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 1
+          }
+        }
+      },
+      "free_catnip": {
+        "name": "Comped Catnip",
+        "desc": "Immediately starts a catnip session.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 3600
+          },
+          "3": {
+            "duration_seconds": 5400
+          },
+          "4": {
+            "duration_seconds": 7200
+          }
+        }
+      },
+      "catnip_extension": {
+        "name": "Catnip Extension",
+        "desc": "Adds time to your active catnip session.",
+        "tier_table": {
+          "2": {
+            "extension_seconds": 1800
+          },
+          "3": {
+            "extension_seconds": 3600
+          },
+          "4": {
+            "extension_seconds": 5400
+          }
+        }
+      },
+      "perk_amplifier": {
+        "name": "Perk Amplifier",
+        "desc": "Boosts your active catnip perks' effect by a multiplier.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "multiplier": 1.5
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "multiplier": 1.75
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "multiplier": 2.0
+          }
+        }
+      },
+      "bounty_refresh": {
+        "name": "Bounty Refresh",
+        "desc": "Re-rolls your current bounty board on grant.",
+        "tier_table": {
+          "2": {},
+          "3": {},
+          "4": {}
+        }
+      },
+      "bounty_boost": {
+        "name": "Bounty Boost",
+        "desc": "Bounty progress ticks faster while active.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "multiplier": 1.5
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "multiplier": 1.75
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "multiplier": 2.0
+          }
+        }
+      },
+      "trade_fee_waiver": {
+        "name": "Trade Waiver",
+        "desc": "Waives any fee on your next few trades.",
+        "tier_table": {
+          "2": {
+            "charges": 3
+          },
+          "3": {
+            "charges": 5
+          },
+          "4": {
+            "charges": 10
+          }
+        }
+      },
+      "quest_xp_boost": {
+        "name": "Quest Hustle",
+        "desc": "BP quest XP is multiplied while active.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 7200,
+            "multiplier": 1.25
+          },
+          "3": {
+            "duration_seconds": 14400,
+            "multiplier": 1.4
+          },
+          "4": {
+            "duration_seconds": 21600,
+            "multiplier": 1.6
+          }
+        }
+      },
+      "free_define": {
+        "name": "Open Dictionary",
+        "desc": "Auto-progresses your define misc quest if active.",
+        "tier_table": {
+          "2": {},
+          "3": {},
+          "4": {}
+        }
+      },
+      "discovery_shortcut": {
+        "name": "Shortcut",
+        "desc": "Adds one random unlearned rarity to your /catstore discoveries.",
+        "tier_table": {
+          "2": {},
+          "3": {},
+          "4": {}
+        }
+      },
+      "reroll_board": {
+        "name": "Reroll Board",
+        "desc": "One free re-roll of the job offer board.",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 1
+          }
+        }
+      }
+    }
   }
 }

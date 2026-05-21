@@ -347,7 +347,9 @@ CREATE TABLE public.profile (
     tutorial_errand_complete boolean DEFAULT false NOT NULL,
     perks_suspended_until bigint DEFAULT 0 NOT NULL,
     jobs_pending_difficulty_mult real DEFAULT 1.0 NOT NULL,
-    jobs_pending_heat_bonus integer DEFAULT 0 NOT NULL
+    jobs_pending_heat_bonus integer DEFAULT 0 NOT NULL,
+    job_perks jsonb DEFAULT '[]'::jsonb NOT NULL,
+    perks_received jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -545,7 +547,8 @@ CREATE TABLE public.jobinstance (
     expires_at bigint NOT NULL,
     resolved_at bigint DEFAULT 0 NOT NULL,
     committed_at bigint DEFAULT 0 NOT NULL,
-    complication text DEFAULT ''::text NOT NULL
+    complication text DEFAULT ''::text NOT NULL,
+    perk_drop text DEFAULT ''::text NOT NULL
 );
 
 ALTER TABLE public.jobinstance OWNER TO cat_bot;

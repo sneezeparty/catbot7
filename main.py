@@ -475,14 +475,26 @@ async def fetch_dm_channel(user: User) -> discord.PartialMessageable:
 # Increments on the first catch of each new UTC day; resets to 1 if the user
 # skipped a day entirely. Returns True iff this was the first catch of the UTC
 # day, so the caller can award the first-catch-of-day passive XP.
-async def update_daily_catch_streak(user: User) -> bool:
+async def update_daily_catch_streak(user: User, profile: Profile | None = None) -> bool:
+    """Bumps the global daily catch streak. Returns True iff this is the
+    first catch of today.
+
+    `profile` is the per-server Profile of the catching player and is used
+    ONLY to check the streak_protector job perk — when active, a skipped
+    day extends the streak instead of resetting it. Caller may omit it
+    (preserves pre-perks behavior)."""
     today = int(time.time() // 86400)
     if user.last_catch_day == today:
         return False
     if user.last_catch_day == today - 1:
         user.daily_catch_streak += 1
     else:
-        user.daily_catch_streak = 1
+        # Skipped a day. streak_protector absorbs the gap — extend the
+        # streak by 1 as if the player had caught yesterday.
+        if profile is not None and "streak_protector" in _perks_active_ids(profile):
+            user.daily_catch_streak += 1
+        else:
+            user.daily_catch_streak = 1
     if user.daily_catch_streak > user.max_daily_streak:
         user.max_daily_streak = user.daily_catch_streak
     user.last_catch_day = today
@@ -556,49 +568,64 @@ def cat_value(cat_type: str) -> int:
     return _TYPE_DICT_VALUE_SUM // weight
 
 
-def store_discount_pct(catnip_level: int) -> int:
+def store_discount_pct(catnip_level: int, perk_bonus: int = 0) -> int:
     """Cat Mafia store discount for the given catnip level. Negative numbers
     are a tax (Newbie/Lurker get charged extra), positive numbers are a real
     discount (Boss+ saves on every purchase). Defaults to 0 if a level entry
     is missing the key (e.g. someone retiring a level without updating the
-    store_discount config — better to charge face value than crash)."""
+    store_discount config — better to charge face value than crash).
+
+    `perk_bonus` adds the catstore_discount_stack (job-perk) bonus on top of
+    the catnip-level discount. Callers in /catstore look it up via
+    _perks_catstore_buy_bonus(profile); other callers may pass 0."""
     try:
         level_data = catnip_list["levels"][catnip_level]
     except (IndexError, KeyError):
-        return 0
-    return int(level_data.get("store_discount", 0))
+        return int(perk_bonus)
+    return int(level_data.get("store_discount", 0)) + int(perk_bonus)
 
 
-def store_buy_price(cat_type: str, catnip_level: int) -> int:
+def store_buy_price(cat_type: str, catnip_level: int, perk_buy_bonus: int = 0) -> int:
     """Coins to buy one cat. Discount applies multiplicatively then ceils so a
     1-coin floor: ceil(value * (1 - discount/100)). Sell price is intentionally
-    NOT routed through here — sell is always at face value (see store_sell_price)."""
+    NOT routed through here — sell is always at face value (see store_sell_price).
+
+    `perk_buy_bonus` stacks the catstore_discount_stack perk additively onto
+    the catnip-level discount before pricing."""
     value = cat_value(cat_type)
-    discount = store_discount_pct(catnip_level)
+    discount = store_discount_pct(catnip_level, perk_buy_bonus)
     price = math.ceil(value * (1 - discount / 100))
     return max(1, int(price))
 
 
-def store_sell_pct(catnip_level: int) -> int:
+def store_sell_pct(catnip_level: int, perk_sell_bonus: int = 0) -> int:
     """What fraction of face value the mafia pays out on a sell, as a percent.
     The "natural" curve is 50% at Newbie + 5% per level (so El Patrón would
     sell at 100% face) — but the natural curve crosses the buy curve at Lv7
     and beyond, which would create a buy<face<sell arbitrage loop. We cap
     sell at `buy_pct - 5` so the round-trip stays at least 5 percentage
     points negative at every level. Practical effect: sell tops out around
-    65% face at El Patrón rather than the named 100%."""
-    natural = 50 + max(0, catnip_level) * 5
+    65% face at El Patrón rather than the named 100%.
+
+    `perk_sell_bonus` adds the catstore_sell_premium perk pp on top of the
+    natural curve — the buy_pct-5 cap still applies so round-trips remain
+    negative even with the perk active (this is the spec's anti-arbitrage
+    guarantee)."""
+    natural = 50 + max(0, catnip_level) * 5 + int(perk_sell_bonus)
+    # Cap is computed against the player's catnip-only buy discount, NOT
+    # against any buy-side perk bonus. Otherwise catstore_discount_stack and
+    # catstore_sell_premium would compound and flip the spread positive.
     buy_pct = 100 - store_discount_pct(catnip_level)
     return min(natural, buy_pct - 5)
 
 
-def store_sell_price(cat_type: str, catnip_level: int) -> int:
+def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0) -> int:
     """Coins received per cat sold. Scales with mafia level: a Newbie only
     gets 50% of face value back, El Patrón gets the full 100%. The asymmetry
     with the buy discount is intentional — sell ceiling is 100% face while
     buy floor is 70% face at max mafia, so round-trips always net negative."""
     value = cat_value(cat_type)
-    pct = store_sell_pct(catnip_level)
+    pct = store_sell_pct(catnip_level, perk_sell_bonus)
     return max(1, value * pct // 100)
 
 
@@ -609,6 +636,10 @@ def store_sell_price(cat_type: str, catnip_level: int) -> int:
 
 JOBS_OFFER_REFRESH = JOBS_TUNING["offer_refresh_window_seconds"]
 JOBS_MAX_SLOTS = JOBS_TUNING["max_concurrent_offers"]
+# Pagination size for /jobs board display. JOBS_MAX_SLOTS controls how many
+# offers the bot generates per window; this controls how many are shown per
+# page in the board view. Smaller-than-max → board paginates with Prev/Next.
+JOBS_BOARD_PAGE_SIZE = 3
 
 
 def _jobs_window_index(now: int) -> int:
@@ -808,8 +839,9 @@ def _jobs_category_for(npc_key: str, tier: int) -> str:
     return "hit" if tier <= 2 else "heist"
 
 
-def _jobs_template_id(window_idx: int, slot_idx: int, npc: str, tier: int) -> str:
-    return f"w{window_idx}:s{slot_idx}:{npc}:t{tier}"
+def _jobs_template_id(window_idx: int, slot_idx: int, npc: str, tier: int, extra_salt: str = "") -> str:
+    base = f"w{window_idx}:s{slot_idx}:{npc}:t{tier}"
+    return f"{base}:r{extra_salt}" if extra_salt else base
 
 
 def _jobs_try_pick_slot(eligible_npcs: list[str], rng: random.Random, catnip_level: int, faction_rep: dict, current_heat: int) -> dict | None:
@@ -863,29 +895,42 @@ def _jobs_build_tutorial_offer(rng: random.Random, current_heat: int) -> dict:
     }
 
 
-def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 0) -> list[dict]:
+def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 0, extra_salt: str = "") -> list[dict]:
     """Returns a list of 0/1/3 offer dicts ready for DB insert. Deterministic
-    in (user_id, guild_id, window_idx) — calling twice returns the same set."""
+    in (user_id, guild_id, window_idx, extra_salt) — passing an extra_salt
+    (used by reroll_board) yields a different set with salt-tagged template_ids.
+
+    Each offer now carries a pre-rolled `perk_drop` (perk_id string, or "" if
+    no perk rolled). Rolled with an independent RNG stream keyed
+    `perk:{slot_idx}:{extra_salt}` so future tuning of the perk pool does NOT
+    ripple into difficulty/reward determinism."""
     level = int(getattr(profile, "catnip_level", 0) or 0)
     rep = _jobs_faction_rep(profile)
     current_heat = int(getattr(profile, "heat", 0) or 0)
     user_id = int(profile.user_id)
     guild_id = int(profile.guild_id)
 
+    def _perk_rng_for(slot_idx_int: int) -> random.Random:
+        perk_salt = f"perk:{slot_idx_int}:{extra_salt}" if extra_salt else f"perk:{slot_idx_int}"
+        return _jobs_seed_rng(user_id, guild_id, window_idx, salt=perk_salt)
+
     if level < 2:
         return []
 
     if level < 4:
-        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt="tutorial")
+        salt = f"tutorial:{extra_salt}" if extra_salt else "tutorial"
+        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt=salt)
         offer = _jobs_build_tutorial_offer(rng, current_heat)
         offer["_slot_idx"] = 0
-        offer["_template_id"] = _jobs_template_id(window_idx, 0, offer["offered_by"], offer["tier"])
+        offer["_template_id"] = _jobs_template_id(window_idx, 0, offer["offered_by"], offer["tier"], extra_salt)
+        offer["perk_drop"] = _perks_roll_drop(offer["offered_by"], int(offer["tier"]), _perk_rng_for(0)) or ""
         return [offer]
 
     out = []
     big_score_eligible = _jobs_big_score_available(profile, user_season)
     for slot_idx in range(JOBS_MAX_SLOTS):
-        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt=f"slot:{slot_idx}")
+        salt = f"slot:{slot_idx}:{extra_salt}" if extra_salt else f"slot:{slot_idx}"
+        rng = _jobs_seed_rng(user_id, guild_id, window_idx, salt=salt)
         if slot_idx == 0 and big_score_eligible:
             picked = _jobs_build_big_score_offer(rng, user_season, rep)
         else:
@@ -896,14 +941,19 @@ def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 
             if picked is None:
                 continue
         picked["_slot_idx"] = slot_idx
-        picked["_template_id"] = _jobs_template_id(window_idx, slot_idx, picked["offered_by"], picked["tier"])
+        picked["_template_id"] = _jobs_template_id(window_idx, slot_idx, picked["offered_by"], picked["tier"], extra_salt)
+        picked["perk_drop"] = _perks_roll_drop(picked["offered_by"], int(picked["tier"]), _perk_rng_for(slot_idx)) or ""
         out.append(picked)
     return out
 
 
 async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
     """SELECT-then-INSERT idempotent refresh. Returns the JobInstance rows for
-    the current window, sorted by slot_idx encoded in template_id."""
+    the current window, sorted by slot_idx encoded in template_id.
+
+    If the player has already rerolled this window (existing rows fill the
+    slot count), we skip regeneration — otherwise the baseline templates
+    would be re-added on top of the rerolled ones."""
     window_idx = _jobs_window_index(now)
     win_start, win_end = _jobs_window_bounds(window_idx)
     existing = await JobInstance.collect(
@@ -913,6 +963,17 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
         win_start,
         win_end,
     )
+    if len(existing) >= JOBS_MAX_SLOTS:
+        # All slots already filled (often via a reroll_board fire). Don't
+        # try to top up with baseline templates — that would overfill.
+        all_rows = list(existing)
+        def _slot_key2(row):
+            try:
+                return int(row.template_id.split(":")[1][1:])
+            except Exception:
+                return 0
+        all_rows.sort(key=_slot_key2)
+        return all_rows
     existing_templates = {row.template_id for row in existing}
 
     # Big Score's once-per-season gate. `season` lives on Profile (per-server),
@@ -950,6 +1011,7 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
             expires_at=win_end,
             resolved_at=0,
             committed_at=0,
+            perk_drop=offer.get("perk_drop", ""),
         )
         new_rows.append(new_row)
 
@@ -972,7 +1034,11 @@ def _jobs_reward_summary(reward: dict) -> str:
     if coins:
         parts.append(f"🪙 {coins:,}")
     for t, c in cats.items():
-        emoji = get_emoji(t.lower()) if t else ""
+        # Cat emojis are uploaded as "<lowercase_type>cat" (e.g. goodcat,
+        # nicecat, egirlcat) — matches the convention used everywhere else
+        # in the codebase. Without the "cat" suffix get_emoji falls through
+        # to the 🔳 placeholder, which is what produced the empty squares.
+        emoji = get_emoji(t.lower() + "cat") if t else ""
         parts.append(f"{c}× {emoji} {t}".strip())
     if pack:
         pack_emoji = get_emoji(f"{pack}pack") or "📦"
@@ -1098,6 +1164,15 @@ def _jobs_resolve_outcome_with_rep(send_total: int, difficulty: int, send: dict,
 JOBS_COMPLICATIONS = config.jobs.get("complications", {})
 JOBS_COMPLICATION_POOLS = config.jobs.get("complication_pools", {})
 JOBS_COMPLICATION_FLAVOR = config.jobs.get("complication_flavor", {})
+
+# Jobs perks — third reward axis alongside coins/cats/packs. See _perks_*
+# helpers near _jobs_perks_suspended for the runtime; pools/catalog stay
+# empty in Phase 1 so live players see no behavior change.
+JOBS_PERKS = config.jobs.get("perks", {})
+PERKS_DROP_POOLS = JOBS_PERKS.get("drop_pools", {})
+PERKS_CATALOG = JOBS_PERKS.get("catalog", {})
+PERKS_DROP_CHANCE_BY_TIER = JOBS_PERKS.get("drop_chance_by_tier", {})
+PERKS_MAX_ACTIVE = int(JOBS_PERKS.get("max_active", 5))
 
 # Order matters — used by sloppy_target to pick "one tier above" defaults.
 PACK_TIER_ORDER = ["wooden", "stone", "bronze", "silver", "gold", "platinum", "diamond", "celestial"]
@@ -1352,7 +1427,11 @@ def _jobs_outcome_color(outcome: str) -> int:
 
 async def _jobs_announce_accept(channel, job, player_mention: str) -> None:
     """Post a public embed when a player accepts a contract. Best-effort —
-    swallows errors so an embed-post failure can't block the send screen."""
+    swallows errors so an embed-post failure can't block the send screen.
+
+    Includes the previewed perk (pre-rolled at offer-gen time) so the channel
+    sees what the player is gambling for — Big Score and the rare T4 perks
+    are public flexes."""
     if channel is None:
         return
     try:
@@ -1360,6 +1439,17 @@ async def _jobs_announce_accept(channel, job, player_mention: str) -> None:
         tier_info = JOBS_TIERS.get(str(job.tier), {})
         tier_name = tier_info.get("name", f"Tier {job.tier}")
         line = _jobs_format_accept_line(job, player_mention, rng)
+        # Perk preview — appended to the description block so it reads as
+        # part of the contract terms, not a separate field. Tolerant of
+        # catalog drift (renders blank if the perk_id was removed).
+        perk_id = (_jobs_col(job, "perk_drop", "") or "").strip()
+        if perk_id:
+            perk_cat = PERKS_CATALOG.get(perk_id)
+            if perk_cat:
+                perk_name = perk_cat.get("name", perk_id)
+                strength = _perks_format_strength(perk_id, int(job.tier or 0))
+                strength_suffix = f" {strength}" if strength else ""
+                line = f"{line}\n🎁 Bonus on success: **{perk_name}**{strength_suffix}"
         embed = discord.Embed(
             title="🎯 Contract Accepted",
             description=line,
@@ -1530,6 +1620,19 @@ def _jobs_subtract_cat(profile: Profile, cat_type: str, count: int) -> bool:
 
 async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: random.Random) -> None:
     """Apply outcome side-effects on profile + job. Caller saves both."""
+    # crew_insurance (job perk, charge): convert a near_miss into a success
+    # BEFORE the rest of the pipeline runs. Outer commit-site code re-credits
+    # the entire send when outcome=="success", so flipping the outcome and
+    # clearing cats_destroyed is sufficient. Stamp a marker for show_result.
+    # Fires `lucky_strike` ach on the first successful conversion.
+    crew_insurance_fired = False
+    if outcome_dict["outcome"] == "near_miss":
+        if "crew_insurance" in _perks_active_ids(profile) and _perks_consume_charge(profile, "crew_insurance"):
+            outcome_dict["outcome"] = "success"
+            outcome_dict["cats_destroyed"] = {}
+            crew_insurance_fired = True
+            profile.unlock_ach("lucky_strike")
+
     outcome = outcome_dict["outcome"]
     job.outcome = outcome
     job.roll = outcome_dict["roll"]
@@ -1537,16 +1640,23 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
     job.cats_destroyed = outcome_dict["cats_destroyed"]
 
     # Heat — applies + may trigger the Pinch (Cat Police Station) at >=100.
+    # heat_shield (job perk, charge): halves heat cost on this commit.
     prior_heat = int(getattr(profile, "heat", 0) or 0)
     prior_suspended = int(getattr(profile, "perks_suspended_until", 0) or 0)
     prior_big_score_season = int(getattr(profile, "big_score_season", -1) or -1)
     prior_big_score_wins = int(getattr(profile, "big_score_wins", 0) or 0)
     prior_big_score_perk = bool(getattr(profile, "big_score_perk_unlocked", False))
-    pinched = _jobs_apply_commit_heat(profile, int(job.heat_cost or 0), int(time.time()))
+    heat_cost_eff = int(job.heat_cost or 0)
+    heat_shield_fired = False
+    if "heat_shield" in _perks_active_ids(profile) and _perks_consume_charge(profile, "heat_shield"):
+        heat_cost_eff = heat_cost_eff // 2
+        heat_shield_fired = True
+    pinched = _jobs_apply_commit_heat(profile, heat_cost_eff, int(time.time()))
 
     # Rep — per-tier swing. Big Score uses fixed swings from JOBS_BIG_SCORE.
     rep = _jobs_faction_rep(profile)
     is_big_score = int(job.tier or 0) == 5
+    rep_windfall_fired = False  # set inside the per-tier branch if it fires
     if is_big_score:
         rep_block = JOBS_BIG_SCORE.get("rep_changes", {})
         if outcome == "success":
@@ -1559,6 +1669,11 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         offerer_gain = JOBS_REP["tier_rep_gain"].get(str(job.tier), 0)
         target_loss = JOBS_REP["tier_rep_loss"].get(str(job.tier), 0)
         failure_penalty = JOBS_REP["failure_penalty"]
+        # rep_windfall (job perk, charge): doubles offerer rep gain on a success.
+        if outcome == "success" and offerer_gain > 0:
+            if "rep_windfall" in _perks_active_ids(profile) and _perks_consume_charge(profile, "rep_windfall"):
+                offerer_gain *= 2
+                rep_windfall_fired = True
         if outcome == "success":
             rep[job.offered_by] = rep.get(job.offered_by, 0) + offerer_gain
             if job.target_faction:
@@ -1579,6 +1694,10 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         "prior_big_score_season": prior_big_score_season,
         "prior_big_score_wins": prior_big_score_wins,
         "prior_big_score_perk_unlocked": prior_big_score_perk,
+        # Job-perk fire markers (shown on the result screen in Phase 3).
+        "crew_insurance_fired": crew_insurance_fired,
+        "heat_shield_fired": heat_shield_fired,
+        "rep_windfall_fired": rep_windfall_fired,
     }
 
     # Big Score: regardless of outcome the season is consumed.
@@ -1724,6 +1843,25 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         if comp_id == "easy_mark":
             profile.unlock_ach("easy_money")
 
+    # Perk drop (third reward axis). The roll happened at offer-generation
+    # time and is persisted on job.perk_drop — read it here, don't reroll.
+    # Successes only; near-miss/wipe surface the "bonus walks" line on the
+    # result screen (see show_result). Try/except so a perk grant failure
+    # cannot roll back the job resolution above.
+    pre_rolled = (_jobs_col(job, "perk_drop", "") or "").strip()
+    if outcome == "success" and pre_rolled:
+        try:
+            if pre_rolled in RESOLVING_PERKS:
+                fired = await _perks_resolve_immediate(profile, pre_rolled, npc=job.offered_by, tier=int(job.tier or 0))
+            else:
+                fired = bool(_perks_grant(profile, pre_rolled, npc=job.offered_by, tier=int(job.tier or 0)))
+            if fired:
+                rc = _jobs_coerce_dict(job.rep_changes)
+                rc["perk_drop"] = pre_rolled
+                job.rep_changes = rc
+        except Exception:
+            logging.exception("jobs: perk grant failed; continuing without")
+
 
 def _jobs_start_of_utc_day(now: int) -> int:
     """Unix epoch for 00:00 UTC of the day containing `now`."""
@@ -1760,17 +1898,29 @@ def _jobs_catnip_active(profile: Profile, now: int | None = None) -> bool:
 def _jobs_apply_heat_decay(profile: Profile, now: int | None = None) -> int:
     """Lazy decay. -2 heat per hour since last decay, paused while catnip is
     active. Returns the (possibly updated) heat value. Caller still has to
-    save profile if anything else changed."""
+    save profile if anything else changed.
+
+    cooling_off (job perk, timed): doubles the per-hour decay rate AND
+    bypasses the catnip-pauses-decay rule. NB: this function is called
+    cross-context (jobs board, /catnip, etc.); we read perks here directly."""
     now = now if now is not None else int(time.time())
     last = int(getattr(profile, "heat_last_decay", 0) or 0)
     current = int(getattr(profile, "heat", 0) or 0)
-    if last <= 0 or current <= 0 or _jobs_catnip_active(profile, now):
+    cooling_off_active = "cooling_off" in _perks_active_ids(profile, now)
+    if last <= 0 or current <= 0:
+        profile.heat_last_decay = now
+        return current
+    # Catnip pause-the-decay rule is bypassed by cooling_off.
+    if _jobs_catnip_active(profile, now) and not cooling_off_active:
         profile.heat_last_decay = now
         return current
     hours = max(0.0, (now - last) / 3600.0)
     if hours <= 0:
         return current
-    decay = int(JOBS_HEAT_DECAY_PER_HOUR * hours)
+    rate = JOBS_HEAT_DECAY_PER_HOUR
+    if cooling_off_active:
+        rate *= float(_perks_strength(profile, "cooling_off", "multiplier", 2.0) or 2.0)
+    decay = int(rate * hours)
     if decay <= 0:
         return current
     new_heat = max(0, current - decay)
@@ -1784,6 +1934,578 @@ def _jobs_perks_suspended(profile: Profile, now: int | None = None) -> bool:
     player as if catnip were inactive while this returns True."""
     now = now if now is not None else int(time.time())
     return int(getattr(profile, "perks_suspended_until", 0) or 0) > now
+
+
+# ---------------------------------------------------------------------------
+# Jobs perks — buffs/consumables dropped by NPCs on successful jobs.
+#
+# Storage shape (profile.job_perks, JSONB list):
+#   [{"id": str, "granted_at": int, "expires_at": int,
+#     "npc": str, "tier": int, "charges": int}, ...]
+# - expires_at == 0 means non-timed (charge-based only).
+# - charges    == 0 means non-charge-based (timed only).
+# - A perk with both fields populated expires when EITHER hits zero.
+#
+# IMPORTANT: these perks are NOT suspended by perks_suspended_until — that
+# flag only gates catnip perks. Mafia-reward perks were earned, so they keep
+# firing through the Pinch. This asymmetry is intentional; see the design
+# doc and the catnip side at line ~4341.
+# ---------------------------------------------------------------------------
+
+
+def _perks_load(profile: Profile) -> list[dict]:
+    """Safe read. Returns a fresh list (caller may mutate freely). Falls back
+    to [] if the column doesn't exist yet (pre-migration-010)."""
+    raw = _jobs_col(profile, "job_perks", [])
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) or []
+        except (ValueError, TypeError):
+            raw = []
+    if not isinstance(raw, list):
+        return []
+    return [dict(e) for e in raw if isinstance(e, dict)]
+
+
+def _perks_save(profile: Profile, perks: list[dict]) -> None:
+    """Assigns profile.job_perks. Caller is responsible for save()."""
+    profile.job_perks = list(perks)
+
+
+def _perks_is_active(entry: dict, now: int) -> bool:
+    """Internal: True iff this perk row should remain in the active list."""
+    exp = int(entry.get("expires_at", 0) or 0)
+    ch  = int(entry.get("charges", 0) or 0)
+    has_time   = exp > 0
+    has_charge = ch  > 0
+    if not has_time and not has_charge:
+        return False
+    if has_time and exp <= now:
+        return False
+    if has_charge and ch <= 0:
+        return False
+    return True
+
+
+def _perks_prune(profile: Profile, now: int | None = None) -> list[dict]:
+    """Drop expired-timed and zero-charge entries. Writes back. Idempotent —
+    must be called at the top of every hook that reads perks."""
+    now = now if now is not None else int(time.time())
+    perks = _perks_load(profile)
+    kept = [e for e in perks if _perks_is_active(e, now)]
+    if len(kept) != len(perks):
+        _perks_save(profile, kept)
+    return kept
+
+
+def _perks_active_ids(profile: Profile, now: int | None = None) -> set[str]:
+    """Set of currently-active perk IDs after pruning."""
+    return {e["id"] for e in _perks_prune(profile, now) if e.get("id")}
+
+
+def _perks_get(profile: Profile, perk_id: str) -> dict | None:
+    """Single active perk lookup. Returns the live dict from job_perks
+    (mutations persist via _perks_save)."""
+    for e in _perks_prune(profile):
+        if e.get("id") == perk_id:
+            return e
+    return None
+
+
+def _perks_tier_entry(perk_id: str, tier: int) -> dict:
+    """Read perks.catalog[perk_id].tier_table[tier] with fallback to tier 2.
+    Returns {} if the catalog entry is missing entirely."""
+    cat = PERKS_CATALOG.get(perk_id) or {}
+    table = cat.get("tier_table") or {}
+    if not isinstance(table, dict):
+        return {}
+    entry = table.get(str(tier))
+    if entry is None:
+        entry = table.get(str(2))  # baseline fallback per spec
+    if not isinstance(entry, dict):
+        return {}
+    return entry
+
+
+def _perks_record_received(profile: Profile, perk_id: str) -> bool:
+    """Append perk_id to profile.perks_received (dedup'd lifetime list).
+    Returns True iff this is the first time the player has received this perk.
+    Caller saves; tolerates pre-migration (no column) by returning False."""
+    if not perk_id:
+        return False
+    try:
+        raw = profile.perks_received
+    except KeyError:
+        return False  # pre-migration-011
+    received = _coerce_array(raw)
+    if perk_id in received:
+        return False
+    profile.perks_received = received + [perk_id]
+    return True
+
+
+def _perks_fire_grant_aches(profile: Profile, perk_id: str, tier: int, perks_after: list[dict]) -> list[str]:
+    """Silent unlock for grant-time aches. Returns the list of ach IDs that
+    just unlocked (caller may embed-fire them). Idempotent — repeated grants
+    don't re-fire. perks_after is the post-grant list (for hoarder count)."""
+    fired = []
+    if profile.unlock_ach("first_perk"):
+        fired.append("first_perk")
+    # perk_collector: distinct received >= catalog size.
+    try:
+        received = set(_coerce_array(profile.perks_received))
+    except KeyError:
+        received = set()
+    if PERKS_CATALOG and len(received) >= len(PERKS_CATALOG):
+        if profile.unlock_ach("perk_collector"):
+            fired.append("perk_collector")
+    if len(perks_after) >= 5 and profile.unlock_ach("perk_hoarder"):
+        fired.append("perk_hoarder")
+    if int(tier) >= 5 and profile.unlock_ach("made_man_mafia"):
+        fired.append("made_man_mafia")
+    return fired
+
+
+def _perks_grant(profile: Profile, perk_id: str, *, npc: str, tier: int,
+                 now: int | None = None) -> dict | None:
+    """Apply grant logic for a single perk.
+
+    - Reads duration_seconds / charges from PERKS_CATALOG[perk_id].tier_table.
+    - Refresh-or-extend: if the perk is already active, reset expires_at to
+      now+duration and refill charges (not additive).
+    - 5-perk cap (PERKS_MAX_ACTIVE): if a 6th distinct perk lands, the oldest
+      TIMED active perk is evicted. Charge-based perks are sticky.
+    - Returns the granted/refreshed entry dict, or None if the catalog has no
+      entry for this perk at all (defensive — caller should already have
+      validated via _perks_roll_drop).
+    """
+    cat = PERKS_CATALOG.get(perk_id)
+    if not cat:
+        return None
+    tdata = _perks_tier_entry(perk_id, tier)
+    if not tdata:
+        return None
+
+    now = now if now is not None else int(time.time())
+    duration = int(tdata.get("duration_seconds", 0) or 0)
+    charges  = int(tdata.get("charges", 0) or 0)
+    if duration <= 0 and charges <= 0:
+        # Catalog entry contributes nothing — skip rather than store a dead row.
+        return None
+
+    perks = _perks_prune(profile, now)
+    expires_at = now + duration if duration > 0 else 0
+
+    # Refresh-or-extend rule.
+    for e in perks:
+        if e.get("id") == perk_id:
+            e["granted_at"] = now
+            if duration > 0:
+                e["expires_at"] = expires_at
+            if charges > 0:
+                e["charges"] = charges
+            e["npc"]  = npc
+            e["tier"] = int(tier)
+            _perks_save(profile, perks)
+            # Record + ach fire even on refresh (covers manual repeat-grants
+            # in testing; first_perk is one-shot via unlock_ach idempotence).
+            _perks_record_received(profile, perk_id)
+            _perks_fire_grant_aches(profile, perk_id, tier, perks)
+            return e
+
+    new_entry = {
+        "id": perk_id,
+        "granted_at": now,
+        "expires_at": expires_at,
+        "npc": npc,
+        "tier": int(tier),
+        "charges": charges,
+    }
+    perks.append(new_entry)
+
+    # Cap enforcement — evict oldest TIMED perk if over.
+    if len(perks) > PERKS_MAX_ACTIVE:
+        timed = [e for e in perks if int(e.get("expires_at", 0) or 0) > 0]
+        if timed:
+            oldest = min(timed, key=lambda e: int(e.get("granted_at", 0) or 0))
+            perks.remove(oldest)
+        # If everything is charge-based, no eviction — the cap softens rather
+        # than dropping a one-shot the player hasn't used yet.
+
+    _perks_save(profile, perks)
+    # Lifetime tracking + grant-time aches (silent unlocks; caller embeds
+    # them via the result-screen drop block).
+    _perks_record_received(profile, perk_id)
+    _perks_fire_grant_aches(profile, perk_id, tier, perks)
+    return new_entry
+
+
+def _perks_consume_charge(profile: Profile, perk_id: str) -> bool:
+    """Decrement charges on a perk. Returns True iff a charge was consumed.
+    The perk is pruned automatically on the next read once charges hit 0.
+
+    For combo perks (both timed AND charge-based — combo_shield, daily_cap_
+    extension, etc.) the spec says "expires after N hours or 1 use, whichever
+    first." When the last charge is spent we force-expire `expires_at` so the
+    time-side guard in _perks_is_active picks it up on the next prune."""
+    perks = _perks_prune(profile)
+    for e in perks:
+        if e.get("id") == perk_id and int(e.get("charges", 0) or 0) > 0:
+            e["charges"] = int(e["charges"]) - 1
+            if int(e["charges"]) == 0 and int(e.get("expires_at", 0) or 0) > 0:
+                e["expires_at"] = 1  # any value <= now triggers time-expiry
+            _perks_save(profile, perks)
+            return True
+    return False
+
+
+def _perks_roll_drop(npc: str, tier: int, rng: random.Random) -> str | None:
+    """Roll the perk-drop die for (npc, tier). Returns a perk_id from the
+    pool, or None if the die misses, the chance is 0, or the pool is empty."""
+    chance = float(PERKS_DROP_CHANCE_BY_TIER.get(str(tier), 0.0) or 0.0)
+    if chance <= 0 or rng.random() >= chance:
+        return None
+    pool = (PERKS_DROP_POOLS.get(npc) or {}).get(str(tier)) or []
+    if not pool:
+        return None
+    weights = [max(0, int(e.get("weight", 0))) for e in pool]
+    if sum(weights) <= 0:
+        return None
+    picked = rng.choices(pool, weights=weights, k=1)[0]
+    pid = picked.get("id")
+    return pid if isinstance(pid, str) and pid else None
+
+
+def _perks_strength(profile: Profile, perk_id: str, key: str, default=0.0):
+    """Look up a strength key from an active perk's catalog tier_table.
+    Returns `default` if the perk is not active OR the key isn't in the
+    tier_table entry. Use this at every hook site that needs a magnitude."""
+    e = _perks_get(profile, perk_id)
+    if not e:
+        return default
+    tdata = _perks_tier_entry(perk_id, int(e.get("tier", 2) or 2))
+    return tdata.get(key, default)
+
+
+def _perks_catstore_buy_bonus(profile: Profile) -> int:
+    """Active /catstore purchase discount bonus from job perks (pp). Peek-only."""
+    if "catstore_discount_stack" not in _perks_active_ids(profile):
+        return 0
+    return int(_perks_strength(profile, "catstore_discount_stack", "discount_pp", 0) or 0)
+
+
+def _perks_catstore_sell_bonus(profile: Profile) -> int:
+    """Active /catstore sell-rate bonus from job perks (pp). Peek-only.
+    Effect is still capped by buy_pct-5 inside store_sell_pct so round-trips
+    can never go positive — that anti-arbitrage cap is the spec contract."""
+    if "catstore_sell_premium" not in _perks_active_ids(profile):
+        return 0
+    return int(_perks_strength(profile, "catstore_sell_premium", "sell_pp", 0) or 0)
+
+
+def _perks_effective_daily_cap(profile: Profile, base: int) -> int:
+    """Peek-only effective jobs daily commit cap (does NOT consume the
+    daily_cap_extension charge). Display sites should use this; the actual
+    consume happens inside _perks_check_and_consume_daily_cap at commit."""
+    if "daily_cap_extension" in _perks_active_ids(profile):
+        return base + 1
+    return base
+
+
+def _perks_check_and_consume_daily_cap(profile: Profile, today_count: int, base: int) -> tuple[bool, bool]:
+    """Commit-time cap check. Returns (allowed, perk_fired).
+
+    - allowed=True iff this commit may proceed.
+    - perk_fired=True iff daily_cap_extension was the reason. Consumes the
+      charge on fire — DO NOT call this from peek paths.
+    """
+    if today_count < base:
+        return True, False
+    if today_count < base + 1 and "daily_cap_extension" in _perks_active_ids(profile):
+        if _perks_consume_charge(profile, "daily_cap_extension"):
+            return True, True
+    return False, False
+
+
+async def _perks_resolve_immediate(profile: Profile, perk_id: str, *, npc: str, tier: int) -> bool:
+    """Self-resolving perks fire their effect at grant time and don't get
+    stored in profile.job_perks. Returns True iff the effect was applied.
+
+    Records the perk_id in profile.perks_received and fires grant-time aches
+    on success — self-resolvers count toward lifetime distinct receives even
+    though no row is stored. Caller saves profile."""
+    did = await _perks_resolve_immediate_inner(profile, perk_id, npc=npc, tier=tier)
+    if did:
+        _perks_record_received(profile, perk_id)
+        _perks_fire_grant_aches(profile, perk_id, tier, _perks_load(profile))
+    return did
+
+
+async def _perks_resolve_immediate_inner(profile: Profile, perk_id: str, *, npc: str, tier: int) -> bool:
+    """Pure effect dispatch — caller handles lifetime tracking + aches.
+    Returns True iff the effect was applied."""
+    now = int(time.time())
+    tdata = _perks_tier_entry(perk_id, tier)
+
+    if perk_id == "free_pack":
+        ptier = (tdata.get("pack_tier") or "wooden").lower()
+        col = f"pack_{ptier}"
+        try:
+            profile[col] = int(profile[col] or 0) + 1
+        except KeyError:
+            logging.warning("perks.free_pack: unknown pack tier %r", ptier)
+            return False
+        return True
+
+    if perk_id == "free_catnip":
+        # Start a catnip session of duration_seconds. If already active,
+        # extend it rather than truncate. No bounties/perk-pick required —
+        # the buff just bridges to the player's existing perk loadout, so
+        # if they have no perks selected the catnip is a quiet timer.
+        dur = int(tdata.get("duration_seconds", 3600) or 3600)
+        cur = int(getattr(profile, "catnip_active", 0) or 0)
+        new_active = max(now, cur) + dur
+        profile.catnip_active = new_active
+        # Mirror /catnip activation's pack_attempts bookkeeping so the
+        # per-minute pack roll budget tracks the new window.
+        try:
+            profile.pack_attempts = int(getattr(profile, "pack_attempts", 0) or 0) + dur // 60
+        except KeyError:
+            pass
+        return True
+
+    if perk_id == "catnip_extension":
+        ext = int(tdata.get("extension_seconds", 1800) or 1800)
+        cur = int(getattr(profile, "catnip_active", 0) or 0)
+        profile.catnip_active = max(now, cur) + ext
+        try:
+            profile.pack_attempts = int(getattr(profile, "pack_attempts", 0) or 0) + ext // 60
+        except KeyError:
+            pass
+        return True
+
+    if perk_id == "bounty_refresh":
+        # set_bounties needs catnip_level >= 1; bail if no bounties to refresh.
+        lvl = int(getattr(profile, "catnip_level", 0) or 0)
+        if lvl < 1:
+            return False
+        try:
+            await set_bounties(lvl, profile)
+        except Exception:
+            logging.exception("perks.bounty_refresh: set_bounties failed")
+            return False
+        return True
+
+    if perk_id == "discovery_shortcut":
+        # Add one random rarity that isn't already discovered.
+        discovered = set(_coerce_array(profile.discovered_cats))
+        candidates = [t for t in cattypes if t not in discovered]
+        if not candidates:
+            return False
+        chosen = random.choice(candidates)
+        await mark_discovered(profile, chosen)
+        return True
+
+    if perk_id == "heat_reset":
+        # Spec gates this to T4+ — a T2 drop would trivialize heat management.
+        if int(tier) < 4:
+            return False
+        prior = int(getattr(profile, "heat", 0) or 0)
+        if prior <= 0:
+            return False
+        profile.heat = 0
+        profile.heat_last_decay = now
+        return True
+
+    if perk_id == "free_define":
+        # If misc_quest is currently "define" and not on cooldown, bump
+        # progress directly (no progress() call to avoid transaction
+        # nesting). If quest reaches its target, mark complete by setting
+        # cooldown — the next progress() call picks up the XP.
+        if str(getattr(profile, "misc_quest", "") or "") != "define":
+            return False
+        if int(getattr(profile, "misc_cooldown", 0) or 0) != 0:
+            return False
+        quest_data = config.battle["quests"]["misc"].get("define")
+        if not quest_data:
+            return False
+        cur_prog = int(getattr(profile, "misc_progress", 0) or 0)
+        cur_prog += 1
+        if cur_prog >= int(quest_data.get("progress", 1)):
+            profile.misc_cooldown = now
+            profile.misc_progress = 0
+            profile.reminder_misc = 1
+            profile.progress = int(getattr(profile, "progress", 0) or 0) + int(getattr(profile, "misc_reward", 0) or 0)
+        else:
+            profile.misc_progress = cur_prog
+        return True
+
+    return False
+
+
+# Set of perk IDs that resolve immediately at grant time and are never stored
+# in profile.job_perks. Drop hook dispatches to _perks_resolve_immediate for
+# these instead of _perks_grant.
+RESOLVING_PERKS = {
+    "free_pack",
+    "free_catnip",
+    "catnip_extension",
+    "bounty_refresh",
+    "discovery_shortcut",
+    "heat_reset",
+    "free_define",
+}
+
+
+def _perks_format_strength(perk_id: str, tier: int) -> str:
+    """Bracket-formatted strength preview for a (perk_id, tier) pair, e.g.
+    '(6h)', '(1 use)', '(6h or 1 use)', '(+5pp)'. Returns '' if the catalog
+    has nothing meaningful to render. Used on offer cards / send screen to
+    give players concrete numbers without dumping the whole tier_table."""
+    tdata = _perks_tier_entry(perk_id, tier)
+    if not tdata:
+        return ""
+    parts: list[str] = []
+    dur = int(tdata.get("duration_seconds", 0) or 0)
+    ext = int(tdata.get("extension_seconds", 0) or 0)
+    chg = int(tdata.get("charges", 0) or 0)
+    if dur > 0:
+        if dur % 3600 == 0:
+            parts.append(f"{dur // 3600}h")
+        elif dur >= 3600:
+            parts.append(f"{dur / 3600:.1f}h")
+        else:
+            parts.append(f"{dur // 60}m")
+    elif ext > 0:
+        if ext % 3600 == 0:
+            parts.append(f"+{ext // 3600}h")
+        else:
+            parts.append(f"+{ext // 60}m")
+    if chg > 0:
+        parts.append(f"{chg} use{'s' if chg != 1 else ''}")
+    # Strength readouts that aren't time/charges.
+    if "multiplier" in tdata:
+        try:
+            parts.append(f"×{float(tdata['multiplier']):g}")
+        except (ValueError, TypeError):
+            pass
+    if "chance" in tdata:
+        try:
+            parts.append(f"{float(tdata['chance']) * 100:.0f}%")
+        except (ValueError, TypeError):
+            pass
+    if "discount_pp" in tdata:
+        parts.append(f"+{tdata['discount_pp']}pp")
+    if "sell_pp" in tdata:
+        parts.append(f"+{tdata['sell_pp']}pp sell")
+    if "refund_pct" in tdata:
+        try:
+            parts.append(f"refund {float(tdata['refund_pct']) * 100:.0f}%")
+        except (ValueError, TypeError):
+            pass
+    if "amount_bonus_pct" in tdata:
+        try:
+            parts.append(f"+{float(tdata['amount_bonus_pct']) * 100:.0f}%")
+        except (ValueError, TypeError):
+            pass
+    if "reduction_pp" in tdata:
+        try:
+            parts.append(f"-{float(tdata['reduction_pp']) * 100:.0f}pp")
+        except (ValueError, TypeError):
+            pass
+    if "coins_per_catch" in tdata:
+        parts.append(f"{tdata['coins_per_catch']}c/catch")
+    if "pack_tier" in tdata:
+        parts.append(str(tdata["pack_tier"]).capitalize())
+    if "cap_tier" in tdata:
+        parts.append(f"→ {str(tdata['cap_tier']).capitalize()}")
+    if "max_bet" in tdata:
+        try:
+            parts.append(f"up to {int(tdata['max_bet']):,}c")
+        except (ValueError, TypeError):
+            pass
+    return f"({', '.join(parts)})" if parts else ""
+
+
+def _perks_format_offer_preview(perk_id: str, tier: int) -> str:
+    """One-line offer-card preview for a previewed perk. Tolerant of catalog
+    drift — if the perk_id was removed from the catalog after offer-gen,
+    renders 'Unknown perk' gracefully so the board can't crash."""
+    if not perk_id:
+        return ""
+    cat = PERKS_CATALOG.get(perk_id)
+    if not cat:
+        return "🎁 Bonus on success: *Unknown perk*"
+    name = cat.get("name") or perk_id.replace("_", " ").title()
+    desc = cat.get("desc") or ""
+    strength = _perks_format_strength(perk_id, tier)
+    head = f"🎁 Bonus on success: **{name}**"
+    if strength:
+        head += f" {strength}"
+    if desc:
+        head += f" — {desc}"
+    return head
+
+
+def _perks_format_status(entry: dict, now: int | None = None) -> str:
+    """Short human label for a single active perk row.
+    Returns 'expires <t:N:R>' for timed, 'N charge(s) left' for charge,
+    and combines both for combo perks."""
+    now = now if now is not None else int(time.time())
+    parts: list[str] = []
+    exp = int(entry.get("expires_at", 0) or 0)
+    ch  = int(entry.get("charges", 0) or 0)
+    if exp > now:
+        parts.append(f"expires <t:{exp}:R>")
+    if ch > 0:
+        parts.append(f"{ch} charge{'s' if ch != 1 else ''} left")
+    return " · ".join(parts) if parts else "—"
+
+
+def _perks_active_for_display(profile: Profile, now: int | None = None) -> list[dict]:
+    """Returns active perk rows enriched with catalog name/desc for UI render.
+    Each item: {id, name, desc, status, npc, tier, granted_at, expires_at, charges}."""
+    out = []
+    for e in _perks_prune(profile, now):
+        cat = PERKS_CATALOG.get(e.get("id"), {})
+        out.append({
+            **e,
+            "name": cat.get("name", e.get("id", "?")),
+            "desc": cat.get("desc", ""),
+            "status": _perks_format_status(e, now),
+        })
+    return out
+
+
+def _perks_apply_catch_modifiers(profile: Profile, cat_type: str, ctx: dict | None = None) -> dict:
+    """Bundle every catch-loop perk into a single modifier dict so the catch
+    handler can apply each effect at its hook site without N separate lookups.
+
+    Pure read — does NOT consume charges. The handler decides when to call
+    _perks_consume_charge for charge-based ones (eagle_eye, combo_shield).
+    Returns sensible no-op defaults; safe to call regardless of perk state.
+
+    Keys returned:
+      double_cat        bool — multiply silly_amount by 2 after catnip math
+      rarity_bump_pct   float [0,1] — chance to upgrade cat one tier (cap Mythic)
+      catch_xp_mult     float >= 1 — applied to catch-quest XP in progress()
+      pack_drop_mult    float >= 1 — multiplies PACK_DROP_CHANCE_ON_CATCH
+      combo_shield      bool — absorb the next Snowballer idle reset
+      streak_protector  bool — absorb one skipped day in update_daily_catch_streak
+      eagle_eye         bool — reveal the rarity on this catch's embed
+      lightning_hands_mult float — widens the under-3 threshold
+    """
+    active = _perks_active_ids(profile)
+    return {
+        "double_cat":           "double_cat" in active,
+        "rarity_bump_pct":      float(_perks_strength(profile, "rarity_bump", "chance", 0.0)) if "rarity_bump" in active else 0.0,
+        "catch_xp_mult":        float(_perks_strength(profile, "catch_xp_boost", "multiplier", 1.0)) if "catch_xp_boost" in active else 1.0,
+        "pack_drop_mult":       float(_perks_strength(profile, "pack_drop_boost", "multiplier", 1.0)) if "pack_drop_boost" in active else 1.0,
+        "combo_shield":         "combo_shield" in active,
+        "streak_protector":     "streak_protector" in active,
+        "eagle_eye":            "eagle_eye" in active,
+        "lightning_hands_mult": float(_perks_strength(profile, "lightning_hands", "multiplier", 1.0)) if "lightning_hands" in active else 1.0,
+    }
 
 
 def _jobs_apply_commit_heat(profile: Profile, heat_cost: int, now: int) -> bool:
@@ -2804,6 +3526,18 @@ async def progress(
         await refresh_quests(user)
         await user.refresh_from_db()
 
+    # Job-perk quest-XP multipliers — computed once per call so they apply
+    # uniformly across every quest branch below.
+    #   catch_xp_boost  → catch quests only
+    #   quest_xp_boost  → all quest types (catch/misc/extra/challenge; not vote)
+    def _qxp_bonus(reward_int: int, include_catch_xp: bool) -> int:
+        mult = 1.0
+        if "quest_xp_boost" in _perks_active_ids(user):
+            mult *= float(_perks_strength(user, "quest_xp_boost", "multiplier", 1.0) or 1.0)
+        if include_catch_xp and "catch_xp_boost" in _perks_active_ids(user):
+            mult *= float(_perks_strength(user, "catch_xp_boost", "multiplier", 1.0) or 1.0)
+        return int(round(reward_int * (mult - 1.0))) if mult > 1.0 else 0
+
     # progress
     quest_complete = False
     if user.catch_quest == quest:
@@ -2814,7 +3548,7 @@ async def progress(
         if user.catch_progress >= quest_data["progress"]:
             quest_complete = True
             user.catch_cooldown = int(time.time())
-            current_xp = user.progress + user.catch_reward
+            current_xp = user.progress + user.catch_reward + _qxp_bonus(user.catch_reward, include_catch_xp=True)
             user.catch_progress = 0
             user.reminder_catch = 1
     elif quest == "vote":
@@ -2844,7 +3578,7 @@ async def progress(
         if user.misc_progress >= quest_data["progress"]:
             quest_complete = True
             user.misc_cooldown = int(time.time())
-            current_xp = user.progress + user.misc_reward
+            current_xp = user.progress + user.misc_reward + _qxp_bonus(user.misc_reward, include_catch_xp=False)
             user.misc_progress = 0
             user.reminder_misc = 1
     elif user.extra_quest == quest:
@@ -2855,7 +3589,7 @@ async def progress(
         if user.extra_progress >= quest_data["progress"]:
             quest_complete = True
             user.extra_cooldown = int(time.time())
-            current_xp = user.progress + user.extra_reward
+            current_xp = user.progress + user.extra_reward + _qxp_bonus(user.extra_reward, include_catch_xp=False)
             user.extra_progress = 0
             user.casino_progress_temp = 0
             user.gift3_recipients = ""
@@ -2867,7 +3601,7 @@ async def progress(
         if user.challenge_progress >= quest_data["progress"]:
             quest_complete = True
             user.challenge_cooldown = int(time.time())
-            current_xp = user.progress + user.challenge_reward
+            current_xp = user.progress + user.challenge_reward + _qxp_bonus(user.challenge_reward, include_catch_xp=False)
             user.challenge_progress = 0
             user.reminder_challenge = 1
             if not user.has_ach("challenge_first"):
@@ -3290,6 +4024,33 @@ async def wait_and_do_stock(stock):
             "r",
             stock.ticker,
         )
+        # stock_dividend_boost (job perk, timed): per-holder bonus on top of
+        # the bulk payout. Iterates only profiles with any active job perks
+        # (the SQL filter is loose — jsonb_array_length > 0 — so we still
+        # have to check membership in Python). Try/except so a perk failure
+        # cannot poison the global payout.
+        try:
+            stock_col_attr = f"stock_{stock.ticker.lower()}"
+            async for fp in Profile.filter(
+                "jsonb_array_length(job_perks) > 0",
+                fields=["id", "user_id", "guild_id", "job_perks", "coins", stock_col_attr],
+                refetch=False,
+            ):
+                if "stock_dividend_boost" not in _perks_active_ids(fp):
+                    continue
+                pct = float(_perks_strength(fp, "stock_dividend_boost", "amount_bonus_pct", 0.0) or 0.0)
+                if pct <= 0:
+                    continue
+                holdings = int(getattr(fp, stock_col_attr, 0) or 0)
+                if holdings <= 0:
+                    continue
+                bonus = int(round(holdings * int(stock.amount) * pct))
+                if bonus == 0:
+                    continue
+                fp.coins = int(getattr(fp, "coins", 0) or 0) + bonus
+                await fp.save()
+        except Exception:
+            logging.exception("stock_dividend_boost per-holder bonus failed; bulk payout still applied")
     await refresh_stock_rewards(stock.ticker)
 
 
@@ -4166,7 +4927,9 @@ async def on_message(message: discord.Message):
                     belated_time = belated.get("time", 10) + current_time - belated.get("timestamp", 0)
                     if belated_time < 10:
                         quests.append("under10")
-                    if belated_time < 3:
+                    # lightning_hands widens the under-3 window by the perk's multiplier.
+                    _under3_window = 3.0 * float(_perks_apply_catch_modifiers(user, channel.cattype or "")["lightning_hands_mult"])
+                    if belated_time < _under3_window:
                         quests.append("under3")
                     # `slow` (>60s) can't physically fire here — belated catches
                     # only register when the original catch happened within 3s.
@@ -4303,15 +5066,24 @@ async def on_message(message: discord.Message):
                 suffix_string = ""
                 silly_amount = 1
 
+                # Job-perk modifiers for this catch. Bundle once so each hook
+                # site reads its key without re-walking the perks list. Pure
+                # read; charges are consumed at the firing sites below.
+                _perk_mods = _perks_apply_catch_modifiers(user, le_emoji)
+
                 # Random pack drop on every catch, independent of catnip.
                 # Tier is weighted (Wooden common, Celestial extremely rare).
                 # When it fires we attach a tier-themed embed to the catch
                 # confirmation rather than appending an inline line — the
                 # drop is rare enough (~2%) to earn its own moment of drama.
+                # pack_drop_boost multiplies the per-catch trigger chance.
                 bonus_pack_embed = None
-                if random.random() < PACK_DROP_CHANCE_ON_CATCH:
+                _pack_drop_chance = PACK_DROP_CHANCE_ON_CATCH * _perk_mods["pack_drop_mult"]
+                if random.random() < _pack_drop_chance:
                     bonus_pack_name, _ = grant_bonus_pack(user)
                     bonus_pack_embed = build_bonus_pack_embed(user, bonus_pack_name)
+                    if _perk_mods["pack_drop_mult"] > 1.0:
+                        suffix_string += "\n🎁 Crate Sniffer boosted your pack-drop odds."
 
                 # perky!
                 double_chance = 0
@@ -4349,6 +5121,18 @@ async def on_message(message: discord.Message):
                     if len(perks) > 0:
                         logging.debug("Catnip active with %d perks", len(perks))
 
+                    # perk_amplifier (job perk, timed): scales every catnip
+                    # perk's value contribution by `multiplier`. Multiplicative
+                    # amp on the raw `values[rarity]` reads below; the existing
+                    # downstream caps (e.g. 100% chance floor) still apply.
+                    _catnip_amp = 1.0
+                    if "perk_amplifier" in _perks_active_ids(user):
+                        _catnip_amp = float(_perks_strength(user, "perk_amplifier", "multiplier", 1.0) or 1.0)
+                    def _amp(v):
+                        return v * _catnip_amp if _catnip_amp != 1.0 else v
+                    if _catnip_amp > 1.0 and len(perks) > 0:
+                        suffix_string += f"\n📣 Perk Amplifier ×{_catnip_amp:g} on your catnip perks."
+
                     for perk in perks:
                         h = perk.split("_")
                         rarity = int(h[0])
@@ -4356,31 +5140,31 @@ async def on_message(message: discord.Message):
                         id = perks_info[type - 1]["id"]
 
                         if id == "double":
-                            double_chance += perks_info[0]["values"][rarity]
-                            single_chance -= perks_info[0]["values"][rarity]
+                            double_chance += _amp(perks_info[0]["values"][rarity])
+                            single_chance -= _amp(perks_info[0]["values"][rarity])
                         elif id == "triple_none":
-                            triple_chance += perks_info[1]["values"][rarity]
-                            none_chance += perks_info[1]["values"][rarity] / 2
-                            single_chance -= perks_info[1]["values"][rarity] * (1.5)
+                            triple_chance += _amp(perks_info[1]["values"][rarity])
+                            none_chance += _amp(perks_info[1]["values"][rarity]) / 2
+                            single_chance -= _amp(perks_info[1]["values"][rarity]) * (1.5)
                         elif "pack" in id and user.pack_attempts > 0:
                             for num, pack in enumerate(pack_data):
                                 if pack["name"].lower() in id:
-                                    packs.append((num, perks_info[type - 1]["values"][rarity]))
+                                    packs.append((num, _amp(perks_info[type - 1]["values"][rarity])))
                                     break
                         elif id == "double_boost":
-                            double_boost_chance += perks_info[8]["values"][rarity]
+                            double_boost_chance += _amp(perks_info[8]["values"][rarity])
                         elif id == "triple_ach":
                             purr_all_triple = True
                         elif id == "rain_boost":
-                            rain_chance += perks_info[12]["values"][rarity]
+                            rain_chance += _amp(perks_info[12]["values"][rarity])
                         elif id == "double_first":
-                            double_first += perks_info[13]["values"][rarity]
+                            double_first += _amp(perks_info[13]["values"][rarity])
                         elif id == "combo":
-                            combo_per_stack += perks_info[14]["values"][rarity]
+                            combo_per_stack += _amp(perks_info[14]["values"][rarity])
                         elif id == "bp_xp":
-                            bp_xp_chance += perks_info[15]["values"][rarity]
+                            bp_xp_chance += _amp(perks_info[15]["values"][rarity])
                         elif id == "respawn":
-                            respawn_chance += perks_info[16]["values"][rarity]
+                            respawn_chance += _amp(perks_info[16]["values"][rarity])
 
                     for i in packs:
                         chance = random.random() * 100
@@ -4397,9 +5181,14 @@ async def on_message(message: discord.Message):
                     # idle for >5 min resets to 1. Per-stack % feeds the double pool.
                     # user.last_catch still holds the PREVIOUS catch time at this point —
                     # it's not updated to "now" until later in this handler.
+                    # combo_shield (job perk, charge-based) absorbs one idle reset.
                     if combo_per_stack > 0:
                         if time.time() - user.last_catch > 300:
-                            user.combo_stack = 1
+                            if _perk_mods["combo_shield"] and _perks_consume_charge(user, "combo_shield"):
+                                user.combo_stack = min(30, user.combo_stack + 1)
+                                suffix_string += "\n🛡️ Combo Shield absorbed your reset."
+                            else:
+                                user.combo_stack = 1
                         else:
                             user.combo_stack = min(30, user.combo_stack + 1)
                         combo_chance = min(combo_per_stack * user.combo_stack, 100.0)
@@ -4607,6 +5396,27 @@ async def on_message(message: discord.Message):
                             f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but failed! A {rainboost // 60}m rain will start!"
                         )
 
+                # ---- Job-perk catch-loop effects ----
+                # rarity_bump: % chance to upgrade caught cat one tier. Cap at
+                # Mythic so it can't fabricate eGirl/8bit/etc.
+                if _perk_mods["rarity_bump_pct"] > 0 and random.random() < _perk_mods["rarity_bump_pct"]:
+                    try:
+                        cur_idx = cattypes.index(le_emoji)
+                    except ValueError:
+                        cur_idx = -1
+                    mythic_idx = cattypes.index("Mythic") if "Mythic" in cattypes else -1
+                    if 0 <= cur_idx < mythic_idx:
+                        bumped = cattypes[cur_idx + 1]
+                        suffix_string += f"\n✨ Rarity Bump: {le_emoji} → **{bumped}**!"
+                        le_emoji = bumped
+                # double_cat: silly_amount ×2. Don't double 0 (catnip "none" outcome).
+                if _perk_mods["double_cat"] and silly_amount > 0:
+                    silly_amount *= 2
+                    suffix_string += "\n🐈‍⬛ Double Cat: that one counted twice."
+                # eagle_eye: consume a charge to reveal the (final) rarity.
+                if _perk_mods["eagle_eye"] and _perks_consume_charge(user, "eagle_eye"):
+                    suffix_string += f"\n🦅 Eagle Eye: rarity was **{le_emoji}**."
+
                 icon = get_emoji(le_emoji.lower() + "cat")
 
                 if channel.channel_id in config.cat_cought_rain:
@@ -4749,11 +5559,22 @@ async def on_message(message: discord.Message):
 
                 if channel.cat_rains > 0:
                     user.rain_participations += 1
+                    # cat_rain_coin_yield (job perk, timed): per-catch coin
+                    # micro-payout while in an active rain. Spec wants "per
+                    # minute" but there's no per-player rain tick; per-catch
+                    # is the closest available hook and naturally scales with
+                    # how active the player is during the rain.
+                    if "cat_rain_coin_yield" in _perks_active_ids(user):
+                        _rain_yield = int(_perks_strength(user, "cat_rain_coin_yield", "coins_per_catch", 0) or 0)
+                        if _rain_yield > 0:
+                            user.coins = int(getattr(user, "coins", 0) or 0) + _rain_yield
+                            suffix_string += f"\n💰 Cloudburst Wages: +🪙 {_rain_yield:,}."
 
                 await user.save()
 
                 global_user_for_streak = await User.get_or_create(user_id=message.author.id)
-                first_catch_of_day = await update_daily_catch_streak(global_user_for_streak)
+                # Pass `user` so streak_protector (job perk) can absorb a skipped day.
+                first_catch_of_day = await update_daily_catch_streak(global_user_for_streak, profile=user)
 
                 # Passive XP: first catch of the day = +50, every 10-catch
                 # streak boundary = +20. We aggregate any resulting level-up
@@ -4829,7 +5650,9 @@ async def on_message(message: discord.Message):
                     quests.append("good")
                 if time_caught >= 0 and time_caught < 10:
                     quests.append("under10")
-                if time_caught >= 0 and time_caught < 3:
+                # lightning_hands widens the under-3 window by the perk's multiplier.
+                _under3_window = 3.0 * _perk_mods["lightning_hands_mult"]
+                if time_caught >= 0 and time_caught < _under3_window:
                     quests.append("under3")
                 if time_caught >= 60:
                     quests.append("slow")
@@ -7277,14 +8100,43 @@ async def packs(message: discord.Interaction):
             return
         level = next((i for i, p in enumerate(pack_data) if p["name"] == pack), 0)
 
+        # ---- Pack-side job perks ----
+        # pack_tier_upgrade (charge): bump `level` one tier (cap silver=3).
+        # pack_floor (charge):        if get_pack_rewards returns Fine, upgrade to Nice.
+        # pack_bonus_cat (timed):     after the open, grant +1 random cat.
+        perk_msgs: list[str] = []
+        if "pack_tier_upgrade" in _perks_active_ids(user) and _perks_consume_charge(user, "pack_tier_upgrade"):
+            cap_idx = next((i for i, p in enumerate(pack_data) if p["name"].lower() == "silver"), len(pack_data) - 1)
+            if level < cap_idx:
+                level += 1
+                perk_msgs.append(f"🪜 Crate Polish bumped to **{pack_data[level]['name']}**.")
+            else:
+                perk_msgs.append(f"🪜 Crate Polish: already at cap ({pack_data[cap_idx]['name']}).")
+
         chosen_type, cat_amount, upgrades, reward_texts = get_pack_rewards(level)
+
+        if chosen_type == "Fine" and "pack_floor" in _perks_active_ids(user) and _perks_consume_charge(user, "pack_floor"):
+            chosen_type = "Nice"
+            perk_msgs.append("🚫 No Fines: floor upgraded to Nice.")
+
+        bonus_type = None
+        bonus_amount = 0
+        if "pack_bonus_cat" in _perks_active_ids(user):
+            bonus_type = random.choice(cattypes)
+            bonus_amount = 1
+            perk_msgs.append(f"➕ Padded Crate: +1 {bonus_type} cat.")
+
         user[f"cat_{chosen_type}"] += cat_amount
+        if bonus_type:
+            user[f"cat_{bonus_type}"] += bonus_amount
         user.pack_upgrades += upgrades
         user.packs_opened += 1
         user[f"pack_{pack.lower()}"] -= 1
         await user.save()
         if cat_amount > 0 and chosen_type in cattypes:
             await mark_discovered(user, chosen_type)
+        if bonus_type and bonus_amount > 0:
+            await mark_discovered(user, bonus_type)
 
         logging.debug("Opened pack %s", pack)
 
@@ -7293,6 +8145,13 @@ async def packs(message: discord.Interaction):
         for reward_text in reward_texts[1:]:
             await asyncio.sleep(1)
             things = reward_text.split("\n", 1)
+            embed = discord.Embed(title=things[0], description=things[1], color=Colors.brown)
+            await interaction.edit_original_response(embed=embed)
+        # Perk toasts: append once after the open animation finishes.
+        if perk_msgs:
+            await asyncio.sleep(1)
+            final_text = reward_texts[-1] + "\n\n" + "\n".join(perk_msgs)
+            things = final_text.split("\n", 1)
             embed = discord.Embed(title=things[0], description=things[1], color=Colors.brown)
             await interaction.edit_original_response(embed=embed)
         await asyncio.sleep(1)
@@ -8303,7 +9162,11 @@ async def catstore(message: discord.Interaction):
                 if self.cat_type not in _coerce_array(fresh.discovered_cats):
                     await interaction.followup.send("you haven't discovered that cat in this server", ephemeral=True)
                     return
-                unit_price = store_buy_price(self.cat_type, fresh.catnip_level)
+                # catstore_discount_stack (job perk): additive bonus on top of
+                # the catnip-level discount. Looked up here so the modal sees
+                # whatever the player has active at submit time.
+                _buy_perk_bonus = _perks_catstore_buy_bonus(fresh)
+                unit_price = store_buy_price(self.cat_type, fresh.catnip_level, _buy_perk_bonus)
                 unit_value = cat_value(self.cat_type)
                 total_cost = unit_price * qty
                 if fresh.coins < total_cost:
@@ -8398,7 +9261,10 @@ async def catstore(message: discord.Interaction):
                         f"you only own {owned:,} {self.cat_type} cats in this server", ephemeral=True
                     )
                     return
-                unit_price = store_sell_price(self.cat_type, fresh.catnip_level)
+                # catstore_sell_premium (job perk): additive sell-pp bonus,
+                # still capped by buy_pct-5 inside store_sell_pct.
+                _sell_perk_bonus = _perks_catstore_sell_bonus(fresh)
+                unit_price = store_sell_price(self.cat_type, fresh.catnip_level, _sell_perk_bonus)
                 total = unit_price * qty
                 fresh[f"cat_{self.cat_type}"] -= qty
                 fresh.coins += total
@@ -8475,7 +9341,7 @@ async def catstore(message: discord.Interaction):
         if not current_cat:
             return
         await profile.refresh_from_db()
-        unit_price = store_buy_price(current_cat, profile.catnip_level)
+        unit_price = store_buy_price(current_cat, profile.catnip_level, _perks_catstore_buy_bonus(profile))
         max_affordable = profile.coins // unit_price if unit_price > 0 else 0
         if max_affordable < 1:
             await interaction.response.send_message(
@@ -8503,14 +9369,17 @@ async def catstore(message: discord.Interaction):
     # ----- renderers -----
     async def gen_main(interaction: discord.Interaction, use_followup: bool):
         await profile.refresh_from_db()
-        discount = store_discount_pct(profile.catnip_level)
+        # Show the combined catnip-level + job-perk discount in the header.
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
         rank = _rank_name(profile.catnip_level)
         discovered = _discovered_list(profile)
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
             "## 🛒 Cat Store",
-            f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(discount)}",
+            f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(discount)}"
+            + (f"  ·  🎁 +{_buy_bonus}pp perk" if _buy_bonus else ""),
         ]
         if last_toast:
             items.append(last_toast)
@@ -8544,7 +9413,7 @@ async def catstore(message: discord.Interaction):
 
         for cat_type in page_cats:
             owned = profile[f"cat_{cat_type}"]
-            price = store_buy_price(cat_type, profile.catnip_level)
+            price = store_buy_price(cat_type, profile.catnip_level, _buy_bonus)
             owned_line = f"Owned: {owned:,}" if owned > 0 else f"*Owned: 0*"
             body = f"{owned_line}  ·  🪙 {price:,}"
             btn = Button(label="View", style=ButtonStyle.blurple, custom_id=f"view_{cat_type}")
@@ -8587,11 +9456,13 @@ async def catstore(message: discord.Interaction):
 
     async def gen_detail(interaction: discord.Interaction, cat_type: str, use_followup: bool):
         await profile.refresh_from_db()
-        discount = store_discount_pct(profile.catnip_level)
-        sell_pct = store_sell_pct(profile.catnip_level)
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        _sell_bonus = _perks_catstore_sell_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        sell_pct = store_sell_pct(profile.catnip_level, _sell_bonus)
         unit_value = cat_value(cat_type)
-        unit_buy = store_buy_price(cat_type, profile.catnip_level)
-        unit_sell = store_sell_price(cat_type, profile.catnip_level)
+        unit_buy = store_buy_price(cat_type, profile.catnip_level, _buy_bonus)
+        unit_sell = store_sell_price(cat_type, profile.catnip_level, _sell_bonus)
         owned = profile[f"cat_{cat_type}"]
         coins = profile.coins
         can_afford = coins // unit_buy if unit_buy > 0 else 0
@@ -8678,7 +9549,10 @@ async def jobs(message: discord.Interaction):
     profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
 
     # ----- closure state -----
-    mode: dict = {"screen": "board", "job_id": None}
+    # board_page is the current page index in show_board (0-indexed). Clamped
+    # to a valid range each render so deleting offers can't strand the user
+    # on a now-empty page.
+    mode: dict = {"screen": "board", "job_id": None, "board_page": 0}
     send_state: dict = {}  # cat_type -> count being sent
     last_toast: list[str] = []  # one short status line carried across renders
 
@@ -8731,13 +9605,15 @@ async def jobs(message: discord.Interaction):
         today_count = await _jobs_commits_today(int(profile.user_id), int(profile.guild_id), now)
         day_end = _jobs_start_of_utc_day(now) + 86400
 
+        # daily_cap_extension: peek-only; charge consumed at commit time.
+        _eff_cap_board = _perks_effective_daily_cap(profile, JOBS_MAX_DAILY_COMMITS)
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
             "## 📋 Jobs Board",
             (f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  "
-             f"Jobs today: {today_count}/{JOBS_MAX_DAILY_COMMITS}  ·  Refreshes <t:{win_end}:R>"),
+             f"Jobs today: {today_count}/{_eff_cap_board}  ·  Refreshes <t:{win_end}:R>"),
         ]
-        if today_count >= JOBS_MAX_DAILY_COMMITS:
+        if today_count >= _eff_cap_board:
             items.append(f"-# 🛑 **Daily limit hit.** Resets <t:{day_end}:R>.")
         if pinch_active:
             items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
@@ -8747,20 +9623,37 @@ async def jobs(message: discord.Interaction):
             items.append(line)
         last_toast.clear()
 
-        for row in offers:
+        # Pagination — JOBS_BOARD_PAGE_SIZE offers per page. board_page lives
+        # on `mode` so Prev/Next callbacks can advance it. Clamp to the valid
+        # range each render (handles offers shrinking on reroll/expire).
+        total_pages = max(1, (len(offers) + JOBS_BOARD_PAGE_SIZE - 1) // JOBS_BOARD_PAGE_SIZE)
+        cur_page = max(0, min(int(mode.get("board_page", 0) or 0), total_pages - 1))
+        mode["board_page"] = cur_page
+        page_start = cur_page * JOBS_BOARD_PAGE_SIZE
+        page_offers = offers[page_start : page_start + JOBS_BOARD_PAGE_SIZE]
+        if total_pages > 1:
+            items.append(f"-# Page {cur_page + 1}/{total_pages} · showing {len(page_offers)} of {len(offers)} offers")
+
+        for row in page_offers:
             reward = _jobs_coerce_dict(row.reward_snapshot)
             tier_info = JOBS_TIERS.get(str(row.tier), {})
             tier_name = tier_info.get("name", f"Tier {row.tier}")
             category_label = row.category.title() if row.category else ""
+            # Perk preview — only render when a perk was actually rolled at
+            # offer-gen. Inserted between reward and heat so it reads as a
+            # bonus to the success outcome.
+            row_perk = (_jobs_col(row, "perk_drop", "") or "").strip()
+            perk_line = _perks_format_offer_preview(row_perk, int(row.tier)) if row_perk else ""
             section_body = (
                 f"*{row.narrative}*\n"
                 f"🎯 Target: **{_jobs_npc_display(row.target_faction)}**\n"
                 f"💪 Difficulty: **{row.difficulty} SP**\n"
                 f"💰 Reward: {_jobs_reward_summary(reward)}\n"
-                f"🚨 Heat cost: +{row.heat_cost}"
+                + (f"{perk_line}\n" if perk_line else "")
+                + f"🚨 Heat cost: +{row.heat_cost}"
             )
 
-            at_cap = today_count >= JOBS_MAX_DAILY_COMMITS
+            at_cap = today_count >= _eff_cap_board
             accept_btn = Button(
                 label="Daily limit hit" if at_cap else "Accept",
                 style=ButtonStyle.gray if at_cap else ButtonStyle.green,
@@ -8784,7 +9677,34 @@ async def jobs(message: discord.Interaction):
 
         help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_help")
         help_btn.callback = on_help
-        items.append(ActionRow(help_btn))
+        # reroll_board (job perk, charge): visible button when the perk is
+        # active. The callback consumes the charge atomically with the DB write.
+        board_row_buttons = [help_btn]
+        if total_pages > 1:
+            prev_btn = Button(
+                label="← Prev",
+                style=ButtonStyle.gray,
+                custom_id="jobs_board_prev",
+            )
+            prev_btn.callback = on_board_prev
+            prev_btn.disabled = cur_page == 0
+            next_btn = Button(
+                label="Next →",
+                style=ButtonStyle.gray,
+                custom_id="jobs_board_next",
+            )
+            next_btn.callback = on_board_next
+            next_btn.disabled = cur_page >= total_pages - 1
+            board_row_buttons.extend([prev_btn, next_btn])
+        if "reroll_board" in _perks_active_ids(profile):
+            reroll_btn = Button(
+                label="🔄 Reroll Board (1 use)",
+                style=ButtonStyle.blurple,
+                custom_id="jobs_reroll_board",
+            )
+            reroll_btn.callback = on_reroll_board
+            board_row_buttons.append(reroll_btn)
+        items.append(ActionRow(*board_row_buttons))
 
         container = Container(*items)
         try:
@@ -8874,6 +9794,45 @@ async def jobs(message: discord.Interaction):
         if pending_heat_bonus:
             heat_str += f" (+{pending_heat_bonus} loose end)"
         items.append(heat_str)
+
+        # Pre-rolled perk preview for THIS specific offer (set at offer-gen
+        # time). Worded committally — by this screen the player has chosen
+        # the offer and is deciding the crew. Catalog-tolerant: a perk_id
+        # the operator removed renders "Unknown perk" rather than crashing.
+        job_perk = (_jobs_col(job, "perk_drop", "") or "").strip()
+        if job_perk:
+            perk_cat = PERKS_CATALOG.get(job_perk)
+            if perk_cat:
+                perk_name = perk_cat.get("name", job_perk)
+                strength = _perks_format_strength(job_perk, int(job.tier or 0))
+                strength_suffix = f" {strength}" if strength else ""
+                items.append(f"🎁 You'll receive on success: **{perk_name}**{strength_suffix}.")
+            else:
+                items.append("🎁 You'll receive on success: *Unknown perk*.")
+
+        # Active job perks affecting THIS commit — surfaced so the player
+        # sees their effective SP / heat / chance is inflated before they
+        # commit the cats. Only flag the perks that act on commit.
+        _active_now = _perks_active_ids(profile)
+        send_perk_lines = []
+        if "send_power_boost" in _active_now:
+            mult = float(_perks_strength(profile, "send_power_boost", "multiplier", 1.5))
+            send_perk_lines.append(f"💪 Iron Grip ready — next commit's Send Power ×{mult:g}")
+        if "heat_shield" in _active_now:
+            send_perk_lines.append("♨️ Heat Shield ready — next commit's heat is halved")
+        if "complication_insurance" in _active_now:
+            red = float(_perks_strength(profile, "complication_insurance", "reduction_pp", 0.20))
+            send_perk_lines.append(f"🛟 Sweep Pattern ready — complication chance −{red * 100:.0f}pp")
+        if "crew_insurance" in _active_now:
+            send_perk_lines.append("🛡️ Crew Insurance ready — a near-miss will convert to success")
+        if "rep_windfall" in _active_now:
+            send_perk_lines.append("🌟 Rep Windfall ready — offerer rep gain ×2 on success")
+        if send_perk_lines:
+            items.append(Separator())
+            items.append("**🎁 Active job perks:**")
+            for line in send_perk_lines:
+                items.append(f"-# {line}")
+
         for line in last_toast:
             items.append(line)
         last_toast.clear()
@@ -8983,6 +9942,27 @@ async def jobs(message: discord.Interaction):
                 f"Catnip perks are suspended until <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
             )
 
+        # Perks fired on this commit — surface them above the cat voice so the
+        # player connects the effect to the cause. Reads markers stamped by
+        # _jobs_apply_outcome and the commit-site (see Phase 2b).
+        perk_fired_lines = []
+        if rep_changes.get("crew_insurance_fired"):
+            perk_fired_lines.append("🛡️ **Crew Insurance fired** — the near-miss was converted to a clean success.")
+        if rep_changes.get("heat_shield_fired"):
+            perk_fired_lines.append("♨️ **Heat Shield** halved this commit's heat cost.")
+        if rep_changes.get("rep_windfall_fired"):
+            perk_fired_lines.append("🌟 **Rep Windfall** doubled the offerer rep gain.")
+        if rep_changes.get("send_power_boost_fired"):
+            perk_fired_lines.append("💪 **Iron Grip** boosted this commit's effective Send Power.")
+        if rep_changes.get("complication_insurance_fired"):
+            perk_fired_lines.append("🛟 **Sweep Pattern** lowered the complication chance.")
+        if rep_changes.get("daily_cap_extension_fired"):
+            perk_fired_lines.append("⏰ **Overtime** let you commit an extra job today.")
+        if perk_fired_lines:
+            items.append(Separator())
+            for line in perk_fired_lines:
+                items.append(line)
+
         # One cat from the crew gets the last word. Seeded off the job id + outcome
         # so the line is stable across re-renders of the same result.
         voice_rng = random.Random(int(job.id or 0) ^ hash(outcome) ^ int(job.committed_at or 0))
@@ -8991,6 +9971,31 @@ async def jobs(message: discord.Interaction):
         if voice_line:
             items.append(Separator())
             items.append(voice_line)
+
+        # Perk preview/outcome — surfaced last (between cat voice and action
+        # row). Two distinct cases now that the perk is pre-rolled:
+        #   1. success + perk granted → "delivers on the promise" (granted_id
+        #      is the source of truth — it could differ from the pre-rolled
+        #      id only if grant failed and we logged through).
+        #   2. non-success + perk was on offer → "the bonus walks" line so
+        #      the missed perk feels material, not invisible.
+        granted_id = rep_changes.get("perk_drop")
+        offered_id = (_jobs_col(job, "perk_drop", "") or "").strip()
+        npc_name = _jobs_npc_display(job.offered_by) or job.offered_by
+        if granted_id and outcome == "success":
+            perk_cat = PERKS_CATALOG.get(granted_id, {})
+            perk_name = perk_cat.get("name", granted_id.replace("_", " ").title())
+            perk_desc = perk_cat.get("desc", "")
+            items.append(Separator())
+            items.append(f"🎁 **{npc_name}** delivers on the promise — **{perk_name}** is now active.")
+            if perk_desc:
+                items.append(f"-# {perk_desc}")
+            items.append("-# Check **/perks** to see what's active.")
+        elif outcome != "success" and offered_id:
+            perk_cat = PERKS_CATALOG.get(offered_id, {})
+            perk_name = perk_cat.get("name", offered_id.replace("_", " ").title())
+            items.append(Separator())
+            items.append(f"💨 The bonus walks. *{perk_name} won't be granted.*")
 
         # Outcomes are final — the roll is locked the moment Send Crew is clicked.
         # No Undo (strategic re-rolling defeats the gamble).
@@ -9018,11 +10023,14 @@ async def jobs(message: discord.Interaction):
             # Daily cap check BEFORE anything else — including the public embed.
             # If we're at cap, the player can't actually commit, so we shouldn't
             # let them publicly "accept" a job they can't follow through on.
+            # Peek at the daily_cap_extension perk so over-cap players with the
+            # perk active CAN accept; the charge is consumed at commit, not here.
             now_check = int(time.time())
             today_count = await _jobs_commits_today(
                 int(message.user.id), int(message.guild.id), now_check
             )
-            if today_count >= JOBS_MAX_DAILY_COMMITS:
+            _accept_eff_cap = _perks_effective_daily_cap(profile, JOBS_MAX_DAILY_COMMITS)
+            if today_count >= _accept_eff_cap:
                 day_end = _jobs_start_of_utc_day(now_check) + 86400
                 await interaction.response.send_message(
                     f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
@@ -9067,6 +10075,97 @@ async def jobs(message: discord.Interaction):
         else:
             start = 0
         await _jobs_send_help(interaction, profile, start_page=start)
+
+    async def on_board_prev(interaction: discord.Interaction):
+        """Board pagination — previous page. Defers via edit_message so the
+        single ephemeral view swaps in place; show_board handles clamping."""
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        mode["board_page"] = max(0, int(mode.get("board_page", 0) or 0) - 1)
+        await interaction.response.defer()
+        await show_board(interaction)
+
+    async def on_board_next(interaction: discord.Interaction):
+        """Board pagination — next page. Clamping happens in show_board so
+        we don't need to know total_pages here."""
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        mode["board_page"] = int(mode.get("board_page", 0) or 0) + 1
+        await interaction.response.defer()
+        await show_board(interaction)
+
+    async def on_reroll_board(interaction: discord.Interaction):
+        """reroll_board (job perk, charge): blow away the current window's
+        offers and regenerate with an extra salt so the new set is fresh.
+        Charge is consumed only once we've successfully deleted + generated
+        the new offers — otherwise the player loses a charge to a DB hiccup."""
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        await interaction.response.defer()
+        await profile.refresh_from_db()
+        if "reroll_board" not in _perks_active_ids(profile):
+            last_toast.append("⚠️ Reroll Board is not active.")
+            await show_board(interaction)
+            return
+        now_rr = int(time.time())
+        window_idx = _jobs_window_index(now_rr)
+        win_start, win_end = _jobs_window_bounds(window_idx)
+        try:
+            async with transaction() as conn:
+                # Delete current offered rows for this window (no commit risk —
+                # offered rows are pre-acceptance; players who already started
+                # a send-screen would have state != 'offered').
+                await conn.execute(
+                    "DELETE FROM jobinstance WHERE user_id = $1 AND guild_id = $2 "
+                    "AND state = 'offered' AND offered_at >= $3 AND offered_at < $4",
+                    int(message.user.id), int(message.guild.id), win_start, win_end,
+                )
+                # Regenerate with a time-based salt so the new set diverges.
+                try:
+                    season = int(profile.season or 0)
+                except KeyError:
+                    season = 0
+                salt = f"{now_rr}"
+                desired = _jobs_generate_offers(profile, window_idx, user_season=season, extra_salt=salt)
+                for offer in desired:
+                    await JobInstance.create(
+                        template_id=offer["_template_id"],
+                        user_id=int(profile.user_id),
+                        guild_id=int(profile.guild_id),
+                        category=offer["category"],
+                        tier=offer["tier"],
+                        offered_by=offer["offered_by"],
+                        target_faction=offer["target_faction"],
+                        difficulty=offer["difficulty"],
+                        send_snapshot={},
+                        send_total=0,
+                        success_chance=0.0,
+                        roll=0.0,
+                        outcome="",
+                        cats_destroyed={},
+                        state="offered",
+                        narrative=offer["narrative"],
+                        reward_snapshot=offer["reward_snapshot"],
+                        rep_changes={},
+                        heat_cost=offer["heat_cost"],
+                        offered_at=now_rr,
+                        expires_at=win_end,
+                        resolved_at=0,
+                        committed_at=0,
+                        perk_drop=offer.get("perk_drop", ""),
+                    )
+                # Consume the charge only AFTER successful DB work.
+                _perks_consume_charge(profile, "reroll_board")
+                await profile.save()
+            last_toast.append("🔄 Board rerolled.")
+            mode["board_page"] = 0  # reset pagination so player sees the first new offer
+        except Exception:
+            logging.exception("perks.reroll_board: transaction failed")
+            last_toast.append("⚠️ Reroll failed — try again.")
+        await show_board(interaction)
 
     # ----- send screen modals + callbacks -----
 
@@ -9192,9 +10291,16 @@ async def jobs(message: discord.Interaction):
             return
         # Daily cap check before doing any work. Cancelled commits don't count
         # (committed_at is zeroed on cancel), so misclicks aren't punished.
+        # daily_cap_extension (job perk, charge+timed) grants +1 over base;
+        # the charge is consumed inside the lock below, NOT here, so a player
+        # who bails out of the modal doesn't burn their perk.
         now_check = int(time.time())
         today_count = await _jobs_commits_today(int(message.user.id), int(message.guild.id), now_check)
-        if today_count >= JOBS_MAX_DAILY_COMMITS:
+        # Peek-only effective cap for the early gate. The actual consume
+        # happens at commit time inside the transaction.
+        _peek_profile = await Profile.get_or_create(user_id=int(message.user.id), guild_id=int(message.guild.id))
+        _effective_cap_peek = _perks_effective_daily_cap(_peek_profile, JOBS_MAX_DAILY_COMMITS)
+        if today_count >= _effective_cap_peek:
             day_end = _jobs_start_of_utc_day(now_check) + 86400
             await interaction.response.send_message(
                 f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
@@ -9226,6 +10332,17 @@ async def jobs(message: discord.Interaction):
                         await show_send(interaction)
                         return
 
+                # In-transaction daily cap re-check + perk consume. Two checks
+                # are intentional: the peek above prevents the commit modal
+                # from spawning over-cap; this one is authoritative and
+                # consumes the daily_cap_extension charge atomically.
+                today_count_lock = await _jobs_commits_today(int(message.user.id), int(message.guild.id), int(time.time()))
+                allowed, dce_fired = _perks_check_and_consume_daily_cap(fresh, today_count_lock, JOBS_MAX_DAILY_COMMITS)
+                if not allowed:
+                    last_toast.append("⚠️ Daily cap reached between accept and commit.")
+                    await show_send(interaction)
+                    return
+
                 # Escrow: decrement first. Survivors get re-added below per outcome.
                 for t, c in send_state.items():
                     if not _jobs_subtract_cat(fresh, t, int(c)):
@@ -9233,7 +10350,15 @@ async def jobs(message: discord.Interaction):
                         await show_send(interaction)
                         return
 
+                # send_power_boost (job perk, charge): scale effective SP for
+                # this commit only. Consume here so cancelled commits don't
+                # burn the perk (we're past the bail-out points above).
                 send_total = _jobs_send_total(send_state)
+                send_power_boost_fired = False
+                if "send_power_boost" in _perks_active_ids(fresh) and _perks_consume_charge(fresh, "send_power_boost"):
+                    spb_mult = float(_perks_strength(fresh, "send_power_boost", "multiplier", 1.5))
+                    send_total = int(round(send_total * spb_mult))
+                    send_power_boost_fired = True
                 rep_bonus_now = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(fresh))
                 rng = random.Random()
 
@@ -9257,6 +10382,13 @@ async def jobs(message: discord.Interaction):
                 comp_chance = _jobs_complication_chance(
                     int(job.tier), int(getattr(fresh, "heat", 0) or 0), offerer_rep_for_comp
                 )
+                # complication_insurance (job perk, charge): subtract a flat pp
+                # from the rolled chance. Stacks additively with rep insurance.
+                complication_insurance_fired = False
+                if "complication_insurance" in _perks_active_ids(fresh) and _perks_consume_charge(fresh, "complication_insurance"):
+                    ci_reduction = float(_perks_strength(fresh, "complication_insurance", "reduction_pp", 0.20))
+                    comp_chance = max(0.0, comp_chance - ci_reduction)
+                    complication_insurance_fired = True
                 comp_event = _jobs_roll_complication(int(job.tier), comp_chance, rng)
                 comp_id = ""
                 comp_meaningful = False
@@ -9316,6 +10448,19 @@ async def jobs(message: discord.Interaction):
                     job.rep_changes = {}
 
                 await _jobs_apply_outcome(fresh, job, outcome_dict, rng)
+
+                # Stamp in-transaction perk firings onto rep_changes so the
+                # Phase 3 result screen can render "X perk fired" markers.
+                # _jobs_apply_outcome already records crew_insurance/heat_shield/
+                # rep_windfall; we add the perks consumed at this layer.
+                rc_after = _jobs_coerce_dict(job.rep_changes)
+                if send_power_boost_fired:
+                    rc_after["send_power_boost_fired"] = True
+                if complication_insurance_fired:
+                    rc_after["complication_insurance_fired"] = True
+                if dce_fired:
+                    rc_after["daily_cap_extension_fired"] = True
+                job.rep_changes = rc_after
 
                 # Re-credit surviving cats. (Success returns the entire send;
                 # near-miss returns send-minus-destroyed; total failure returns none.)
@@ -9456,6 +10601,62 @@ async def rep(message: discord.Interaction):
         pass
     view.add_item(container)
     await message.response.send_message(view=view, ephemeral=True)
+
+
+@bot.tree.command(description="view your active mafia favors (job perks)")
+async def perks(message: discord.Interaction):
+    """Player-facing view of active job perks: timed buffs + charge-based
+    consumables dropped from successful /jobs. Ephemeral. Container accent
+    is brown to match /catstore. Empty state nudges toward /jobs."""
+    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+    active = _perks_active_for_display(profile)
+
+    async def on_perks_help(interaction: discord.Interaction):
+        # Phase 6 adds a dedicated "Perks" help page; until then fall back to
+        # the help index landing page so the button still works.
+        await _jobs_send_help(interaction, profile, start_page=_jobs_help_index_by_title(profile, "perks"))
+
+    help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="perks_help")
+    help_btn.callback = on_perks_help
+
+    view = LayoutView(timeout=VIEW_TIMEOUT)
+    items: list = ["## 🎁 Mafia Favors"]
+
+    if not active:
+        items.append("No mafia favors active. Complete jobs to earn perks.")
+        items.append(Separator())
+        items.append("-# Perks drop on **successful** /jobs. Different NPCs favor different perks.")
+        items.append(ActionRow(help_btn))
+    else:
+        items.append(f"You have **{len(active)}** active favor{'s' if len(active) != 1 else ''}.")
+        items.append(Separator())
+        for entry in active:
+            npc_disp = _jobs_npc_display(entry.get("npc", "")) or "—"
+            tier_disp = f"T{entry.get('tier', '?')}"
+            body = (
+                f"{entry.get('desc', '') or '*(no description)*'}\n"
+                f"-# from **{npc_disp}** ({tier_disp})  ·  {entry.get('status', '')}"
+            )
+            items.append(Section(
+                f"### 🎁 {entry.get('name', entry.get('id', '?'))}",
+                body,
+            ))
+        items.append(ActionRow(help_btn))
+
+    container = Container(*items)
+    try:
+        container.accent_color = Colors.brown
+    except Exception:
+        pass
+    view.add_item(container)
+    await message.response.send_message(view=view, ephemeral=True)
+    # BP quest: "have a job perk active". Idempotent — progress() handles
+    # the per-period cooldown so subsequent /perks checks don't re-progress.
+    if active:
+        try:
+            await progress(message, profile, "perk_user")
+        except Exception:
+            logging.exception("perk_user quest progress failed")
 
 
 @bot.tree.command(description="cat prisms are a special power up")
@@ -10787,7 +11988,16 @@ async def bakery(message: discord.Interaction):
 
         await profile.refresh_from_db()
         await user.refresh_from_db()
-        if profile.cookies < BAKERY_COST_COOKIES or profile.coffees < BAKERY_COST_COFFEES or profile.cat_Nice < BAKERY_COST_NICE:
+        # bakery_discount (job perk, charge): reduces the per-ingredient cost
+        # by the perk's pct. Consumed only on the actual delivery (after the
+        # readiness check) so cancelled clicks don't burn the charge.
+        _bakery_disc = 0.0
+        if "bakery_discount" in _perks_active_ids(profile):
+            _bakery_disc = float(_perks_strength(profile, "bakery_discount", "discount_pct", 0.0) or 0.0)
+        _bd_cost_cookies = max(0, math.ceil(BAKERY_COST_COOKIES * (1 - _bakery_disc)))
+        _bd_cost_coffees = max(0, math.ceil(BAKERY_COST_COFFEES * (1 - _bakery_disc)))
+        _bd_cost_nice    = max(0, math.ceil(BAKERY_COST_NICE    * (1 - _bakery_disc)))
+        if profile.cookies < _bd_cost_cookies or profile.coffees < _bd_cost_coffees or profile.cat_Nice < _bd_cost_nice:
             await interaction.followup.send("Your order is not ready yet.", ephemeral=True)
             return
         if user.last_bakegg_send == get_current_week():
@@ -10805,10 +12015,14 @@ async def bakery(message: discord.Interaction):
                         print(response.status, await response.text())
                         raise ValueError
 
-                    profile.cookies -= BAKERY_COST_COOKIES
-                    profile.coffees -= BAKERY_COST_COFFEES
-                    profile.cat_Nice -= BAKERY_COST_NICE
+                    profile.cookies -= _bd_cost_cookies
+                    profile.coffees -= _bd_cost_coffees
+                    profile.cat_Nice -= _bd_cost_nice
                     profile.pack_silver += 1
+                    # Consume the bakery_discount charge here, post-deduction
+                    # but pre-save, so the next /bakery sees it gone.
+                    if _bakery_disc > 0:
+                        _perks_consume_charge(profile, "bakery_discount")
                     await profile.save()
 
                     user.last_bakegg_send = get_current_week()
@@ -11213,7 +12427,43 @@ async def roulette(message: discord.Interaction):
                 "green": "🟢",
             }
 
-            final_choice = random.randint(0, 36)
+            # ---- Roulette job-perks ----
+            # roulette_luck: bias final_choice toward a winning slot.
+            # roulette_mercy: refund a fraction of losing bets.
+            # free_spin:      one-shot — losing bets fully refunded.
+            roulette_perks_msgs: list[str] = []
+            luck_pp = float(_perks_strength(user, "roulette_luck", "bonus_pp", 0.0)) \
+                if "roulette_luck" in _perks_active_ids(user) else 0.0
+            mercy_pct = float(_perks_strength(user, "roulette_mercy", "refund_pct", 0.0)) \
+                if "roulette_mercy" in _perks_active_ids(user) else 0.0
+            free_spin_fired = False
+            if "free_spin" in _perks_active_ids(user):
+                _fs_cap = int(_perks_strength(user, "free_spin", "max_bet", 1000) or 0)
+                if bet_amount <= _fs_cap and _perks_consume_charge(user, "free_spin"):
+                    free_spin_fired = True
+
+            def _is_winning_slot(idx: int, bet_value: str) -> bool:
+                bv = bet_value.lower()
+                if bv in [str(i) for i in range(37)]:
+                    return str(idx) == bv
+                if bv == "green":
+                    return colors[idx] == "green"
+                if bv == "red":
+                    return colors[idx] == "red"
+                if bv == "black":
+                    return colors[idx] == "black"
+                return False
+
+            if luck_pp > 0 and random.random() < luck_pp:
+                winning_slots = [i for i in range(37) if _is_winning_slot(i, self.bettype.value)]
+                if winning_slots:
+                    final_choice = random.choice(winning_slots)
+                    roulette_perks_msgs.append("🍀 Loaded Wheel: the croupier owed you a favor.")
+                else:
+                    final_choice = random.randint(0, 36)
+            else:
+                final_choice = random.randint(0, 36)
+
             user.coins -= bet_amount
             user.roulette_spins += 1
             win = False
@@ -11226,6 +12476,16 @@ async def roulette(message: discord.Interaction):
                     user.coins += bet_amount * 2
                 user.roulette_wins += 1
                 win = True
+            # Loss-side perks: refund some/all of the bet.
+            if not win:
+                if free_spin_fired:
+                    user.coins += bet_amount
+                    roulette_perks_msgs.append(f"🎟️ Free Spin: full {bet_amount:,} coin refund.")
+                elif mercy_pct > 0:
+                    refund = int(round(bet_amount * mercy_pct))
+                    if refund > 0:
+                        user.coins += refund
+                        roulette_perks_msgs.append(f"🤝 House Mercy: refunded 🪙 {refund:,}.")
             user.coins = int(round(user.coins))
             await user.save()
 
@@ -11246,10 +12506,15 @@ async def roulette(message: discord.Interaction):
             if user.coins <= 0:
                 broke_suffix = "\ndebt is allowed - you can still gamble up to **100** coins"
 
+            perk_suffix = ("\n\n" + "\n".join(roulette_perks_msgs)) if roulette_perks_msgs else ""
             embed = discord.Embed(
                 color=Colors.maroon,
                 title="winner!!!" if win else "womp womp",
-                description=f"your bet was {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{final_choice}**\n\nyour new balance is **{user.coins:,}** coins{broke_suffix}",
+                description=(
+                    f"your bet was {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n"
+                    f"{emoji_map[color]} **{final_choice}**\n\n"
+                    f"your new balance is **{user.coins:,}** coins{broke_suffix}{perk_suffix}"
+                ),
             )
             view = View(timeout=VIEW_TIMEOUT)
             b = Button(label="spin", style=ButtonStyle.blurple)
@@ -11688,6 +12953,14 @@ async def cat_fact(message: discord.Interaction):
 async def bounty(message, user, cattype):
     if user.hibernation:
         return
+    # bounty_boost (job perk, timed): probabilistic extra tick on each
+    # progress fire. Multiplier 1.5 → 50% chance of +1 extra per tick.
+    _bounty_boost_extra_p = 0.0
+    if "bounty_boost" in _perks_active_ids(user):
+        _bb_mult = float(_perks_strength(user, "bounty_boost", "multiplier", 1.5) or 1.5)
+        _bounty_boost_extra_p = max(0.0, _bb_mult - 1.0)
+    def _bb_extra() -> int:
+        return 1 if (_bounty_boost_extra_p > 0 and random.random() < _bounty_boost_extra_p) else 0
     complete = 0
     completed = 0
     title = []
@@ -11710,19 +12983,19 @@ async def bounty(message, user, cattype):
             type = user.bounty_type_three
         if progress < total:
             if id == 0:
-                progress += 1
+                progress = min(total, progress + 1 + _bb_extra())
                 if progress == total:
                     complete += 1
                     title.append(f"Catch {total} cats")
             if id == 1:
                 if cattype == type:
-                    progress += 1
+                    progress = min(total, progress + 1 + _bb_extra())
                     if progress == total:
                         complete += 1
                         title.append(f"Catch {total} {type} cats")
             if id == 2:
                 if cattypes.index(cattype) >= cattypes.index(type):
-                    progress += 1
+                    progress = min(total, progress + 1 + _bb_extra())
                     if progress == total:
                         complete += 1
                         title.append(f"Catch {total} {type} or rarer cats")
@@ -11743,15 +13016,15 @@ async def bounty(message, user, cattype):
         bonus_title = ""
         if user.bounty_progress_bonus < user.bounty_total_bonus:
             if user.bounty_id_bonus == 0:
-                user.bounty_progress_bonus += 1
+                user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
                 bonus_title = f"Catch {user.bounty_total_bonus} cats"
             elif user.bounty_id_bonus == 1:
                 if cattype == user.bounty_type_bonus:
-                    user.bounty_progress_bonus += 1
+                    user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
                 bonus_title = f"Catch {user.bounty_total_bonus} {cattype} cats"
             else:
                 if cattypes.index(cattype) >= cattypes.index(user.bounty_type_bonus):
-                    user.bounty_progress_bonus += 1
+                    user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
                 bonus_title = f"Catch {user.bounty_total_bonus} {user.bounty_type_bonus} or rarer cats"
             if user.bounty_progress_bonus == user.bounty_total_bonus:
                 description = "Bonus Bounty Complete!\nGo to `/catnip` to reroll a perk!"
@@ -12783,7 +14056,7 @@ async def achievements(message: discord.Interaction):
         for k, v in ach_list.items():
             if v["category"] == category:
                 if k == "thanksforplaying":
-                    if user[k]:
+                    if user.has_ach(k):
                         newembed.add_field(
                             name=str(get_emoji("demonic_ach")) + " Catnip Addict",
                             value="uncover the mafia's truth",
@@ -12798,7 +14071,7 @@ async def achievements(message: discord.Interaction):
                     continue
 
                 icon = str(get_emoji("no_ach")) + " "
-                if user[k]:
+                if user.has_ach(k):
                     newembed.add_field(
                         name=str(get_emoji("ach")) + " " + v["title"],
                         value=v["description"],
@@ -12924,7 +14197,7 @@ async def catch(message: discord.Interaction, msg: discord.Message):
 @discord.app_commands.autocomplete(cat_type=lb_type_autocomplete)
 async def leaderboards(
     message: discord.Interaction,
-    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia", "Heists", "Job Coins", "Biggest Score"]],
+    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia", "Heists", "Job Coins", "Biggest Score", "Mafia Favors"]],
     cat_type: Optional[str],
     locked: Optional[bool],
 ):
@@ -13077,6 +14350,18 @@ async def leaderboards(
                 message.guild.id,
             )
             final_value = "biggest_score_value"
+        elif type == "Mafia Favors":
+            # Lifetime distinct perk IDs ever granted to this profile.
+            # Backed by profile.perks_received (JSONB list, deduplicated by
+            # _perks_grant + _perks_resolve_immediate).
+            unit = "perks"
+            result = await Profile.collect_limit(
+                ["user_id", RawSQL("jsonb_array_length(perks_received) AS perks_received_count")],
+                "guild_id = $1 AND jsonb_array_length(perks_received) > 0 "
+                "ORDER BY jsonb_array_length(perks_received) DESC",
+                message.guild.id,
+            )
+            final_value = "perks_received_count"
         else:
             # qhar
             raise ValueError("Invalid leaderboard type")

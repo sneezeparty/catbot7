@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.4.1.165622052026]
+
+### Fixed
+- **`/catslots` bonus-round grid alignment.** Sticky cells were being rendered as `✨{egirl_emoji}✨` while non-sticky cells rendered as a single emoji. The extra characters changed cell widths inconsistently, so columns visibly drifted across the 10 spins of an eGirl Party. The bonus renderer now emits one emoji per cell, exactly like the base game's `render_grid` (`main.py:13759`). Sticky status is now communicated below the grid as a `✨ Sticky eGirls: N/15` line in the settled-spin summary. Sticky game mechanic is unchanged — locked cells still act as wilds and still feed retrigger detection.
+
 ## [0.4.0.164722052026]
 
 ### Added

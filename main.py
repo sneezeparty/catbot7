@@ -13897,7 +13897,6 @@ async def catslots(message: discord.Interaction):
                 cfg = CATSLOTS_BONUS_TRIGGERS[tier_key]
                 free_spins_initial = int(cfg["spins"])
                 bonus_mult = int(cfg["multiplier"])
-                egirl_emoji_str = get_emoji("egirlcat") or "eGirl"
 
                 # ---- opening animation (5 frames, ~0.5s each) ----
                 opening = [
@@ -13940,10 +13939,10 @@ async def catslots(message: discord.Interaction):
                         cells = []
                         for c in range(5):
                             if sticky_mask[c][row_idx]:
-                                cells.append(f"✨{egirl_emoji_str}✨")
+                                sym = "eGirl"
                             else:
                                 sym = b_cols[c][currents[c] + offset]
-                                cells.append(get_emoji(sym.lower() + "cat") or sym)
+                            cells.append(get_emoji(sym.lower() + "cat") or sym)
                         if offset == 0:
                             lines_out.append("➡️ " + " ".join(cells) + " ⬅️")
                         else:
@@ -14043,7 +14042,9 @@ async def catslots(message: discord.Interaction):
                         retriggers += 1
 
                     # Render settled spin with payout summary.
-                    settled_desc = render_bonus_grid(b_cols, b_finals) + "\n\n"
+                    sticky_count = sum(1 for c in range(5) for r in range(3) if sticky_mask[c][r])
+                    settled_desc = render_bonus_grid(b_cols, b_finals) + "\n"
+                    settled_desc += f"✨ Sticky eGirls: {sticky_count}/15\n\n"
                     if spin_wins:
                         settled_desc += "__Line payouts:__\n"
                         for line_idx, base, length, lp in spin_wins:

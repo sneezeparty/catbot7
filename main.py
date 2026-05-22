@@ -276,6 +276,9 @@ with open("config/tuning.json", "r", encoding="utf-8") as f:
 with open("config/jobs.json", "r", encoding="utf-8") as f:
     config.jobs = json.load(f)
 
+with open("config/store.json", "r", encoding="utf-8") as f:
+    config.store = json.load(f)
+
 with open("config/jobs_help.json", "r", encoding="utf-8") as f:
     config.jobs_help = json.load(f)
 

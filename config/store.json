@@ -1,0 +1,4 @@
+{
+  "_doc": "Cat Bot Store catalog. Discord-native monetization via SKUs + Entitlements — Discord handles checkout, this file just maps SKU ids to display metadata. Create SKUs in the Discord Developer Portal under Monetization first, then paste their ids here. kind ∈ {supporter, cosmetic}: supporter grants user.premium, cosmetic is recorded in user.entitlements without changing premium. type ∈ {subscription, one_time, consumable}: mirrors Discord's SKU types — consumables are auto-consumed after grant (currently logged + TODO).",
+  "skus": []
+}

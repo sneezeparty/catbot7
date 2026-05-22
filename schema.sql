@@ -433,7 +433,8 @@ CREATE TABLE public."user" (
     last_bakegg_send smallint DEFAULT 0,
     last_bakegg_get smallint DEFAULT 0,
     queued_chef_pack boolean DEFAULT false,
-    last_catch_day bigint DEFAULT 0
+    last_catch_day bigint DEFAULT 0,
+    entitlements jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 ALTER TABLE public."user" OWNER TO cat_bot;

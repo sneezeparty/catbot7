@@ -43,3 +43,15 @@ RAIN_CHANNEL_ID = int(os.environ["rain_channel_id"]) if os.environ.get("rain_cha
 # back on without code surgery if you ever decide to re-list. Daily catch
 # streaks live in `user.daily_catch_streak` regardless of this setting.
 VOTING_ENABLED = os.environ.get("voting_enabled", "0") == "1"
+
+# Cat Bot Store (Discord native monetization). When enabled, the /store
+# command registers, on_entitlement_* event handlers wire SKU ownership to
+# user.premium and user.entitlements, and on_ready reconciles state via the
+# Discord API. SKUs themselves live in config/store.json — create them in the
+# Discord Developer Portal under Monetization first, then add their ids there.
+STORE_ENABLED = os.environ.get("store_enabled", "0") == "1"
+
+# Optional invite to the operator's support / community Discord. Used wherever
+# the upstream bot used to link to its own support server. Empty string = the
+# link or button is omitted entirely from those surfaces.
+SUPPORT_INVITE = os.environ.get("support_invite", "")

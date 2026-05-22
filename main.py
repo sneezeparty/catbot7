@@ -624,6 +624,20 @@ def cat_value(cat_type: str) -> int:
     return _TYPE_DICT_VALUE_SUM // weight
 
 
+# Catstore-scoped multiplier on top of cat_value(). Doubles every price the
+# store quotes (buy AND sell). Trades, gifts, and job reward valuations keep
+# the underlying cat_value scale — the multiplier only applies via this
+# helper, which is the only thing /catstore code uses for face-value math.
+CATSTORE_PRICE_MULTIPLIER = 2
+
+
+def catstore_face_value(cat_type: str) -> int:
+    """Catstore's notion of face value: cat_value * CATSTORE_PRICE_MULTIPLIER.
+    All store-side pricing (buy, sell, discount/cut displays) routes through
+    this — change the multiplier here to rescale the whole storefront."""
+    return cat_value(cat_type) * CATSTORE_PRICE_MULTIPLIER
+
+
 def store_discount_pct(catnip_level: int, perk_bonus: int = 0) -> int:
     """Cat Mafia store discount for the given catnip level. Negative numbers
     are a tax (Newbie/Lurker get charged extra), positive numbers are a real
@@ -648,7 +662,7 @@ def store_buy_price(cat_type: str, catnip_level: int, perk_buy_bonus: int = 0) -
 
     `perk_buy_bonus` stacks the catstore_discount_stack perk additively onto
     the catnip-level discount before pricing."""
-    value = cat_value(cat_type)
+    value = catstore_face_value(cat_type)
     discount = store_discount_pct(catnip_level, perk_buy_bonus)
     price = math.ceil(value * (1 - discount / 100))
     return max(1, int(price))
@@ -680,7 +694,7 @@ def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0)
     gets 50% of face value back, El Patrón gets the full 100%. The asymmetry
     with the buy discount is intentional — sell ceiling is 100% face while
     buy floor is 70% face at max mafia, so round-trips always net negative."""
-    value = cat_value(cat_type)
+    value = catstore_face_value(cat_type)
     pct = store_sell_pct(catnip_level, perk_sell_bonus)
     return max(1, value * pct // 100)
 
@@ -9235,7 +9249,7 @@ async def catstore(message: discord.Interaction):
                 # whatever the player has active at submit time.
                 _buy_perk_bonus = _perks_catstore_buy_bonus(fresh)
                 unit_price = store_buy_price(self.cat_type, fresh.catnip_level, _buy_perk_bonus)
-                unit_value = cat_value(self.cat_type)
+                unit_value = catstore_face_value(self.cat_type)
                 total_cost = unit_price * qty
                 if fresh.coins < total_cost:
                     await interaction.followup.send(
@@ -9340,7 +9354,7 @@ async def catstore(message: discord.Interaction):
                 nonlocal profile
                 profile = fresh
 
-            face_total = cat_value(self.cat_type) * qty
+            face_total = catstore_face_value(self.cat_type) * qty
             cut = face_total - total
             if cut > 0:
                 last_toast = f"✅ Sold {qty}× {self.cat_type} for 🪙 {total:,} (mafia took 🪙 {cut:,})"
@@ -9528,7 +9542,7 @@ async def catstore(message: discord.Interaction):
         _sell_bonus = _perks_catstore_sell_bonus(profile)
         discount = store_discount_pct(profile.catnip_level, _buy_bonus)
         sell_pct = store_sell_pct(profile.catnip_level, _sell_bonus)
-        unit_value = cat_value(cat_type)
+        unit_value = catstore_face_value(cat_type)
         unit_buy = store_buy_price(cat_type, profile.catnip_level, _buy_bonus)
         unit_sell = store_sell_price(cat_type, profile.catnip_level, _sell_bonus)
         owned = profile[f"cat_{cat_type}"]

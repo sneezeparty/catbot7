@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.075722052026]
+
+### Changed
+- **All `/catstore` prices doubled.** Both buy and sell prices in the Cat Store now run through a new `CATSTORE_PRICE_MULTIPLIER` (currently `2`), via a `catstore_face_value(cat_type)` helper applied at all five store-side call sites (buy/sell price functions, the buy modal's "saved X" toast, the sell modal's "mafia took X" toast, and the detail view's face-value reference). Trades, gifts, and job reward valuations still use the unmultiplied `cat_value`. Percent-based discount/sell-cap math is untouched, so the round-trip anti-arbitrage spread (`sell_pct ≤ buy_pct - 5`) still holds with the new scale. Doubling the constant in `main.py` is the single point of control for future rescales.
+
 ## [0.0.5.073822052026]
 
 ### Fixed

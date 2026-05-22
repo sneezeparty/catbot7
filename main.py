@@ -9600,10 +9600,14 @@ async def catstore(message: discord.Interaction):
         """Buy one 15-second rain block in the current channel. Price scales
         with `rain_blocks_bought_today` (lazy UTC reset). Extends an active
         rain by RAIN_BLOCK_SECONDS instead of erroring."""
+        # nonlocals MUST be declared before any use of these names in this
+        # function — Python raises SyntaxError otherwise. `profile` is read
+        # via .refresh_from_db() below, so the nonlocal goes up here.
+        nonlocal last_toast, profile
+
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        nonlocal last_toast
 
         await profile.refresh_from_db()
         server = await Server.get_or_create(server_id=message.guild.id)
@@ -9656,7 +9660,6 @@ async def catstore(message: discord.Interaction):
             fresh.rain_blocks_bought_today = fresh_blocks_today + 1
             fresh.rain_blocks_last_date = time.strftime("%Y-%m-%d", time.gmtime())
             await fresh.save()
-            nonlocal profile
             profile = fresh
             price = fresh_price
 

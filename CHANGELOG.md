@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.1.0.081122052026]
+
+### Fixed
+- **`/catstore` no longer crashes the bot on load with `SyntaxError: name 'profile' is used prior to nonlocal declaration`.** Introduced in `0.1.0.080822052026`. Python requires `nonlocal` declarations to precede any use of the name in the function; the rain-purchase handler read `profile.refresh_from_db()` before its `nonlocal profile`. Moved the declaration to the top of the function.
+
 ## [0.1.0.080822052026]
 
 ### Added

@@ -404,6 +404,11 @@ catslots_lock = []
 # /catslots, keyed by user_id+guild_id. Powers the "Spin Again" button and
 # pre-fills the "Change Bet" modal. Resets on bot restart — that's fine.
 catslots_last_bet: dict[int, tuple[int, int]] = {}
+# Admin-set "force the next spin to trigger an eGirl bonus" queue. Keyed by
+# user_id+guild_id, value is the number of eGirls to force (3/4/5). Single
+# use: the entry is popped the moment the spin reads it. Module-scope so it
+# survives /catstore-style command teardowns but not bot restarts.
+catslots_force_bonus_users: dict[int, int] = {}
 
 # ???
 rigged_users = []
@@ -458,6 +463,20 @@ CATSLOTS_PAYOUTS = {
     "Ultimate":  {3: 1500,  4: 10000,   5: 75000},
     "eGirl":     {3: 7500,  4: 100000,  5: 1000000},
 }
+
+# eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid
+# triggers free spins with a multiplier and sticky-wild eGirls. Effective
+# RTP rises into the ~99-102% band (slightly player-favorable, fine for a
+# closed-economy bot). See docs/design/economy.md.
+CATSLOTS_BONUS_TRIGGERS = {
+    3: {"spins": 10, "multiplier": 2},
+    4: {"spins": 15, "multiplier": 3},
+    5: {"spins": 25, "multiplier": 5},
+}
+CATSLOTS_BONUS_RETRIGGER_THRESHOLD = 3   # newly-landed eGirls in a single bonus spin
+CATSLOTS_BONUS_RETRIGGER_REWARD = 5      # extra spins added on retrigger
+CATSLOTS_BONUS_COLOR_OPENING = 0xFFD700  # gold
+CATSLOTS_BONUS_COLOR_PARTY = 0xFF1493    # hot pink
 
 
 # WELCOME TO THE TEMP_.._STORAGE HELL
@@ -13293,6 +13312,16 @@ async def catslots(message: discord.Interaction):
                 for col in cols:
                     col[len(col) - 2] = "eGirl"
 
+            # catslots_force_bonus_users: admin-set override that overwrites N
+            # random visible cells with eGirl so the next spin triggers the
+            # bonus round at the requested tier. Single-use — popped on read.
+            force_egirls = catslots_force_bonus_users.pop(lock_key, 0)
+            if force_egirls in (3, 4, 5):
+                visible_cells = [(c, r) for c in range(5) for r in range(3)]
+                for c, r in random.sample(visible_cells, force_egirls):
+                    cur = len(cols[c]) - 2
+                    cols[c][cur + (r - 1)] = "eGirl"
+
             blank_emoji = get_emoji("empty")
 
             def render_grid(currents: list[int]) -> str:
@@ -13418,6 +13447,301 @@ async def catslots(message: discord.Interaction):
                     await achemb(interaction, "big_win_catslots", "followup")
                 except Exception:
                     pass
+
+            # ====================================================
+            # eGirl Party Bonus Round
+            # ====================================================
+            # Count eGirls in the settled grid. 3+ triggers the bonus round
+            # AFTER the regular result has already been shown + credited.
+            # The bonus is purely additive and uses its own catslots_bonus_*
+            # counters, so the base-game leaderboard rankings stay stable.
+            trigger_egirls = sum(
+                1 for r in range(3) for c in range(5) if grid[r][c] == "eGirl"
+            )
+            if trigger_egirls >= 3:
+                # Snapshot the trigger grid for sticky-mask init.
+                trigger_grid = [row[:] for row in grid]
+                tier_key = min(5, trigger_egirls)
+                cfg = CATSLOTS_BONUS_TRIGGERS[tier_key]
+                free_spins_initial = int(cfg["spins"])
+                bonus_mult = int(cfg["multiplier"])
+                egirl_emoji_str = get_emoji("egirlcat") or "eGirl"
+
+                # ---- opening animation (5 frames, ~0.5s each) ----
+                opening = [
+                    ("🎉 something's happening... 🎉", "", CATSLOTS_BONUS_COLOR_OPENING),
+                    (f"🎉🎉 EGIRL PARTY?! 🎉🎉", f"{trigger_egirls} eGirls have arrived...", CATSLOTS_BONUS_COLOR_OPENING),
+                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉", "", CATSLOTS_BONUS_COLOR_PARTY),
+                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉",
+                     f"**Free spins:** {free_spins_initial}\n**Multiplier:** {bonus_mult}×\n\nGet ready...",
+                     CATSLOTS_BONUS_COLOR_PARTY),
+                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉", "🌟✨🎊 PARTY STARTING 🎊✨🌟", CATSLOTS_BONUS_COLOR_PARTY),
+                ]
+                for op_title, op_desc, op_color in opening:
+                    try:
+                        await interaction.edit_original_response(
+                            embed=discord.Embed(title=op_title, description=op_desc, color=op_color),
+                            view=None,
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
+
+                # sticky_mask[col][row]; True = locked to eGirl going forward.
+                sticky_mask = [[trigger_grid[r][c] == "eGirl" for r in range(3)] for c in range(5)]
+
+                bonus_total = 0
+                biggest_hit = 0
+                spins_played = 0
+                retriggers = 0
+                remaining = free_spins_initial
+
+                def total_announced_spins() -> int:
+                    # Includes retriggers earned so far. Title formula —
+                    # purely cosmetic for the "SPIN x/y" header.
+                    return free_spins_initial + retriggers * CATSLOTS_BONUS_RETRIGGER_REWARD
+
+                def render_bonus_grid(b_cols: list[list[str]], currents: list[int]) -> str:
+                    lines_out = []
+                    for offset in [-1, 0, 1]:
+                        row_idx = offset + 1  # -1→0 top, 0→1 mid, +1→2 bot
+                        cells = []
+                        for c in range(5):
+                            if sticky_mask[c][row_idx]:
+                                cells.append(f"✨{egirl_emoji_str}✨")
+                            else:
+                                sym = b_cols[c][currents[c] + offset]
+                                cells.append(get_emoji(sym.lower() + "cat") or sym)
+                        if offset == 0:
+                            lines_out.append("➡️ " + " ".join(cells) + " ⬅️")
+                        else:
+                            lines_out.append(f"{blank_emoji} " + " ".join(cells) + f" {blank_emoji}")
+                    return "\n".join(lines_out)
+
+                # ---- run free spins (loop until remaining hits 0) ----
+                while remaining > 0:
+                    spins_played += 1
+                    remaining -= 1
+                    pre_sticky = [row[:] for row in sticky_mask]
+
+                    b_durations = [random.randint(6, 10) for _ in range(5)]
+                    b_cols = [
+                        random.choices(CATSLOTS_SYMBOLS, weights=CATSLOTS_WEIGHTS, k=d)
+                        for d in b_durations
+                    ]
+                    # Lock sticky cells to eGirl at the FINAL position so the
+                    # settled grid sees them; the renderer also short-circuits
+                    # sticky cells to eGirl during animation frames.
+                    for c in range(5):
+                        cur = len(b_cols[c]) - 2
+                        for r in range(3):
+                            if sticky_mask[c][r]:
+                                b_cols[c][cur + (r - 1)] = "eGirl"
+
+                    # Animation frames — shorter than base game.
+                    for sli in range(1, max(b_durations) - 1):
+                        currents = [min(len(c) - 2, sli) for c in b_cols]
+                        spin_desc = render_bonus_grid(b_cols, currents)
+                        try:
+                            await interaction.edit_original_response(
+                                embed=discord.Embed(
+                                    title=f"🎉 EGIRL PARTY - SPIN {spins_played}/{total_announced_spins()} 🎉",
+                                    description=spin_desc,
+                                    color=CATSLOTS_BONUS_COLOR_PARTY,
+                                ),
+                                view=None,
+                            )
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.1)
+
+                    # Settle bonus grid.
+                    b_finals = [len(c) - 2 for c in b_cols]
+                    b_grid = [
+                        [b_cols[c][b_finals[c] + (r - 1)] for c in range(5)]
+                        for r in range(3)
+                    ]
+
+                    # Wild-substitution evaluation per active line.
+                    spin_payout = 0
+                    spin_wins = []
+                    for i, line in enumerate(CATSLOTS_PAYLINES[:lines_n], start=1):
+                        syms = [b_grid[r][c] for (c, r) in line]
+                        best_mult = 0
+                        best_base = None
+                        best_len = 0
+                        for base in CATSLOTS_PAYOUTS:
+                            length = 0
+                            for sym in syms:
+                                if sym == base or sym == "eGirl":
+                                    length += 1
+                                else:
+                                    break
+                            if length >= 3:
+                                m = CATSLOTS_PAYOUTS[base].get(length, 0)
+                                if m > best_mult:
+                                    best_mult = m
+                                    best_base = base
+                                    best_len = length
+                        if best_base is not None:
+                            line_payout = best_mult * per_line * bonus_mult
+                            if line_payout > 0:
+                                spin_wins.append((i, best_base, best_len, line_payout))
+                                spin_payout += line_payout
+
+                    bonus_total += spin_payout
+                    if spin_payout > biggest_hit:
+                        biggest_hit = spin_payout
+
+                    # Update sticky_mask; count NEW eGirls for retrigger.
+                    new_egirls = 0
+                    for c in range(5):
+                        for r in range(3):
+                            if b_grid[r][c] == "eGirl":
+                                if not pre_sticky[c][r]:
+                                    new_egirls += 1
+                                sticky_mask[c][r] = True
+
+                    retrigger_fired = new_egirls >= CATSLOTS_BONUS_RETRIGGER_THRESHOLD
+                    if retrigger_fired:
+                        remaining += CATSLOTS_BONUS_RETRIGGER_REWARD
+                        retriggers += 1
+
+                    # Render settled spin with payout summary.
+                    settled_desc = render_bonus_grid(b_cols, b_finals) + "\n\n"
+                    if spin_wins:
+                        settled_desc += "__Line payouts:__\n"
+                        for line_idx, base, length, lp in spin_wins:
+                            base_emoji = get_emoji(base.lower() + "cat") or base
+                            settled_desc += f"✨ **Line {line_idx}**: {length}× {base_emoji} {base} — **{lp:,}** coins\n"
+                        settled_desc += "\n"
+                    settled_desc += f"**This spin:** +{spin_payout:,}\n"
+                    settled_desc += f"**Bonus total:** {bonus_total:,}\n"
+                    if retrigger_fired:
+                        settled_desc += f"\n🎉 **Retrigger!** +{CATSLOTS_BONUS_RETRIGGER_REWARD} spins!\n"
+                    settled_desc += f"\nMultiplier: {bonus_mult}× | Remaining: {remaining}"
+                    try:
+                        await interaction.edit_original_response(
+                            embed=discord.Embed(
+                                title=f"🎉 EGIRL PARTY - SPIN {spins_played}/{total_announced_spins()} 🎉",
+                                description=settled_desc,
+                                color=CATSLOTS_BONUS_COLOR_PARTY,
+                            ),
+                            view=None,
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1.0)
+
+                # ---- credit bonus + persist counters ----
+                await profile.refresh_from_db()
+                profile.coins += bonus_total
+                profile.catslots_bonus_triggers += 1
+                profile.catslots_bonus_coins_won += bonus_total
+                profile.catslots_bonus_spins_total += spins_played
+                await profile.save()
+
+                # ---- breakdown animation: counter tick-up ----
+                if bonus_total > 0:
+                    tick_fractions = [0.05, 0.15, 0.35, 0.60, 0.85, 1.0]
+                    for frac in tick_fractions:
+                        tick = int(bonus_total * frac)
+                        if frac == 1.0:
+                            tick = bonus_total  # exact landing
+                        try:
+                            await interaction.edit_original_response(
+                                embed=discord.Embed(
+                                    title="🎊🎊 EGIRL PARTY OVER 🎊🎊",
+                                    description=f"💰 **{tick:,}** coins...",
+                                    color=CATSLOTS_BONUS_COLOR_OPENING,
+                                ),
+                                view=None,
+                            )
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.3)
+
+                # ---- summary frame ----
+                sticky_at_end = sum(1 for c in range(5) for r in range(3) if sticky_mask[c][r])
+                summary_desc = (
+                    "**WOO WOO!**\n\n"
+                    f"🎰 Bonus spins played: {spins_played}\n"
+                    f"✨ Best single hit: {biggest_hit:,} coins\n"
+                    f"🐱 Sticky eGirls at end: {sticky_at_end}\n"
+                    f"🎉 Retriggers: {retriggers}\n"
+                    f"💰 **TOTAL BONUS WON: {bonus_total:,} coins**"
+                )
+                try:
+                    await interaction.edit_original_response(
+                        embed=discord.Embed(
+                            title="🎊🎊 EGIRL PARTY OVER 🎊🎊",
+                            description=summary_desc,
+                            color=CATSLOTS_BONUS_COLOR_OPENING,
+                        ),
+                        view=None,
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(3.0)
+
+                # ---- bonus aches ----
+                try:
+                    await achemb(interaction, "egirl_party", "followup")
+                    if trigger_egirls >= 5:
+                        await achemb(interaction, "egirl_party_max", "followup")
+                except Exception:
+                    logging.exception("catslots: bonus ach wiring failed")
+
+                # ---- final composite render: regular result + bonus tail + Spin Again ----
+                composite_desc = bet_header + final_grid_str + "\n\n"
+                if big_win:
+                    composite_desc = "🎰 **BIG WIN!**\n\n" + composite_desc
+                elif total_payout > 0:
+                    composite_desc = "✅ **You win!**\n\n" + composite_desc
+                else:
+                    composite_desc = "💨 **You lose!**\n\n" + composite_desc
+
+                if wins:
+                    composite_desc += "__Winning lines:__\n"
+                    for line_idx, sym, count, lp in wins:
+                        ge = get_emoji(sym.lower() + "cat") or sym
+                        composite_desc += f"✨ **Line {line_idx}**: {count}× {ge} {sym} — **{lp:,}** coins\n"
+                    composite_desc += "\n"
+
+                composite_desc += (
+                    f"**Base game:** bet {total_bet:,}, won {total_payout:,}\n"
+                    f"🎉 **Bonus won: {bonus_total:,} coins** "
+                    f"({spins_played} spins @ {bonus_mult}×)\n"
+                    f"**Grand total:** +{total_payout + bonus_total - total_bet:+,} coins\n"
+                )
+                broke_suffix_composite = ""
+                if profile.coins <= 0:
+                    broke_suffix_composite = "\n-# debt allowed — you can still gamble up to **100** coins"
+                composite_desc += f"new balance: **{profile.coins:,}** coins{broke_suffix_composite}"
+
+                can_repeat_composite = total_bet <= max(profile.coins, 100)
+                composite_view = post_spin_view(can_repeat=can_repeat_composite)
+                try:
+                    await interaction.edit_original_response(
+                        embed=discord.Embed(
+                            title="🐈 Cat Slots — eGirl Party result",
+                            description=composite_desc,
+                            color=CATSLOTS_BONUS_COLOR_OPENING,
+                        ),
+                        view=composite_view,
+                    )
+                except Exception:
+                    try:
+                        await interaction.followup.send(
+                            embed=discord.Embed(
+                                title="🐈 Cat Slots — eGirl Party result",
+                                description=composite_desc,
+                                color=CATSLOTS_BONUS_COLOR_OPENING,
+                            ),
+                            view=composite_view,
+                        )
+                    except Exception:
+                        logging.exception("catslots: final composite render failed")
         finally:
             try:
                 catslots_lock.remove(lock_key)
@@ -13481,6 +13805,22 @@ async def catslots(message: discord.Interaction):
     view.add_item(bet_btn)
 
     await message.response.send_message(embed=stats_embed(profile), view=view)
+
+
+@bot.tree.command(description="(ADMIN) Force next /catslots spin to trigger the eGirl bonus")
+@discord.app_commands.default_permissions(manage_guild=True)
+@discord.app_commands.describe(egirls="How many eGirls to force on the next spin (3, 4, or 5)")
+async def catslots_force_bonus(message: discord.Interaction, egirls: Optional[int] = 3):
+    if egirls not in (3, 4, 5):
+        await message.response.send_message(
+            "egirls must be 3, 4, or 5.", ephemeral=True
+        )
+        return
+    catslots_force_bonus_users[message.user.id + message.guild.id] = int(egirls)
+    await message.response.send_message(
+        f"✅ Your next /catslots spin will trigger a {egirls}-eGirl bonus round.",
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(description="what")

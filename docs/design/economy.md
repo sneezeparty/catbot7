@@ -100,6 +100,26 @@ Lifetime stats live in five `profile.catslots_*` columns (`spins`, `wins`, `big_
 
 Casino quest progression: `/catslots` spins count toward the existing `casino` extra-slot quest under the `slots` game bit. The dedicated `slots` / `slots2` battlepass quests remain scoped to `/slots` only.
 
+#### eGirl Party bonus round
+
+After every settled regular spin, the bot counts eGirl symbols visible on the 5×3 grid. **3 or more triggers a free-spin bonus round** that runs immediately, with sticky-wild mechanics and a flat multiplier on top of base payouts.
+
+| Trigger | Free spins | Multiplier |
+| ------- | ---------- | ---------- |
+| 3 eGirls | 10 | ×2 |
+| 4 eGirls | 15 | ×3 |
+| 5 eGirls | 25 | ×5 |
+
+**Sticky wilds.** The triggering eGirls start locked in place. Every bonus spin, locked cells skip the reel animation and stay as eGirl. Any *new* eGirl that lands gets added to the sticky set going forward. During the bonus, eGirls act as wild substitutes — line evaluation tries every base symbol and picks the highest-paying interpretation. A line like `eGirl Real Real Fine X` scores as 3× Real (eGirl substitutes), not 1× eGirl, because Real 3-of-a-kind pays more than eGirl 1-of-a-kind.
+
+**Retrigger.** If a bonus spin lands 3 or more *newly-landed* eGirls (not counting the pre-sticky ones), the remaining-spin count gains +5. The multiplier does not change. No cap on retriggers.
+
+**Stats.** Three lifetime counters track the bonus round independently of the base game: `catslots_bonus_triggers`, `catslots_bonus_coins_won`, `catslots_bonus_spins_total`. The base-game `catslots_coins_won` does NOT include bonus payouts, so the existing `/leaderboards type:Catslots` ranking is stable. Two new achievements fire on first trigger (`egirl_party`, visible, 350 XP) and on a 5-eGirl trigger (`egirl_party_max`, hidden, 600 XP).
+
+**RTP contribution.** The bonus adds approximately **6 to 9 percentage points** to total RTP, taking effective return into the **99 to 102%** band. This is slightly player-favorable and is intentional — slots is the dopamine command, the bonus round is the payoff moment, and the closed coin economy doesn't suffer from running a hair over 100% because coins always have something to sink into (catnip, store, packs).
+
+**Admin override.** `/catslots_force_bonus egirls:<3|4|5>` (manage-guild only) queues a single-use override that overwrites N random visible cells with eGirl on the next spin. The entry is popped on read, so it always lasts exactly one spin.
+
 ## Catnip as the late-game money sink
 
 Catnip is the late-game money sink: cats go in, perks come out. See [catnip.md](catnip.md). The relevant economic constraint is that catnip costs scale with level and rarity, so high-level users must keep catching to feed it. This is what keeps Ultimate / eGirl cats *consumed* rather than just hoarded.

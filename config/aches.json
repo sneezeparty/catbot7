@@ -307,6 +307,20 @@
         "category": "Hard",
         "xp": 500
     },
+    "egirl_party": {
+        "title": "EGIRL PARTY!",
+        "description": "trigger the eGirl bonus round in /catslots",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 350
+    },
+    "egirl_party_max": {
+        "title": "Maximum Party",
+        "description": "trigger the /catslots bonus round with 5 eGirls",
+        "is_hidden": true,
+        "category": "Hard",
+        "xp": 600
+    },
     "define": {
         "title": "Definer",
         "description": "find out a definition of a word",

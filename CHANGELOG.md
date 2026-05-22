@@ -4,6 +4,20 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.3.0.094822052026]
+
+### Added
+- **🎉 eGirl Party bonus round for `/catslots`.** After every settled regular spin, the bot counts eGirl symbols on the 5×3 grid. **3 or more triggers a free-spin bonus round** that runs immediately, with sticky-wild mechanics and a flat multiplier on top of base payouts. 3 eGirls → 10 spins × 2; 4 → 15 spins × 3; 5 → 25 spins × 5. Triggering eGirls start locked in place; any new eGirl that lands during the bonus also locks. During the bonus, eGirls act as wild substitutes and line evaluation picks the highest-paying interpretation (so `eGirl Real Real Fine X` pays Real-3OAK, not eGirl-1OAK). A bonus spin that lands 3+ newly-landed eGirls retriggers for +5 spins. The full sequence is animated: 5-frame opening transition (gold → hot pink), per-spin reel cycling (sticky cells visually frozen with ✨ marks), per-spin payout summary, and a final breakdown with a coin-counter tick-up and a per-round stat summary. Bonus payouts use their own lifetime counters (`catslots_bonus_triggers`, `catslots_bonus_coins_won`, `catslots_bonus_spins_total`), so the existing `/leaderboards type:Catslots` ranking stays stable.
+- **2 new achievements:**
+  - **EGIRL PARTY!** (`egirl_party`, Commands • 350 XP) — trigger the bonus round.
+  - **Maximum Party** (`egirl_party_max`, Hard • 600 XP, hidden) — trigger with 5 eGirls.
+- **Admin command `/catslots_force_bonus egirls:<3|4|5>`.** Manage-guild only. Queues a single-use override that overwrites N random visible cells with eGirl on the next spin so the bonus round triggers deterministically. The entry is popped the moment the spin reads it, so it always lasts exactly one spin.
+
+### Internal
+- Migration `016_catslots_bonus.py` adds 3 lifetime counters plus 2 ach booleans on `profile`. Idempotent per-column gate.
+- New module-scope constants: `CATSLOTS_BONUS_TRIGGERS`, `CATSLOTS_BONUS_RETRIGGER_THRESHOLD`, `CATSLOTS_BONUS_RETRIGGER_REWARD`, `CATSLOTS_BONUS_COLOR_OPENING`, `CATSLOTS_BONUS_COLOR_PARTY`. New dict `catslots_force_bonus_users` next to `catslots_lock` / `catslots_last_bet`.
+- Effective RTP rises into the **99 to 102%** band per the design doc, intentional and accepted for the closed-economy bot.
+
 ## [0.2.0.093122052026]
 
 ### Added

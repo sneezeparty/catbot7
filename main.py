@@ -6161,6 +6161,46 @@ async def on_message(message: discord.Message):
         await message.reply("success")
 
 
+# Cat Bot Store entitlement events. Discord delivers these over the gateway
+# whenever a user buys, renews, refunds, or lets a subscription lapse on a
+# SKU registered in the Developer Portal. All three handlers no-op when
+# STORE_ENABLED is off so we don't accidentally trash state if monetization
+# is toggled at runtime.
+async def on_entitlement_create(entitlement):
+    if not config.STORE_ENABLED:
+        return
+    try:
+        await _apply_entitlement_create(entitlement)
+    except Exception:
+        logging.exception("on_entitlement_create failed for %r", entitlement)
+
+
+async def on_entitlement_update(entitlement):
+    if not config.STORE_ENABLED:
+        return
+    # ends_at is None for active subscriptions / one_time grants. A datetime
+    # in the past means the entitlement just expired (Discord still sends an
+    # update before the eventual delete). Route to the right helper.
+    try:
+        ends_at = getattr(entitlement, "ends_at", None)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if ends_at is not None and ends_at < now:
+            await _apply_entitlement_delete(entitlement)
+        else:
+            await _apply_entitlement_create(entitlement)
+    except Exception:
+        logging.exception("on_entitlement_update failed for %r", entitlement)
+
+
+async def on_entitlement_delete(entitlement):
+    if not config.STORE_ENABLED:
+        return
+    try:
+        await _apply_entitlement_delete(entitlement)
+    except Exception:
+        logging.exception("on_entitlement_delete failed for %r", entitlement)
+
+
 # the message when cat gets added to a new server
 async def on_guild_join(guild):
     def verify(ch):
@@ -16716,6 +16756,9 @@ async def setup(bot2):
     bot2.on_connect = on_connect
     bot2.on_error = on_error
     bot2.on_interaction = on_interaction
+    bot2.on_entitlement_create = on_entitlement_create
+    bot2.on_entitlement_update = on_entitlement_update
+    bot2.on_entitlement_delete = on_entitlement_delete
 
     if config.WEBHOOK_VERIFY:
         routes = [

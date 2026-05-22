@@ -459,22 +459,24 @@ CATSLOTS_PAYLINES = [
     [(0, 0), (1, 2), (2, 0), (3, 2), (4, 0)],
 ]
 CATSLOTS_PAYOUTS = {
-    # Emergency retune 2026-05-22: live testing showed ~150% RTP because
-    # wild-substituted lines + bonus stickies compounded catastrophically.
-    # Fine 5OAK alone (~8% of evaluations) was contributing ~80pp of RTP
-    # at the old 10× multiplier. eGirl 5OAK via wild substitution would
-    # blow a 5-eGirl bonus into the millions. Target RTP after this pass
-    # is ~86%, Vegas penny-slot range.
+    # Second emergency retune 2026-05-22: wild substitution lets any landed
+    # eGirl prop up a line to the HIGHEST base's payout via the eval rule.
+    # That made Ultimate 4OAK/5OAK the practical ceiling on any sticky-
+    # adjacent line. Top-tier 4OAK and 5OAK are now flattened so wild
+    # substitution can't print money. Worst-case all-wild line = Ult 5OAK
+    # at 4,000 × per_line; × 3 bonus mult = 12,000 × per_line. Target
+    # total RTP ~78-81% after this pass — more aggressive than Vegas but
+    # the right call given the hard-to-bound sticky-wild dynamics.
     "Fine":      {3: 1,     4: 2,       5: 5},
-    "8bit":      {3: 15,    4: 75,      5: 350},
-    "Corrupt":   {3: 25,    4: 125,     5: 600},
-    "Professor": {3: 50,    4: 250,     5: 1250},
-    "Divine":    {3: 100,   4: 500,     5: 2500},
-    "Real":      {3: 250,   4: 1500,    5: 10000},
-    "Ultimate":  {3: 1000,  4: 8000,    5: 60000},
+    "8bit":      {3: 10,    4: 50,      5: 200},
+    "Corrupt":   {3: 15,    4: 75,      5: 350},
+    "Professor": {3: 25,    4: 125,     5: 600},
+    "Divine":    {3: 50,    4: 250,     5: 1000},
+    "Real":      {3: 100,   4: 500,     5: 2000},
+    "Ultimate":  {3: 200,   4: 1000,    5: 4000},
     # The bonus round IS the eGirl reward. Base-game eGirl line wins are
     # small on purpose; the dopamine is the bonus dispatch.
-    "eGirl":     {3: 100,   4: 1000,    5: 5000},
+    "eGirl":     {3: 100,   4: 500,     5: 2000},
 }
 
 # eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid

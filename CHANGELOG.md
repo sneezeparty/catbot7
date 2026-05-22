@@ -4,6 +4,21 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.3.0.102222052026]
+
+### Changed
+- **Second `/catslots` payout retune — wild substitution cap.** The previous retune underestimated wild substitution: when any eGirl lands on a line, the eval rule lets it stand in for any base, so Ultimate 4OAK at 8,000 and 5OAK at 60,000 were the practical ceiling on almost every line with a sticky eGirl. Flattened the top tiers so wild substitution can't print money:
+  - 8bit `15/75/350 → 10/50/200`
+  - Corrupt `25/125/600 → 15/75/350`
+  - Professor `50/250/1250 → 25/125/600`
+  - Divine `100/500/2500 → 50/250/1000`
+  - Real `250/1500/10000 → 100/500/2000`
+  - **Ultimate `1000/8000/60000 → 200/1000/4000`**
+  - eGirl `100/1000/5000 → 100/500/2000`
+  - Fine unchanged at `1/2/5`.
+- Worst-case all-wild line during a bonus is now Ultimate 5OAK at 4,000× per_line × 3× bonus multiplier = 12,000× per_line. A natural Real 5OAK in regular play on a 20-line × 10-coin bet still pays 400,000 coins — "holy crap" territory, not "universe broke" territory.
+- New total RTP estimate: **~78-81%** (base ~66%, bonus contribution ~12-15pp). More aggressive than Vegas penny-slot standard but conservative is correct given how hard it is to bound sticky-wild compounding analytically. Reel weights, sticky cap (frozen at trigger time, max 5), spin counts, multipliers, and wild substitution rule all unchanged.
+
 ## [0.3.0.100122052026]
 
 ### Fixed

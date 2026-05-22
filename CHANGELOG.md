@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.071722052026]
+
+### Added
+- **Two new battlepass misc quests for /catslots.** `catslots` — "Spin the /catslots machine 10 times" (150–250 XP, progress 10). `catslots_win` — "Win at /catslots" (250–350 XP, progress 1). Both live in the misc pool alongside the existing /slots and /roulette quests; they enter the random rotation immediately. Wired via `progress(message, profile, "catslots")` on every spin and `progress(message, profile, "catslots_win")` when `total_payout > 0`.
+
 ## [0.0.5.070422052026]
 
 ### Changed

@@ -2675,6 +2675,20 @@
                 "xp_max": 350,
                 "progress": 5
             },
+            "catslots": {
+                "emoji": "\ud83c\udfb0",
+                "title": "Spin the /catslots machine 10 times",
+                "xp_min": 150,
+                "xp_max": 250,
+                "progress": 10
+            },
+            "catslots_win": {
+                "emoji": "\ud83c\udfb0",
+                "title": "Win at /catslots",
+                "xp_min": 250,
+                "xp_max": 350,
+                "progress": 1
+            },
             "achievement": {
                 "emoji": "cat_throphy",
                 "title": "Get an achievement",

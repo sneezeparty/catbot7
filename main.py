@@ -12532,6 +12532,7 @@ async def catslots(message: discord.Interaction):
 
             try:
                 await achemb(interaction, "catslots", "followup")
+                await progress(message, profile, "catslots")
                 await progress_casino_quest(message, profile, "slots")
             except Exception:
                 pass
@@ -12667,10 +12668,14 @@ async def catslots(message: discord.Interaction):
             except Exception:
                 await interaction.followup.send(embed=embed, view=view)
 
-            # ---- aches (post-render) ----
+            # ---- aches + quest progress (post-render) ----
             if total_payout > 0:
                 try:
                     await achemb(interaction, "win_catslots", "followup")
+                except Exception:
+                    pass
+                try:
+                    await progress(message, profile, "catslots_win")
                 except Exception:
                     pass
             if big_win:

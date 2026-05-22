@@ -2149,6 +2149,130 @@ def _jobs_perks_suspended(profile: Profile, now: int | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Cat Bot Store helpers — Discord native monetization (SKUs + Entitlements).
+# user.entitlements is a JSONB list of SKU id strings the user currently holds
+# an active entitlement for. user.premium is derived: true iff any held SKU is
+# `kind == "supporter"` in config/store.json. All helpers no-op gracefully when
+# STORE_ENABLED is off so we don't trash existing data.
+# ---------------------------------------------------------------------------
+
+
+def _user_entitlements_load(user: User) -> list[str]:
+    """Returns a fresh list of currently-held SKU id strings. Falls back to []
+    on any malformed value so callers never see a non-list type."""
+    raw = _coerce_array(getattr(user, "entitlements", None) or [])
+    return [str(sku) for sku in raw if sku is not None]
+
+
+def _user_has_sku(user: User, sku_id: str) -> bool:
+    return str(sku_id) in _user_entitlements_load(user)
+
+
+def _supporter_sku_ids() -> set[str]:
+    """SKU ids in config/store.json with kind == 'supporter'. Empty set is the
+    common case before any SKUs are configured."""
+    try:
+        skus = config.store.get("skus") or []
+    except Exception:
+        return set()
+    return {str(s["id"]) for s in skus if s.get("kind") == "supporter" and s.get("id")}
+
+
+def _store_sku_by_id(sku_id: str) -> dict | None:
+    try:
+        skus = config.store.get("skus") or []
+    except Exception:
+        return None
+    for s in skus:
+        if str(s.get("id")) == str(sku_id):
+            return s
+    return None
+
+
+def _recompute_premium(user: User) -> bool:
+    """Recompute user.premium from current entitlements. Sets the value on the
+    User object (caller is responsible for save()). Returns the new value."""
+    supporter_ids = _supporter_sku_ids()
+    held = set(_user_entitlements_load(user))
+    new_value = bool(held & supporter_ids)
+    user.premium = new_value
+    return new_value
+
+
+async def _apply_entitlement_create(entitlement) -> None:
+    """Record that `entitlement.user_id` now holds `entitlement.sku_id` and
+    refresh premium accordingly. Idempotent — running twice on the same SKU
+    is a no-op. Fires the store_first_purchase + store_supporter aches on the
+    relevant transitions."""
+    if not config.STORE_ENABLED:
+        return
+    user_id = int(getattr(entitlement, "user_id", 0) or 0)
+    sku_id = str(getattr(entitlement, "sku_id", "") or "")
+    if not user_id or not sku_id:
+        logging.warning("entitlement_create missing user_id or sku_id: %r", entitlement)
+        return
+
+    sku_meta = _store_sku_by_id(sku_id)
+    sku_type = (sku_meta or {}).get("type", "")
+
+    # Consumable SKUs: log + TODO for cosmetic-grant wiring. Don't store them
+    # as entitlements since they expire on consume.
+    if sku_type == "consumable":
+        logging.info("consumable SKU received user=%s sku=%s — TODO: wire cosmetic grant", user_id, sku_id)
+        try:
+            await entitlement.consume()
+        except Exception:
+            logging.exception("entitlement.consume() failed for user=%s sku=%s", user_id, sku_id)
+        return
+
+    user = await User.get_or_create(user_id=user_id)
+    held = _user_entitlements_load(user)
+    if sku_id in held:
+        return  # idempotent — already recorded
+
+    user.entitlements = held + [sku_id]
+    was_premium = bool(getattr(user, "premium", False))
+    is_premium = _recompute_premium(user)
+    await user.save()
+
+    # Aches fire after the DB write so a read of has_ach() reflects truth.
+    # entitlement events arrive without an Interaction or Message handle, so
+    # we use achemb with "send" via a synthetic shim — instead, just unlock
+    # silently and skip the celebratory embed (there's no channel context).
+    try:
+        if not user.unlock_ach("store_first_purchase"):
+            pass  # already unlocked
+        await user.save()
+        if is_premium and not was_premium:
+            user.unlock_ach("store_supporter")
+            await user.save()
+    except Exception:
+        logging.exception("store achievement unlock failed for user=%s sku=%s", user_id, sku_id)
+
+
+async def _apply_entitlement_delete(entitlement) -> None:
+    """Remove `entitlement.sku_id` from the user's held set and recompute
+    premium. Idempotent — running on a SKU the user no longer holds is a
+    no-op."""
+    if not config.STORE_ENABLED:
+        return
+    user_id = int(getattr(entitlement, "user_id", 0) or 0)
+    sku_id = str(getattr(entitlement, "sku_id", "") or "")
+    if not user_id or not sku_id:
+        return
+
+    user = await User.get_or_none(user_id=user_id)
+    if user is None:
+        return
+    held = _user_entitlements_load(user)
+    if sku_id not in held:
+        return  # idempotent
+    user.entitlements = [s for s in held if s != sku_id]
+    _recompute_premium(user)
+    await user.save()
+
+
 def _perks_load(profile: Profile) -> list[dict]:
     """Safe read. Returns a fresh list (caller may mutate freely). Falls back
     to [] if the column doesn't exist yet (pre-migration-010)."""

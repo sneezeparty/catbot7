@@ -459,16 +459,22 @@ CATSLOTS_PAYLINES = [
     [(0, 0), (1, 2), (2, 0), (3, 2), (4, 0)],
 ]
 CATSLOTS_PAYOUTS = {
-    "Fine":      {3: 1,     4: 4,       5: 10},
-    "8bit":      {3: 15,    4: 50,      5: 250},
-    "Corrupt":   {3: 25,    4: 100,     5: 500},
-    "Professor": {3: 40,    4: 200,     5: 1000},
-    "Divine":    {3: 75,    4: 400,     5: 2000},
-    "Real":      {3: 200,   4: 1500,    5: 10000},
-    "Ultimate":  {3: 1500,  4: 10000,   5: 75000},
-    # eGirl payouts reduced ~73% (2026-05-22 retune) to compensate for the
-    # eGirl weight bump 2→3. Without this, base RTP would jump to ~123%.
-    "eGirl":     {3: 2000,  4: 25000,   5: 250000},
+    # Emergency retune 2026-05-22: live testing showed ~150% RTP because
+    # wild-substituted lines + bonus stickies compounded catastrophically.
+    # Fine 5OAK alone (~8% of evaluations) was contributing ~80pp of RTP
+    # at the old 10× multiplier. eGirl 5OAK via wild substitution would
+    # blow a 5-eGirl bonus into the millions. Target RTP after this pass
+    # is ~86%, Vegas penny-slot range.
+    "Fine":      {3: 1,     4: 2,       5: 5},
+    "8bit":      {3: 15,    4: 75,      5: 350},
+    "Corrupt":   {3: 25,    4: 125,     5: 600},
+    "Professor": {3: 50,    4: 250,     5: 1250},
+    "Divine":    {3: 100,   4: 500,     5: 2500},
+    "Real":      {3: 250,   4: 1500,    5: 10000},
+    "Ultimate":  {3: 1000,  4: 8000,    5: 60000},
+    # The bonus round IS the eGirl reward. Base-game eGirl line wins are
+    # small on purpose; the dopamine is the bonus dispatch.
+    "eGirl":     {3: 100,   4: 1000,    5: 5000},
 }
 
 # eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid
@@ -476,14 +482,14 @@ CATSLOTS_PAYOUTS = {
 # RTP rises into the ~99-102% band (slightly player-favorable, fine for a
 # closed-economy bot). See docs/design/economy.md.
 CATSLOTS_BONUS_TRIGGERS = {
-    # Spin counts reduced 2026-05-22 retune (10/15/25 → 6/10/18) to keep
-    # the bonus RTP contribution in check now that bonuses fire ~3× more
-    # often. Multipliers unchanged — the multiplier is where the drama
-    # lives, and retriggers feel more impactful on a smaller base count.
-    # 6+ eGirls falls through to the 5-entry via min(5, count).
-    3: {"spins": 6,  "multiplier": 2},
-    4: {"spins": 10, "multiplier": 3},
-    5: {"spins": 18, "multiplier": 5},
+    # Emergency retune 2026-05-22: paired with FIX 1 (sticky_mask frozen at
+    # trigger time — no in-bonus accumulation) and the slashed PAYOUTS
+    # above. Multipliers stayed modest to keep the bonus from compounding
+    # into millions when ~half the grid was sticky-saturated. 6+ eGirls
+    # falls through to the 5-entry via min(5, count).
+    3: {"spins": 5,  "multiplier": 2},
+    4: {"spins": 7,  "multiplier": 2},
+    5: {"spins": 10, "multiplier": 3},
 }
 CATSLOTS_BONUS_RETRIGGER_THRESHOLD = 3   # newly-landed eGirls in a single bonus spin
 CATSLOTS_BONUS_RETRIGGER_REWARD = 5      # extra spins added on retrigger
@@ -13605,14 +13611,17 @@ async def catslots(message: discord.Interaction):
                     if spin_payout > biggest_hit:
                         biggest_hit = spin_payout
 
-                    # Update sticky_mask; count NEW eGirls for retrigger.
+                    # FIX 1 (emergency retune 2026-05-22): sticky_mask is
+                    # FROZEN at trigger time. Newly-landed eGirls still
+                    # substitute as wilds for this spin (already evaluated
+                    # above) but do NOT lock for future spins. This is the
+                    # primary fix for the runaway-payout regression.
+                    # Retrigger detection still uses newly-landed count.
                     new_egirls = 0
                     for c in range(5):
                         for r in range(3):
-                            if b_grid[r][c] == "eGirl":
-                                if not pre_sticky[c][r]:
-                                    new_egirls += 1
-                                sticky_mask[c][r] = True
+                            if b_grid[r][c] == "eGirl" and not pre_sticky[c][r]:
+                                new_egirls += 1
 
                     retrigger_fired = new_egirls >= CATSLOTS_BONUS_RETRIGGER_THRESHOLD
                     if retrigger_fired:

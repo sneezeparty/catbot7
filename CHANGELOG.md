@@ -4,6 +4,17 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.3.0.100122052026]
+
+### Fixed
+- **EMERGENCY RETUNE — `/catslots` bonus round was paying ~150% RTP.** Live testing exposed that the wild-substitution rule (eGirl substitutes for any base symbol on a line) compounded catastrophically with the sticky-eGirl accumulation across bonus spins. Once the grid saturated with stickies, every line scored a 5OAK substitution at Ultimate or eGirl rates, and a forced 5-eGirl bonus on a 2-coin bet was paying out **10M+ coins**. Six coordinated changes pulled total RTP back to **~86%** (Vegas penny-slot range):
+  - **Sticky_mask is now frozen at trigger time** — no in-bonus accumulation. Newly-landed eGirls still substitute as wilds for that one spin (so payouts and retrigger detection still work), but they do NOT lock for future spins. This is the primary fix.
+  - **Bonus spin counts and multipliers slashed**: 3 eGirls → 5 spins × 2; 4 → 7 spins × 2 (was 10 × 3); 5 → 10 spins × 3 (was 18 × 5).
+  - **eGirl base payouts slashed** — 3OAK 2,000 → 100; 4OAK 25,000 → 1,000; 5OAK 250,000 → 5,000. Wild-substitution made eGirl the de facto payout on most lines once any stickies existed, so the cut had to be aggressive. The bonus round IS the eGirl reward now; base-game eGirl line wins are small on purpose.
+  - **Fine base payouts cut** — 3OAK stays at 1, 4OAK 4 → 2, 5OAK 10 → 5. Fine 5OAK fires on ~8% of line evaluations and was contributing ~80pp of RTP at the old 10× multiplier.
+  - **Mid-tier payouts re-flattened** — 8bit, Corrupt, Professor, Divine, Real, Ultimate all retuned. Most see a small bump at 3-4OAK and the 5OAK level held roughly flat (Real 5OAK 10,000 unchanged; Ultimate 5OAK 75,000 → 60,000).
+- A forced 5-eGirl bonus on a 20-line × 2-coin bet now typically pays in the **5,000 to 30,000** range, not the millions. Reel weights, trigger frequency (~1 in 84), wild substitution, animations, achievements, and the admin force command are all unchanged.
+
 ## [0.3.0.095022052026]
 
 ### Changed

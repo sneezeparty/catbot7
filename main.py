@@ -417,7 +417,12 @@ rigged_users = []
 # /catslots — 5x3 grid, weighted reels, 20 paylines, multi-line payouts.
 # Independent from /slots (different stat columns, different aches).
 CATSLOTS_SYMBOLS = ["Fine", "8bit", "Corrupt", "Professor", "Divine", "Real", "Ultimate", "eGirl"]
-CATSLOTS_WEIGHTS = [55, 8, 7, 6, 5, 4, 3, 2]
+# eGirl weight bumped 2→3 (2026-05-22 retune). 1 cell becomes eGirl with
+# probability 3/91 ≈ 3.3%, so a 15-cell grid expects ~0.49 eGirls per spin
+# and the 3+ bonus trigger lands around 1 in 84 spins (was ~1 in 246).
+# eGirl base payouts in CATSLOTS_PAYOUTS were reduced in lockstep so base
+# RTP stays at ~93%.
+CATSLOTS_WEIGHTS = [55, 8, 7, 6, 5, 4, 3, 3]
 CATSLOTS_ALLOWED_LINES = [1, 5, 9, 20]
 # Per-line bet cap. Total bet is capped implicitly at
 # max(CATSLOTS_ALLOWED_LINES) * CATSLOTS_MAX_PER_LINE (= 2,000 coins by default).
@@ -461,7 +466,9 @@ CATSLOTS_PAYOUTS = {
     "Divine":    {3: 75,    4: 400,     5: 2000},
     "Real":      {3: 200,   4: 1500,    5: 10000},
     "Ultimate":  {3: 1500,  4: 10000,   5: 75000},
-    "eGirl":     {3: 7500,  4: 100000,  5: 1000000},
+    # eGirl payouts reduced ~73% (2026-05-22 retune) to compensate for the
+    # eGirl weight bump 2→3. Without this, base RTP would jump to ~123%.
+    "eGirl":     {3: 2000,  4: 25000,   5: 250000},
 }
 
 # eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid
@@ -469,9 +476,14 @@ CATSLOTS_PAYOUTS = {
 # RTP rises into the ~99-102% band (slightly player-favorable, fine for a
 # closed-economy bot). See docs/design/economy.md.
 CATSLOTS_BONUS_TRIGGERS = {
-    3: {"spins": 10, "multiplier": 2},
-    4: {"spins": 15, "multiplier": 3},
-    5: {"spins": 25, "multiplier": 5},
+    # Spin counts reduced 2026-05-22 retune (10/15/25 → 6/10/18) to keep
+    # the bonus RTP contribution in check now that bonuses fire ~3× more
+    # often. Multipliers unchanged — the multiplier is where the drama
+    # lives, and retriggers feel more impactful on a smaller base count.
+    # 6+ eGirls falls through to the 5-entry via min(5, count).
+    3: {"spins": 6,  "multiplier": 2},
+    4: {"spins": 10, "multiplier": 3},
+    5: {"spins": 18, "multiplier": 5},
 }
 CATSLOTS_BONUS_RETRIGGER_THRESHOLD = 3   # newly-landed eGirls in a single bonus spin
 CATSLOTS_BONUS_RETRIGGER_REWARD = 5      # extra spins added on retrigger

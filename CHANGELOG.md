@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.3.0.095022052026]
+
+### Changed
+- **`/catslots` retune for more bonus rounds, no schema change.** Three coordinated tweaks: eGirl reel weight bumped 2 → 3, eGirl base payouts cut ~73% (3OAK 7,500 → 2,000; 4OAK 100,000 → 25,000; 5OAK 1,000,000 → 250,000), bonus spin counts dropped 10/15/25 → 6/10/18 at the 3/4/5 eGirl tiers. Net effect: the 3+ trigger now lands ~1 in 84 spins (was ~1 in 246), base-game RTP stays at ~93%, and total effective RTP is ~105% (was ~100%). Multipliers, sticky-wild behavior, retrigger rule, animations, achievements, the admin force command, and concurrency are all untouched.
+
 ## [0.3.0.094822052026]
 
 ### Added

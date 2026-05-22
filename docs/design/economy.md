@@ -106,9 +106,11 @@ After every settled regular spin, the bot counts eGirl symbols visible on the 5�
 
 | Trigger | Free spins | Multiplier |
 | ------- | ---------- | ---------- |
-| 3 eGirls | 10 | ×2 |
-| 4 eGirls | 15 | ×3 |
-| 5 eGirls | 25 | ×5 |
+| 3 eGirls | 6 | ×2 |
+| 4 eGirls | 10 | ×3 |
+| 5 eGirls | 18 | ×5 |
+
+**Trigger frequency.** The eGirl reel weight was bumped from 2 to 3 (out of 91 total weight) in the 2026-05-22 retune, raising the chance a single cell becomes eGirl to ~3.3%. With 15 visible cells per spin, the expected eGirl count is ~0.49 per spin and the **3+ trigger now lands ~1 in 84 spins** (previously ~1 in 246). To keep base RTP in line, eGirl base payouts were reduced ~73% in lockstep (3OAK 7,500 → 2,000; 4OAK 100,000 → 25,000; 5OAK 1,000,000 → 250,000). Other cat-symbol payouts are unchanged. The bonus spin counts were reduced from 10/15/25 to 6/10/18 to keep the bonus RTP contribution in check now that bonuses fire ~3× more often.
 
 **Sticky wilds.** The triggering eGirls start locked in place. Every bonus spin, locked cells skip the reel animation and stay as eGirl. Any *new* eGirl that lands gets added to the sticky set going forward. During the bonus, eGirls act as wild substitutes — line evaluation tries every base symbol and picks the highest-paying interpretation. A line like `eGirl Real Real Fine X` scores as 3× Real (eGirl substitutes), not 1× eGirl, because Real 3-of-a-kind pays more than eGirl 1-of-a-kind.
 
@@ -116,7 +118,7 @@ After every settled regular spin, the bot counts eGirl symbols visible on the 5�
 
 **Stats.** Three lifetime counters track the bonus round independently of the base game: `catslots_bonus_triggers`, `catslots_bonus_coins_won`, `catslots_bonus_spins_total`. The base-game `catslots_coins_won` does NOT include bonus payouts, so the existing `/leaderboards type:Catslots` ranking is stable. Two new achievements fire on first trigger (`egirl_party`, visible, 350 XP) and on a 5-eGirl trigger (`egirl_party_max`, hidden, 600 XP).
 
-**RTP contribution.** The bonus adds approximately **6 to 9 percentage points** to total RTP, taking effective return into the **99 to 102%** band. This is slightly player-favorable and is intentional — slots is the dopamine command, the bonus round is the payoff moment, and the closed coin economy doesn't suffer from running a hair over 100% because coins always have something to sink into (catnip, store, packs).
+**RTP contribution.** After the 2026-05-22 retune the bonus contributes approximately **12 percentage points** to total RTP (up from ~7pp because bonuses fire ~3× more often), taking effective return to about **105%**. This is mildly player-favorable and is intentional — slots is the dopamine command, the bonus round is the payoff moment, and the closed coin economy doesn't suffer from running a hair over 100% because coins always have something to sink into (catnip, store, packs).
 
 **Admin override.** `/catslots_force_bonus egirls:<3|4|5>` (manage-guild only) queues a single-use override that overwrites N random visible cells with eGirl on the next spin. The entry is popped on read, so it always lasts exactly one spin.
 

@@ -5034,8 +5034,13 @@ async def on_message(message: discord.Message):
         # try to dm the user the thanks msg
         try:
             person = await fetch_dm_channel(user)
+            support_line = ""
+            if config.SUPPORT_INVITE:
+                support_line = f" and a role in [our Discord server](<{config.SUPPORT_INVITE}>)"
             await person.send(
-                f"**You have recieved {rain_duration} minutes of Cat Rain!** ☔\n\nThanks for your support!\nYou can start a rain with `/rain`. By buying you also get access to `/editprofile` and `/customcat` commands as well as a role in [our Discord server](<https://discord.gg/staring>)!\n\nEnjoy your goods!"
+                f"**You have recieved {rain_duration} minutes of Cat Rain!** ☔\n\n"
+                f"Thanks for your support!\nYou can start a rain with `/rain`. By buying you also get access to `/editprofile` and `/customcat` commands{support_line}!\n\n"
+                f"Enjoy your goods!"
             )
         except Exception:
             pass
@@ -6290,9 +6295,12 @@ async def on_guild_join(guild):
         unofficial_note = ""
     try:
         if ch.permissions_for(guild.me).send_messages:
+            support_line = ""
+            if config.SUPPORT_INVITE:
+                support_line = f"\nJoin the support server here: {config.SUPPORT_INVITE}"
             await ch.send(
                 unofficial_note
-                + "Thanks for adding me!\nTo start, use `/setup` and `/help` to learn more!\nJoin the support server here: https://discord.gg/staring\nHave a nice day :)"
+                + f"Thanks for adding me!\nTo start, use `/setup` and `/help` to learn more!{support_line}\nHave a nice day :)"
             )
     except Exception:
         pass
@@ -7893,8 +7901,12 @@ __Highlighted Stat__
                 embed.set_thumbnail(url=user.image)
 
         else:
+            if config.STORE_ENABLED:
+                supporter_intro = "Run `/store` to unlock."
+            else:
+                supporter_intro = "Supporter features are not currently available on this instance."
             description = f"""👑 __Supporter Settings__
-Global, buy anything from [the store](https://catbot.shop) to unlock.
+{supporter_intro}
 👑 **Color**
 👑 **Emoji**
 👑 **Image**
@@ -8107,13 +8119,14 @@ async def rain(message: discord.Interaction):
     if server_minutes > 0:
         server_rains = f" (+**{server_minutes}** bonus minutes)"
 
+    rain_source = "from the battlepass and from in-channel events"
+    if config.STORE_ENABLED:
+        rain_source += ", or in single 15-second blocks via `/catstore` → Extras → Rain"
     embed = discord.Embed(
         title="☔ Cat Rains",
-        description=f"""Cat Rains are power-ups which spawn cats super fast for a limited amounts of time in a channel of your choice.
+        description=f"""Cat Rains are power-ups which spawn cats super fast for a limited amount of time in a channel of your choice.
 
-You can get those by buying them at our [store](<https://catbot.shop>) or by winning them in an event.
-This bot is developed by a single person so buying one would be very appreciated.
-As a bonus, you will get access to /editprofile and /customcat commands!
+You earn rain minutes {rain_source}.
 Fastest times are not saved during rains.
 
 You currently have **{user.rain_minutes:,}** minutes of rains{server_rains}.""",
@@ -8171,8 +8184,11 @@ You currently have **{user.rain_minutes:,}** minutes of rains{server_rains}.""",
             return
 
         if rain_length > user.rain_minutes + profile.rain_minutes or user.rain_minutes < 0:
+            shortfall_hint = "play the battlepass or wait for in-channel rain events"
+            if config.STORE_ENABLED:
+                shortfall_hint = "play the battlepass, wait for in-channel rain events, or grab a 15-second block from `/catstore` → Extras → Rain"
             await interaction.response.send_message(
-                "you dont have enough rain! buy some more [here](<https://catbot.shop>)",
+                f"you dont have enough rain! {shortfall_hint}.",
                 ephemeral=True,
             )
             return
@@ -8222,15 +8238,8 @@ You currently have **{user.rain_minutes:,}** minutes of rains{server_rains}.""",
     button = Button(label="Rain!", style=ButtonStyle.blurple, disabled=not server.do_rain)
     button.callback = rain_modal
 
-    shopbutton = Button(
-        emoji="🛒",
-        label="Store",
-        url="https://catbot.shop",
-    )
-
     view = View(timeout=VIEW_TIMEOUT)
     view.add_item(button)
-    view.add_item(shopbutton)
 
     await message.response.send_message(embed=embed, view=view)
 
@@ -8247,8 +8256,12 @@ if config.DONOR_CHANNEL_ID:
         global emojis
         user = await User.get_or_create(user_id=message.user.id)
         if not user.premium:
+            if config.STORE_ENABLED:
+                unlock_hint = "Use `/store` to unlock supporter features."
+            else:
+                unlock_hint = "Supporter features are not currently available on this instance."
             await message.response.send_message(
-                "👑 This feature is supporter-only!\nBuy anything from Cat Bot Store to unlock custom cats!\n<https://catbot.shop>",
+                f"👑 This feature is supporter-only!\n{unlock_hint}",
                 ephemeral=True,
             )
             return
@@ -8340,7 +8353,8 @@ if config.DONOR_CHANNEL_ID:
 
             view = View(timeout=VIEW_TIMEOUT)
             if not user.premium:
-                bbutton = Button(label="Supporter Required!", url="https://catbot.shop", emoji="👑")
+                bbutton_label = "Supporter Required! Use /store" if config.STORE_ENABLED else "Supporter Required!"
+                bbutton = Button(label=bbutton_label, emoji="👑", disabled=True, style=ButtonStyle.gray)
             else:
                 bbutton = Button(
                     emoji="🌟",
@@ -8396,8 +8410,12 @@ if config.DONOR_CHANNEL_ID:
 
         user = await User.get_or_create(user_id=message.user.id)
         if not user.premium:
+            if config.STORE_ENABLED:
+                unlock_hint = "Use `/store` to unlock supporter features."
+            else:
+                unlock_hint = "Supporter features are not currently available on this instance."
             await message.response.send_message(
-                "👑 This feature is supporter-only!\nBuy anything from Cat Bot Store to unlock profile customization!\n<https://catbot.shop>"
+                f"👑 This feature is supporter-only!\n{unlock_hint}"
             )
             return
 
@@ -16692,8 +16710,11 @@ async def reset(message: discord.Interaction, person_id: discord.User):
                 async for p in Prism.filter("guild_id = $1 AND user_id = $2", message.guild.id, person_id.id):
                     p.guild_id = og.id
                     await p.save()
+                rollback_hint = ""
+                if config.SUPPORT_INVITE:
+                    rollback_hint = f"\nfor a rollback, ping the operator at <{config.SUPPORT_INVITE}>"
                 await interaction.edit_original_response(
-                    content=f"Done! rip {person_id.mention}. f's in chat.\njoin our discord to rollback: <https://discord.gg/staring>", view=None
+                    content=f"Done! rip {person_id.mention}. f's in chat.{rollback_hint}", view=None
                 )
             except Exception:
                 await interaction.edit_original_response(
@@ -16758,13 +16779,16 @@ async def nuke(message: discord.Interaction):
                     await Prism.bulk_update(changed_prisms, "guild_id")
                 await Profile.create(guild_id=interaction.message.id, user_id=0)
 
+                rollback_hint = "."
+                if config.SUPPORT_INVITE:
+                    rollback_hint = f", contact the operator at <{config.SUPPORT_INVITE}>."
                 try:
                     await interaction.edit_original_response(
-                        content="Done. If you want to roll this back, please contact us in our discord: <https://discord.gg/staring>.",
+                        content=f"Done. To roll this back{rollback_hint}",
                         view=None,
                     )
                 except Exception:
-                    await interaction.followup.send("Done. If you want to roll this back, please contact us in our discord: <https://discord.gg/staring>.")
+                    await interaction.followup.send(f"Done. To roll this back{rollback_hint}")
             else:
                 view = await gen(counter)
                 try:

@@ -13878,8 +13878,9 @@ async def roulette(message: discord.Interaction):
             self.add_item(self.betamount)
 
         async def on_submit(self, interaction: discord.Interaction):
-            await user.refresh_from_db()
-
+            # Cheap, input-only validation goes BEFORE defer — these can
+            # use interaction.response.send_message to bail with an
+            # ephemeral error without consuming a defer.
             valids = ["red", "black", "green"] + [str(i) for i in range(37)]
             if self.bettype.value.lower() not in valids:
                 await interaction.response.send_message("invalid bet", ephemeral=True)
@@ -13887,17 +13888,28 @@ async def roulette(message: discord.Interaction):
 
             try:
                 bet_amount = int(self.betamount.value)
-                if bet_amount <= 0:
-                    await interaction.response.send_message("bet amount must be greater than 0", ephemeral=True)
-                    return
-                if bet_amount > max(user.coins, 100):
-                    await interaction.response.send_message(f"your max bet is {max(user.coins, 100)}", ephemeral=True)
-                    return
             except ValueError:
                 await interaction.response.send_message("invalid bet amount", ephemeral=True)
                 return
+            if bet_amount <= 0:
+                await interaction.response.send_message("bet amount must be greater than 0", ephemeral=True)
+                return
 
+            # Defer BEFORE the DB query — discord's interaction-response
+            # window is only 3 seconds. A slow DB call (or a gateway blip)
+            # used to expire the token before defer was even called,
+            # raising 404 Unknown interaction. Lock in the window first,
+            # then do everything that touches I/O.
             await interaction.response.defer()
+            await user.refresh_from_db()
+
+            # Affordability check needs the fresh balance, so it runs as a
+            # followup after defer rather than as the initial response.
+            if bet_amount > max(user.coins, 100):
+                await interaction.followup.send(
+                    f"your max bet is {max(user.coins, 100):,}", ephemeral=True
+                )
+                return
 
             # mapping of colors to numbers by indexes
             colors = [

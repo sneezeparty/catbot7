@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.3.0.160922052026]
+
+### Fixed
+- **`/roulette` modal submit no longer 404s on slow DB / gateway lag.** RouletteModel.on_submit was doing `await user.refresh_from_db()` *before* `interaction.response.defer()`, so a slow DB query (or a gateway hiccup) could expire the interaction's 3-second response window. The defer call then raised `discord.errors.NotFound: Unknown interaction (10062)`. Restructured so cheap input-only validation runs first using `interaction.response.send_message`, defer is called immediately after to lock in the response window, and the DB-dependent affordability check uses `interaction.followup.send` for its error path.
+
 ## [0.3.0.102222052026]
 
 ### Changed

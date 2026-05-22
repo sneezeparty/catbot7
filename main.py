@@ -4813,6 +4813,59 @@ async def on_ready():
     # the stock market being primed.
     bot.loop.create_task(_init_stock_orders())
 
+    # Cat Bot Store reconciliation. Discord entitlement events can be missed
+    # while the bot is offline or while a shard is resuming. A one-shot pass
+    # of bot.entitlements() at startup brings the DB in line with truth.
+    # Spawned as a background task so a slow Discord API response doesn't
+    # delay the rest of on_ready.
+    if config.STORE_ENABLED:
+        bot.loop.create_task(_store_reconcile_entitlements())
+
+
+async def _store_reconcile_entitlements() -> None:
+    """Iterate active entitlements once and write any drift into the DB.
+    Idempotent — _apply_entitlement_create is a no-op when the SKU is
+    already recorded. asyncio.sleep(0) yields between users so the gateway
+    heartbeat keeps ticking even if there are thousands of entitlements."""
+    if not config.STORE_ENABLED:
+        return
+    try:
+        by_user: dict[int, set[str]] = {}
+        async for ent in bot.entitlements(exclude_ended=True):
+            user_id = int(getattr(ent, "user_id", 0) or 0)
+            sku_id = str(getattr(ent, "sku_id", "") or "")
+            if not user_id or not sku_id:
+                continue
+            by_user.setdefault(user_id, set()).add(sku_id)
+            # Apply now so a partial reconciliation still makes progress.
+            await _apply_entitlement_create(ent)
+            await asyncio.sleep(0)
+
+        # Inverse pass: anyone with stale SKUs in the DB that Discord no
+        # longer reports gets them removed. This is the only place we catch
+        # entitlements that lapsed while the bot was offline.
+        if not by_user:
+            return
+        supporter_ids = _supporter_sku_ids()
+        async for user in User.filter("entitlements IS NOT NULL AND entitlements <> '[]'::jsonb"):
+            held = set(_user_entitlements_load(user))
+            truth = by_user.get(int(user.user_id), set())
+            stale = held - truth
+            if not stale:
+                continue
+            user.entitlements = sorted(held - stale)
+            _recompute_premium(user)
+            await user.save()
+            await asyncio.sleep(0)
+
+        logging.info(
+            "store reconcile: %d users with active entitlements, supporter SKUs=%d",
+            len(by_user),
+            len(supporter_ids),
+        )
+    except Exception:
+        logging.exception("store reconcile failed")
+
 
 async def _init_stock_orders():
     try:

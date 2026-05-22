@@ -6080,37 +6080,63 @@ async def on_guild_join(guild):
 
 @bot.tree.command(description="A guide of how to use the bot")
 async def help(message):
+    thumb_url = "https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/main/images/cat.png"
     embed1 = discord.Embed(
         title="How to Setup",
-        description="Server moderator (anyone with *Manage Server* permission) needs to run `/setup` in any channel. After that, cats will start to spawn in 1-10 minute intervals inside of that channel.\nYou can customize those intervals with `/changetimings` and change the spawn message with `/changemessage`.\nCat spawns can also be forced by moderators using `/forcespawn` command.\nYou can have unlimited amounts of setupped channels at once.\nYou can stop the spawning in a channel by running `/forget`.",
+        description=(
+            "A moderator with **Manage Server** runs `/setup` in any channel. "
+            "Cats start spawning there at 1 to 10 minute intervals.\n"
+            "Tweak with `/changetimings`, `/changemessage`, or `/forcespawn`. "
+            "Stop spawning in a channel with `/forget`. Any number of channels can be setupped at once."
+        ),
         color=Colors.brown,
-    ).set_thumbnail(url="https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/main/images/cat.png")
+    ).set_thumbnail(url=thumb_url)
 
     embed2 = (
         discord.Embed(title="How to Play", color=Colors.brown)
         .add_field(
             name="Catch Cats",
-            value='Whenever a cat spawns you will see a message along the lines of "a cat has appeared", which will also display it\'s type.\nCat types can have varying rarities from 25% for Fine to hundredths of percent for rarest types.\nSo, after saying "cat" the cat will be added to your inventory.',
+            value=(
+                "When a cat appears, say `cat` to catch it. Rarities run from Fine (common) up through "
+                "eGirl (rare). Your inventory is **per server**, so each server is its own scoreboard. "
+                "View yours or someone else's with `/inventory`, see standings with `/leaderboards`, "
+                "and move cats around with `/gift` or `/trade`."
+            ),
             inline=False,
         )
         .add_field(
-            name="Viewing Your Inventory",
-            value="You can view your (or anyone elses!) inventory using `/inventory` command. It will display all the cats, along with other stats.\nIt is important to note that you have a separate inventory in each server and nothing carries over, to make the experience more fair and fun.\nCheck out the leaderboards for your server by using `/leaderboards` command.\nIf you want to transfer cats, you can use the simple `/gift` or more complex `/trade` commands.",
+            name="Cat Mafia (`/catnip`, `/jobs`, `/catstore`)",
+            value=(
+                "Feed cats to the mafia at `/catnip` to climb 10 ranks (Newbie up to El Patrón) and unlock "
+                "perks plus a store discount. `/jobs` runs PvE contracts for six NPCs that pay coins, cats, "
+                "and **job perks**. `/rep` shows where you stand with each NPC. `/catstore` buys and sells "
+                "discovered cat rarities, and its **Extras** tab sells rain blocks and higher-tier packs."
+            ),
             inline=False,
         )
         .add_field(
-            name="Let's get funky!",
-            value='Cat Bot has various other mechanics to make fun funnier. You can collect various `/achievements`, for example saying "i read help", progress in the `/battlepass`, or have beef with the mafia over catnip addiction. The amount you worship is the limit!',
+            name="Casino & Economy",
+            value=(
+                "All games share one **coins** wallet. `/slots` is the 3-reel classic, `/catslots` is the "
+                "5x3 cat slot machine with paylines and an eGirl bonus round. `/roulette` plays the wheel, "
+                "`/stocks` trades a fake market driven by in-game activity, and `/packs` opens whatever "
+                "packs you've earned or bought."
+            ),
             inline=False,
         )
         .add_field(
-            name="Other features",
-            value="Cat Bot has extra fun commands which you will discover along the way.\nAnything unclear? Check out [our wiki](https://catbot.wiki) or drop us a line at our [Discord server](https://discord.gg/staring).",
+            name="Progression",
+            value=(
+                "`/achievements` tracks unlocks across catching, casino, jobs, and easter eggs. "
+                "`/battlepass` runs monthly seasons with five quest slots per cycle. "
+                "`/perks` shows your active catnip and job-perk effects. "
+                "Passive XP drips on first daily catch, every 10-catch streak, and every catnip level-up."
+            ),
             inline=False,
         )
         .set_footer(
-            text=f"Cat Bot by Milenakos, {discord.utils.utcnow().year}",
-            icon_url="https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/main/images/cat.png",
+            text=f"Cat Bot self-hosted by sneezeparty, {discord.utils.utcnow().year}",
+            icon_url=thumb_url,
         )
     )
 

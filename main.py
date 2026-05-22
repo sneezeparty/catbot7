@@ -974,7 +974,20 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
                 return 0
         all_rows.sort(key=_slot_key2)
         return all_rows
-    existing_templates = {row.template_id for row in existing}
+    # Dedup against ALL templates already used in this window (any state),
+    # not just currently-offered. Otherwise a resolved/declined/expired job
+    # would let _jobs_generate_offers re-emit the same template and pop a
+    # duplicate offer back onto the board within the same window. Slots
+    # empty out as the player works through them; window rollover refills.
+    used_rows = await JobInstance.collect(
+        "user_id = $1 AND guild_id = $2 AND offered_at >= $3 AND offered_at < $4",
+        int(profile.user_id),
+        int(profile.guild_id),
+        win_start,
+        win_end,
+        fields=["template_id"],
+    )
+    existing_templates = {row.template_id for row in used_rows}
 
     # Big Score's once-per-season gate. `season` lives on Profile (per-server),
     # not on User — Cat Bot tracks BP seasons per-(user, guild).
@@ -7938,7 +7951,7 @@ async def packs(message: discord.Interaction):
                 has_special = True
         if empty:
             view.add_item(Button(label="No packs left!", disabled=True))
-        if total_amount > 5:
+        if total_amount >= 2:
             button = Button(label=f"Open all! ({total_amount:,})", style=ButtonStyle.gray)
             button.callback = confirm_open_all
             view.add_item(button)
@@ -9764,10 +9777,10 @@ async def jobs(message: discord.Interaction):
             emoji = get_emoji(t.lower() + "cat") or get_emoji(t.lower()) or ""
             # Show effective SP with the raw value in parens when they differ
             # (i.e. count > 1 — the diminishing-returns dampening kicked in).
-            sp_str = f"{eff_sp} SP" if eff_sp == raw_sp else f"{eff_sp} SP  (raw {raw_sp})"
-            crew_lines.append(f"{c:>3} × {emoji} {t}{' ' * max(0, 18 - len(t))} {sp_str}")
+            sp_str = f"**{eff_sp} SP**" if eff_sp == raw_sp else f"**{eff_sp} SP** *(raw {raw_sp})*"
+            crew_lines.append(f"- {c}× {emoji} {t} — {sp_str}")
         if not crew_lines:
-            crew_lines.append("(no cats in crew yet)")
+            crew_lines.append("-# (no cats in crew yet)")
 
         reward = _jobs_coerce_dict(job.reward_snapshot)
 
@@ -9777,7 +9790,7 @@ async def jobs(message: discord.Interaction):
             f"🎯 Target: **{_jobs_npc_display(job.target_faction)}**",
             Separator(),
             "**👥 Your Crew**",
-            "```\n" + "\n".join(crew_lines) + f"\nTotal: {send_total} SP\n```",
+            "\n".join(crew_lines) + f"\n**Total: {send_total} SP**",
             (f"💪 Difficulty: **{effective_difficulty} SP**"
              f"{' (witness: +' + str(round((pending_diff_mult - 1) * 100)) + '%)' if pending_diff_mult > 1.0 else ''}"
              f"  ·  Ratio: **{ratio:.2f}×**"),

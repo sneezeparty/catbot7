@@ -4,6 +4,15 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.060722052026]
+
+### Fixed
+- **`/jobs` board no longer respawns a completed offer within the same window.** The "what's already used" dedup in `_jobs_refresh_offers_if_needed` queried `state = 'offered'` only, so a resolved/declined/expired template dropped out of the set and the deterministic offer generator happily re-emitted it the next time the slot count was below the cap — making a finished job appear to come right back. Fixed by deduping against *all* states in the current window. Slots empty out naturally as you work through them; window rollover refills.
+- **Crew list on the `/jobs` Send screen now actually shows cat-rarity icons.** The block was wrapped in a triple-backtick code block for monospace alignment, but Discord doesn't render custom emojis inside code blocks (the user saw raw `<:finecat:1503…>` text). Now renders as a markdown bullet list — emojis show, with bold/italic distinguishing effective vs. raw SP.
+
+### Changed
+- **`/packs` "Open all" button appears at 2+ packs.** Threshold was previously >5, which hid the button in the common case of holding a handful of packs.
+
 ## [0.0.5.144121052026]
 
 ### Fixed

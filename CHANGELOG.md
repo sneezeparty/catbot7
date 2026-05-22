@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.070422052026]
+
+### Changed
+- **`/catslots` per-line bet cap: 100 coins.** Total bet is implicitly capped at `max(lines) × max_per_line = 20 × 100 = 2,000 coins` per spin. Without this, a rich player could bet their entire wallet on one spin; an eGirl 5-of-a-kind would then pay billions and obliterate the economy. The cap bounds the worst-case jackpot at 100,000,000 coins. Enforced in the modal's `on_submit`; the modal label and stats embed surface the cap.
+
 ## [0.0.5.065822052026]
 
 ### Added

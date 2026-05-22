@@ -414,6 +414,11 @@ rigged_users = []
 CATSLOTS_SYMBOLS = ["Fine", "8bit", "Corrupt", "Professor", "Divine", "Real", "Ultimate", "eGirl"]
 CATSLOTS_WEIGHTS = [55, 8, 7, 6, 5, 4, 3, 2]
 CATSLOTS_ALLOWED_LINES = [1, 5, 9, 20]
+# Per-line bet cap. Total bet is capped implicitly at
+# max(CATSLOTS_ALLOWED_LINES) * CATSLOTS_MAX_PER_LINE (= 2,000 coins by default).
+# Keeps the eGirl 5-of-a-kind jackpot bounded so a single lucky spin can't
+# obliterate the economy on a small self-hosted instance.
+CATSLOTS_MAX_PER_LINE = 100
 CATSLOTS_PAYLINES = [
     # Line 1: middle row (also the rigged-win line)
     [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1)],
@@ -12416,7 +12421,8 @@ async def catslots(message: discord.Interaction):
                 f"__Your stats__\n"
                 f"{p.catslots_spins:,} spins  ·  {p.catslots_wins:,} wins  ·  {p.catslots_big_wins:,} big wins\n"
                 f"bet {p.catslots_coins_bet:,} · won {p.catslots_coins_won:,} · net {net:+,}\n\n"
-                f"__Lines:__ 1, 5, 9, or 20.  __Payouts__ scale by symbol rarity and run length (3, 4, or 5-of-a-kind from column 1)."
+                f"__Lines:__ 1, 5, 9, or 20.  __Per-line cap:__ {CATSLOTS_MAX_PER_LINE} coins (max total bet {max(CATSLOTS_ALLOWED_LINES) * CATSLOTS_MAX_PER_LINE:,}).\n"
+                f"__Payouts__ scale by symbol rarity and run length (3, 4, or 5-of-a-kind from column 1)."
             ),
             color=Colors.maroon,
         )
@@ -12449,7 +12455,7 @@ async def catslots(message: discord.Interaction):
 
             self.per_line = TextInput(
                 min_length=1,
-                label="coins per line",
+                label=f"coins per line (max {CATSLOTS_MAX_PER_LINE})",
                 style=discord.TextStyle.short,
                 required=True,
                 placeholder="10",
@@ -12480,6 +12486,13 @@ async def catslots(message: discord.Interaction):
                 return
             if per_line < 1:
                 await interaction.response.send_message("coins per line must be at least 1", ephemeral=True)
+                return
+            if per_line > CATSLOTS_MAX_PER_LINE:
+                await interaction.response.send_message(
+                    f"coins per line can't exceed **{CATSLOTS_MAX_PER_LINE}** "
+                    f"(table max). drop the per-line and add more lines if you want a bigger total bet.",
+                    ephemeral=True,
+                )
                 return
 
             total_bet = lines_n * per_line

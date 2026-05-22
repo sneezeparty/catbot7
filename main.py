@@ -6363,6 +6363,154 @@ async def help(message):
     await message.response.send_message(embeds=[embed1, embed2])
 
 
+# Cat Bot Store — Discord native monetization (SKUs + Entitlements). The
+# command itself is always registered so that the slash list stays stable
+# across env-var toggles, but the body shows a "not available" message when
+# STORE_ENABLED is off. SKUs come from config/store.json — see the store
+# step 1 commit message for the schema.
+@bot.tree.command(description="Support Cat Bot and grab supporter perks")
+async def store(message: discord.Interaction):
+    if not config.STORE_ENABLED:
+        await message.response.send_message(
+            "the store is not currently available on this instance.",
+            ephemeral=True,
+        )
+        return
+
+    skus = []
+    try:
+        skus = config.store.get("skus") or []
+    except Exception:
+        skus = []
+    if not skus:
+        await message.response.send_message(
+            "the store has no items configured yet. check back later.",
+            ephemeral=True,
+        )
+        return
+
+    user = await User.get_or_create(user_id=message.user.id)
+    held = set(_user_entitlements_load(user))
+
+    STORE_HELP_PAGES = [
+        {
+            "title": "What is the store?",
+            "body": (
+                "The Cat Bot Store sells **supporter status** and (in the future) "
+                "**cosmetic items** through Discord's official monetization system. "
+                "Supporter unlocks `/editprofile`, `/customcat`, and the option to "
+                "stay anonymous when you bless other players. Everything else stays "
+                "exactly the same — supporter does NOT give coins, packs, cats, or "
+                "any gameplay advantage."
+            ),
+        },
+        {
+            "title": "How purchases work",
+            "body": (
+                "Clicking a buy button opens Discord's official checkout right inside "
+                "the client. The bot never sees your payment info. Once you complete a "
+                "purchase, Discord tells the bot about it over the gateway and your "
+                "supporter status flips on within seconds.\n\n"
+                "If you ever cancel a subscription or get a refund, Discord notifies "
+                "the bot the same way and your supporter status comes back off. The "
+                "bot reconciles on startup too, so nothing is lost if it was offline "
+                "when something changed."
+            ),
+        },
+    ]
+
+    async def show_store_help(interaction: discord.Interaction, start_page: int = 0):
+        page_idx = max(0, min(len(STORE_HELP_PAGES) - 1, int(start_page)))
+
+        async def render(target_interaction: discord.Interaction, idx: int, is_initial: bool):
+            page = STORE_HELP_PAGES[idx]
+            items: list = [
+                f"## 💡 Store Help — {page['title']}",
+                f"-# Page {idx + 1} / {len(STORE_HELP_PAGES)}",
+                Separator(),
+                page["body"],
+            ]
+            prev_btn = Button(label="← Prev", style=ButtonStyle.gray, custom_id="store_help_prev", disabled=idx == 0)
+            next_btn = Button(label="Next →", style=ButtonStyle.gray, custom_id="store_help_next", disabled=idx >= len(STORE_HELP_PAGES) - 1)
+
+            async def on_help_prev(intr: discord.Interaction):
+                await render(intr, idx - 1, is_initial=False)
+
+            async def on_help_next(intr: discord.Interaction):
+                await render(intr, idx + 1, is_initial=False)
+
+            prev_btn.callback = on_help_prev
+            next_btn.callback = on_help_next
+            items.append(ActionRow(prev_btn, next_btn))
+
+            v = LayoutView(timeout=VIEW_TIMEOUT)
+            container = Container(*items)
+            try:
+                container.accent_color = Colors.brown
+            except Exception:
+                pass
+            v.add_item(container)
+
+            if is_initial:
+                await target_interaction.response.send_message(view=v, ephemeral=True)
+            elif target_interaction.response.is_done():
+                await target_interaction.edit_original_response(view=v)
+            else:
+                await target_interaction.response.edit_message(view=v)
+
+        await render(interaction, page_idx, is_initial=True)
+
+    async def on_store_help(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        await show_store_help(interaction, start_page=0)
+
+    view = LayoutView(timeout=VIEW_TIMEOUT)
+    items: list = [
+        "## 🛒 Cat Bot Store",
+        (
+            "Support Cat Bot through Discord's official monetization. Supporter "
+            "unlocks cosmetic commands like `/editprofile` and `/customcat` — no "
+            "gameplay perks, just nice-to-haves."
+        ),
+    ]
+
+    for sku in skus:
+        sku_id = str(sku.get("id") or "")
+        if not sku_id:
+            continue
+        name = sku.get("name") or "(unnamed item)"
+        emoji = sku.get("emoji") or ""
+        desc = sku.get("description") or ""
+        kind = sku.get("kind", "")
+        owns_this = sku_id in held
+        kind_line = "**Supporter tier**" if kind == "supporter" else "Cosmetic item" if kind == "cosmetic" else kind
+
+        body = f"{desc}\n-# {kind_line}  ·  " + ("✓ Owned" if owns_this else "Not owned")
+
+        if owns_this:
+            btn = Button(label="Owned ✓", style=ButtonStyle.gray, disabled=True)
+        else:
+            # Discord's official Premium Button — handles checkout natively.
+            btn = Button(style=ButtonStyle.premium, sku_id=int(sku_id))
+
+        header = f"### {emoji} {name}".strip()
+        items.append(Section(header, body, btn))
+
+    help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="store_help")
+    help_btn.callback = on_store_help
+    items.append(ActionRow(help_btn))
+
+    container = Container(*items)
+    try:
+        container.accent_color = Colors.brown
+    except Exception:
+        pass
+    view.add_item(container)
+    await message.response.send_message(view=view, ephemeral=True)
+
+
 @bot.tree.command(description="Roll the credits")
 async def credits(message: discord.Interaction):
     global gen_credits

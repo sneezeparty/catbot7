@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.2.0.093122052026]
+
+### Added
+- **`/leaderboards type:Catslots` (🎰).** New per-server leaderboard ranking players by lifetime gross coins won at `/catslots` (`profile.catslots_coins_won`). Mirrors the "Job Coins" category pattern, no boolean column needed. Ranking by net (won minus bet) would expose the house edge and put most players in the red, which isn't a fun thing to rank by, so gross winnings it is. Available from the slash-command argument and the in-embed dropdown.
+
 ## [0.2.0.090422052026]
 
 ### Fixed

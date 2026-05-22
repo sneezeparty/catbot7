@@ -15353,7 +15353,7 @@ async def catch(message: discord.Interaction, msg: discord.Message):
 @discord.app_commands.autocomplete(cat_type=lb_type_autocomplete)
 async def leaderboards(
     message: discord.Interaction,
-    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia", "Heists", "Job Coins", "Biggest Score", "Mafia Favors"]],
+    leaderboard_type: Optional[Literal["Cats", "Value", "Fast", "Slow", "Cattlepass", "Cookies", "Pig", "Coins", "Prisms", "Mafia", "Heists", "Job Coins", "Biggest Score", "Mafia Favors", "Catslots"]],
     cat_type: Optional[str],
     locked: Optional[bool],
 ):
@@ -15518,6 +15518,17 @@ async def leaderboards(
                 message.guild.id,
             )
             final_value = "perks_received_count"
+        elif type == "Catslots":
+            # Lifetime gross coins won at /catslots — mirrors the "Job Coins"
+            # category. Net (won - bet) would expose the house edge and put
+            # most players in the red, which isn't fun to rank by.
+            unit = "coins won"
+            result = await Profile.collect_limit(
+                ["user_id", "catslots_coins_won"],
+                "guild_id = $1 AND catslots_coins_won > 0 ORDER BY catslots_coins_won DESC",
+                message.guild.id,
+            )
+            final_value = "catslots_coins_won"
         else:
             # qhar
             raise ValueError("Invalid leaderboard type")
@@ -15699,6 +15710,7 @@ async def leaderboards(
             "Heists": "🏆",
             "Job Coins": "💰",
             "Biggest Score": "💎",
+            "Catslots": "🎰",
         }
         options = [Option(label=k, emoji=v) for k, v in emojied_options.items()]
         lb_select = Select(

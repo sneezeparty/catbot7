@@ -399,9 +399,60 @@ pending_votes = []
 # prevent ratelimits
 casino_lock = []
 slots_lock = []
+catslots_lock = []
+# In-memory store of the last bet (lines, per_line) each player placed at
+# /catslots, keyed by user_id+guild_id. Powers the "Spin Again" button and
+# pre-fills the "Change Bet" modal. Resets on bot restart — that's fine.
+catslots_last_bet: dict[int, tuple[int, int]] = {}
 
 # ???
 rigged_users = []
+
+
+# /catslots — 5x3 grid, weighted reels, 20 paylines, multi-line payouts.
+# Independent from /slots (different stat columns, different aches).
+CATSLOTS_SYMBOLS = ["Fine", "8bit", "Corrupt", "Professor", "Divine", "Real", "Ultimate", "eGirl"]
+CATSLOTS_WEIGHTS = [55, 8, 7, 6, 5, 4, 3, 2]
+CATSLOTS_ALLOWED_LINES = [1, 5, 9, 20]
+CATSLOTS_PAYLINES = [
+    # Line 1: middle row (also the rigged-win line)
+    [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1)],
+    # Line 2: top row
+    [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)],
+    # Line 3: bottom row
+    [(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)],
+    # Line 4: V-down
+    [(0, 0), (1, 1), (2, 2), (3, 1), (4, 0)],
+    # Line 5: V-up
+    [(0, 2), (1, 1), (2, 0), (3, 1), (4, 2)],
+    # Lines 6-9 (zigzags)
+    [(0, 0), (1, 0), (2, 1), (3, 2), (4, 2)],
+    [(0, 2), (1, 2), (2, 1), (3, 0), (4, 0)],
+    [(0, 1), (1, 0), (2, 1), (3, 2), (4, 1)],
+    [(0, 1), (1, 2), (2, 1), (3, 0), (4, 1)],
+    # Lines 10-20 (additional Vegas-style patterns)
+    [(0, 0), (1, 1), (2, 1), (3, 1), (4, 0)],
+    [(0, 2), (1, 1), (2, 1), (3, 1), (4, 2)],
+    [(0, 1), (1, 0), (2, 0), (3, 0), (4, 1)],
+    [(0, 1), (1, 2), (2, 2), (3, 2), (4, 1)],
+    [(0, 0), (1, 0), (2, 1), (3, 0), (4, 0)],
+    [(0, 2), (1, 2), (2, 1), (3, 2), (4, 2)],
+    [(0, 1), (1, 1), (2, 0), (3, 1), (4, 1)],
+    [(0, 1), (1, 1), (2, 2), (3, 1), (4, 1)],
+    [(0, 0), (1, 1), (2, 0), (3, 1), (4, 0)],
+    [(0, 2), (1, 1), (2, 2), (3, 1), (4, 2)],
+    [(0, 0), (1, 2), (2, 0), (3, 2), (4, 0)],
+]
+CATSLOTS_PAYOUTS = {
+    "Fine":      {3: 1,     4: 4,       5: 10},
+    "8bit":      {3: 15,    4: 50,      5: 250},
+    "Corrupt":   {3: 25,    4: 100,     5: 500},
+    "Professor": {3: 40,    4: 200,     5: 1000},
+    "Divine":    {3: 75,    4: 400,     5: 2000},
+    "Real":      {3: 200,   4: 1500,    5: 10000},
+    "Ultimate":  {3: 1500,  4: 10000,   5: 75000},
+    "eGirl":     {3: 7500,  4: 100000,  5: 1000000},
+}
 
 
 # WELCOME TO THE TEMP_.._STORAGE HELL
@@ -12338,6 +12389,345 @@ async def slots(message: discord.Interaction):
     myview.add_item(button)
 
     await message.followup.send(embed=embed, view=myview)
+
+
+@bot.tree.command(description="vegas-style 5x3 cat slots — pick lines, place a bet, spin")
+async def catslots(message: discord.Interaction):
+    if message.user.id + message.guild.id in catslots_lock:
+        await message.response.send_message(
+            "you're already spinning /catslots — wait for the reels to settle, time-traveler",
+            ephemeral=True,
+        )
+        await achemb(message, "paradoxical_catslots", "followup")
+        return
+
+    profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+    lock_key = message.user.id + message.guild.id
+
+    def stats_embed(p: Profile) -> discord.Embed:
+        broke_suffix = ""
+        if p.coins <= 0:
+            broke_suffix = "\n-# debt is allowed — you can still gamble up to **100** coins"
+        net = int(p.catslots_coins_won) - int(p.catslots_coins_bet)
+        return discord.Embed(
+            title="🐈 Cat Slots — 5×3",
+            description=(
+                f"your balance is **{p.coins:,}** coins{broke_suffix}\n\n"
+                f"__Your stats__\n"
+                f"{p.catslots_spins:,} spins  ·  {p.catslots_wins:,} wins  ·  {p.catslots_big_wins:,} big wins\n"
+                f"bet {p.catslots_coins_bet:,} · won {p.catslots_coins_won:,} · net {net:+,}\n\n"
+                f"__Lines:__ 1, 5, 9, or 20.  __Payouts__ scale by symbol rarity and run length (3, 4, or 5-of-a-kind from column 1)."
+            ),
+            color=Colors.maroon,
+        )
+
+    def post_spin_view(can_repeat: bool):
+        v = View(timeout=VIEW_TIMEOUT)
+        spin_again = Button(label="Spin Again", style=ButtonStyle.blurple, disabled=not can_repeat)
+        spin_again.callback = on_spin_again
+        change_bet = Button(label="Change Bet", style=ButtonStyle.gray)
+        change_bet.callback = on_open_modal
+        v.add_item(spin_again)
+        v.add_item(change_bet)
+        return v
+
+    class CatSlotsModal(Modal):
+        def __init__(self, prefill: tuple[int, int] | None = None):
+            super().__init__(title="Place your bet", timeout=VIEW_TIMEOUT)
+            default_lines = str(prefill[0]) if prefill else None
+            default_per = str(prefill[1]) if prefill else None
+            self.lines = TextInput(
+                min_length=1,
+                max_length=2,
+                label="lines (1, 5, 9, or 20)",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder="20",
+                default=default_lines,
+            )
+            self.add_item(self.lines)
+
+            self.per_line = TextInput(
+                min_length=1,
+                label="coins per line",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder="10",
+                default=default_per,
+            )
+            self.add_item(self.per_line)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            await profile.refresh_from_db()
+
+            # ---- validate lines ----
+            try:
+                lines_n = int(self.lines.value)
+            except ValueError:
+                await interaction.response.send_message("lines must be a number", ephemeral=True)
+                return
+            if lines_n not in CATSLOTS_ALLOWED_LINES:
+                await interaction.response.send_message(
+                    f"lines must be one of {CATSLOTS_ALLOWED_LINES}", ephemeral=True
+                )
+                return
+
+            # ---- validate per-line ----
+            try:
+                per_line = int(self.per_line.value)
+            except ValueError:
+                await interaction.response.send_message("coins per line must be a number", ephemeral=True)
+                return
+            if per_line < 1:
+                await interaction.response.send_message("coins per line must be at least 1", ephemeral=True)
+                return
+
+            total_bet = lines_n * per_line
+            max_bet = max(profile.coins, 100)
+            if total_bet > max_bet:
+                await interaction.response.send_message(
+                    f"your total bet ({total_bet:,}) exceeds your max ({max_bet:,}). "
+                    f"debt is allowed up to 100 coins.",
+                    ephemeral=True,
+                )
+                return
+
+            # ---- concurrency re-check ----
+            if lock_key in catslots_lock:
+                await interaction.response.send_message(
+                    "you're already spinning /catslots — wait for the reels to settle, time-traveler",
+                    ephemeral=True,
+                )
+                await achemb(interaction, "paradoxical_catslots", "followup")
+                return
+
+            await interaction.response.defer()
+            await _do_spin(interaction, lines_n, per_line)
+
+    async def _do_spin(interaction: discord.Interaction, lines_n: int, per_line: int):
+        """Run the actual spin. Caller has validated inputs, checked the
+        concurrency lock, and called interaction.response.defer()."""
+        catslots_lock.append(lock_key)
+        try:
+            total_bet = lines_n * per_line
+
+            # ---- debit, persist before animating ----
+            profile.coins -= total_bet
+            profile.catslots_spins += 1
+            profile.catslots_coins_bet += total_bet
+            await profile.save()
+
+            try:
+                await achemb(interaction, "catslots", "followup")
+                await progress_casino_quest(message, profile, "slots")
+            except Exception:
+                pass
+
+            # ---- build 5 reels, each with an independent random length ----
+            reel_durations = [
+                random.randint(8, 11),
+                random.randint(13, 16),
+                random.randint(18, 21),
+                random.randint(23, 26),
+                random.randint(28, 31),
+            ]
+            random.shuffle(reel_durations)
+            cols = [
+                random.choices(CATSLOTS_SYMBOLS, weights=CATSLOTS_WEIGHTS, k=d)
+                for d in reel_durations
+            ]
+
+            # rigged_users: force a 5-of-a-kind eGirl on line 1 (middle row).
+            # current_i at the end of the animation == len(col)-2, which is
+            # the middle row index per the offset-(-1,0,+1) layout below.
+            if message.user.id in rigged_users:
+                for col in cols:
+                    col[len(col) - 2] = "eGirl"
+
+            blank_emoji = get_emoji("empty")
+
+            def render_grid(currents: list[int]) -> str:
+                lines_out = []
+                for offset in [-1, 0, 1]:
+                    cells = []
+                    for col, cur in zip(cols, currents):
+                        sym = col[cur + offset]
+                        cells.append(get_emoji(sym.lower() + "cat") or sym)
+                    if offset == 0:
+                        lines_out.append("➡️ " + " ".join(cells) + " ⬅️")
+                    else:
+                        lines_out.append(f"{blank_emoji} " + " ".join(cells) + f" {blank_emoji}")
+                return "\n".join(lines_out)
+
+            bet_header = f"bet **{total_bet:,}** coins ({lines_n} line{'s' if lines_n != 1 else ''} × {per_line:,})\n\n"
+
+            # ---- spin animation ----
+            for slot_loop_ind in range(1, max(reel_durations) - 1):
+                currents = [min(len(c) - 2, slot_loop_ind) for c in cols]
+                desc = bet_header + render_grid(currents)
+                embed = discord.Embed(title="🐈 Cat Slots — spinning…", description=desc, color=Colors.maroon)
+                try:
+                    await interaction.edit_original_response(embed=embed, view=None)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.125)
+
+            # ---- settled state ----
+            finals = [len(c) - 2 for c in cols]
+            # grid[row][col] — row 0=top, 1=middle, 2=bottom
+            grid = [[cols[c][finals[c] + (r - 1)] for c in range(5)] for r in range(3)]
+
+            # ---- evaluate active paylines ----
+            active_lines = CATSLOTS_PAYLINES[:lines_n]
+            wins = []  # (line_idx_1based, symbol, count, line_payout)
+            total_payout = 0
+            for i, line in enumerate(active_lines, start=1):
+                syms = [grid[r][c] for (c, r) in line]
+                first = syms[0]
+                count = 1
+                for s in syms[1:]:
+                    if s == first:
+                        count += 1
+                    else:
+                        break
+                if count >= 3:
+                    mult = CATSLOTS_PAYOUTS.get(first, {}).get(count, 0)
+                    line_payout = mult * per_line
+                    if line_payout > 0:
+                        wins.append((i, first, count, line_payout))
+                        total_payout += line_payout
+
+            big_win = total_payout >= 100 * total_bet and total_payout > 0
+
+            # ---- credit + persist ----
+            await profile.refresh_from_db()
+            profile.coins += total_payout
+            profile.catslots_coins_won += total_payout
+            if total_payout > 0:
+                profile.catslots_wins += 1
+            if big_win:
+                profile.catslots_big_wins += 1
+            await profile.save()
+
+            # Remember the bet so Spin Again / Change Bet can pre-fill.
+            catslots_last_bet[lock_key] = (lines_n, per_line)
+
+            # ---- render final embed ----
+            final_grid_str = render_grid(finals)
+            # Marking winning lines on the grid is too fiddly across rows since
+            # some paylines visit multiple rows. Per spec we just list winning
+            # lines below with a ✨ prefix on each line entry.
+            desc = bet_header + final_grid_str + "\n\n"
+            if big_win:
+                desc = "🎰 **BIG WIN!**\n\n" + desc
+            elif total_payout > 0:
+                desc = "✅ **You win!**\n\n" + desc
+            else:
+                desc = "💨 **You lose!**\n\n" + desc
+
+            if wins:
+                desc += "__Winning lines:__\n"
+                for line_idx, sym, count, lp in wins:
+                    emoji = get_emoji(sym.lower() + "cat") or sym
+                    desc += f"✨ **Line {line_idx}**: {count}× {emoji} {sym} — **{lp:,}** coins\n"
+                desc += "\n"
+
+            net = total_payout - total_bet
+            desc += f"**Total: {net:+,} coins** (bet {total_bet:,}, won {total_payout:,})\n"
+            broke_suffix = ""
+            if profile.coins <= 0:
+                broke_suffix = "\n-# debt allowed — you can still gamble up to **100** coins"
+            desc += f"new balance: **{profile.coins:,}** coins{broke_suffix}"
+
+            # Spin Again is only enabled if the player can still afford the
+            # same bet (factoring the debt rule).
+            can_repeat = total_bet <= max(profile.coins, 100)
+            view = post_spin_view(can_repeat=can_repeat)
+
+            embed = discord.Embed(
+                title="🐈 Cat Slots — " + ("BIG WIN!" if big_win else ("winner" if total_payout > 0 else "womp womp")),
+                description=desc,
+                color=Colors.maroon,
+            )
+            try:
+                await interaction.edit_original_response(embed=embed, view=view)
+            except Exception:
+                await interaction.followup.send(embed=embed, view=view)
+
+            # ---- aches (post-render) ----
+            if total_payout > 0:
+                try:
+                    await achemb(interaction, "win_catslots", "followup")
+                except Exception:
+                    pass
+            if big_win:
+                try:
+                    await achemb(interaction, "big_win_catslots", "followup")
+                except Exception:
+                    pass
+        finally:
+            try:
+                catslots_lock.remove(lock_key)
+            except ValueError:
+                pass
+
+    async def on_spin_again(interaction: discord.Interaction):
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+
+        last = catslots_last_bet.get(lock_key)
+        if not last:
+            # Defensive — shouldn't happen since the button only appears after
+            # a recorded spin, but reload restart clears the dict.
+            await interaction.response.send_message(
+                "no previous bet on record — use Change Bet to set one.", ephemeral=True
+            )
+            return
+        lines_n, per_line = last
+        total_bet = lines_n * per_line
+
+        # ---- concurrency check ----
+        if lock_key in catslots_lock:
+            await interaction.response.send_message(
+                "you're already spinning /catslots — wait for the reels to settle, time-traveler",
+                ephemeral=True,
+            )
+            await achemb(interaction, "paradoxical_catslots", "followup")
+            return
+
+        # ---- affordability re-check (coins may have moved between clicks) ----
+        await profile.refresh_from_db()
+        max_bet = max(profile.coins, 100)
+        if total_bet > max_bet:
+            await interaction.response.send_message(
+                "you can't afford the same bet anymore — try a smaller one",
+                ephemeral=True,
+            )
+            # Refresh the result message so Spin Again is disabled until they
+            # adjust the bet.
+            try:
+                await interaction.message.edit(view=post_spin_view(can_repeat=False))
+            except Exception:
+                pass
+            return
+
+        await interaction.response.defer()
+        await _do_spin(interaction, lines_n, per_line)
+
+    async def on_open_modal(interaction: discord.Interaction):
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        prefill = catslots_last_bet.get(lock_key)
+        await interaction.response.send_modal(CatSlotsModal(prefill=prefill))
+
+    bet_btn = Button(label="Place Bet", style=ButtonStyle.green)
+    bet_btn.callback = on_open_modal
+    view = View(timeout=VIEW_TIMEOUT)
+    view.add_item(bet_btn)
+
+    await message.response.send_message(embed=stats_embed(profile), view=view)
 
 
 @bot.tree.command(description="what")

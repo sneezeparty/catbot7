@@ -244,6 +244,41 @@
         "category": "Commands",
         "xp": 250
     },
+    "catslots": {
+        "title": "Cat Slots",
+        "description": "spin the /catslots machine",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 150,
+        "trigger": {
+            "event": "command",
+            "condition": {
+                "type": "command_use",
+                "command": "catslots"
+            }
+        }
+    },
+    "win_catslots": {
+        "title": "Whisker Winner",
+        "description": "win at the /catslots machine",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 250
+    },
+    "big_win_catslots": {
+        "title": "Furr Jackpot",
+        "description": "trigger a big win at /catslots",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 400
+    },
+    "paradoxical_catslots": {
+        "title": "Schrödinger's Spinner",
+        "description": "try to spin /catslots while already spinning",
+        "is_hidden": true,
+        "category": "Commands",
+        "xp": 200
+    },
     "define": {
         "title": "Definer",
         "description": "find out a definition of a word",

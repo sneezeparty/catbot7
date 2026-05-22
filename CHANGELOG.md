@@ -4,6 +4,23 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.065822052026]
+
+### Added
+- **`/catslots` — a Vegas-style 5×3 slot machine.** Sits alongside `/slots` as a second casino game. Pick **lines** (1, 5, 9, or 20) and **coins per line** via a modal; total bet = lines × per_line. Each spin rolls 5 independent weighted reels (8 cat-rarity symbols from Fine → eGirl, with rarer cats weighted exponentially lower). Wins evaluate per active payline by counting consecutive matches from column 1 — 3-, 4-, or 5-of-a-kind pays a multiplier of `coins_per_line` from the payout table; multiple winning lines stack. **Big wins** (`total_payout ≥ 100 × total_bet`) flash a banner and fire the `big_win_catslots` achievement. Shares the **`coins`** wallet with `/roulette`/`/stocks`/`/packs`/`/catstore`; same debt rule (`max(coins, 100)` cap). No remove-debt button — the recovery path is `/jobs`. Target RTP ~93%. Lifetime stats (spins/wins/big_wins/coins_bet/coins_won) on the new `profile.catslots_*` columns; `catslots_lock` gates concurrency separately from `slots_lock`. See [`docs/design/economy.md`](docs/design/economy.md#catslots) for the full design.
+- **Post-spin UX: Spin Again + Change Bet.** After every spin the result message shows two buttons. **Spin Again** repeats the just-completed bet, re-validating affordability against the player's current coins (in case they spent some elsewhere between clicks); if they can't afford the same bet anymore, an ephemeral nudge plus an updated view with Spin Again disabled. **Change Bet** opens the same modal pre-filled with the last-used lines and per-line values so only the changing field needs editing. Last-bet state lives in an in-memory `catslots_last_bet` dict keyed by `(user, server)`; it resets on bot restart.
+- **4 new achievements** wired into `/catslots`:
+  - **Cat Slots** (Commands • 150 XP) — spin `/catslots` once.
+  - **Whisker Winner** (Commands • 250 XP) — win at `/catslots`.
+  - **Furr Jackpot** (Commands • 400 XP) — trigger a big win at `/catslots`.
+  - **Schrödinger's Spinner** (Commands • 200 XP, hidden) — try to spin while already spinning.
+- **Casino quest progression.** `/catslots` spins count toward the `casino` extra-slot battlepass quest under the existing `slots` game bit. The `slots`/`slots2` catch quests stay scoped to `/slots`.
+
+### Internal
+- Migration `013_catslots.py` — 9 new `profile` columns (5 lifetime counters, 4 ach booleans). Idempotent per-column gate, marker file pattern.
+- Module-scope constants in `main.py`: `CATSLOTS_SYMBOLS`, `CATSLOTS_WEIGHTS`, `CATSLOTS_ALLOWED_LINES`, `CATSLOTS_PAYLINES` (20 paylines, line 1 = middle row to match the rigged-eGirl override), `CATSLOTS_PAYOUTS`. `catslots_lock = []` next to `slots_lock`. `catslots_last_bet: dict[int, tuple[int,int]] = {}` for post-spin button state.
+- `/catslots` honors the existing `rigged_users` list (forces a 5-eGirl line-1 jackpot for testing).
+
 ## [0.0.5.060722052026]
 
 ### Fixed

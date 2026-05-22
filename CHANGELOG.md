@@ -4,6 +4,23 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.4.0.164722052026]
+
+### Added
+- **Cat Bot Store via Discord's native monetization** (`/store`). Discord-side checkout, SKU + entitlement based, fully optional. SKUs live in `config/store.json` with `kind` of `supporter` (grants `user.premium`) or `cosmetic` (recorded only). The command lists every configured SKU and renders Discord's official **Premium Button** (`ButtonStyle.premium`) per item — no custom URL, no Stripe, no Patreon, no aiohttp route. Owned items show a disabled "Owned ✓". Paginated 2-page help explains the wall and the checkout flow.
+- **`on_entitlement_create` / `update` / `delete` event handlers** wire SKU ownership to `user.entitlements` (new JSONB list) and recompute `user.premium` as the OR of held supporter-tier SKUs. The existing `/editprofile`, `/customcat`, and blessing-anonymity gates continue to use `user.premium` and Just Work. Update events check `entitlement.ends_at` and dispatch to create-or-delete. Consumable SKUs are auto-consumed and logged with a TODO for cosmetic-grant wiring.
+- **Startup reconciliation in `on_ready`** iterates `bot.entitlements(exclude_ended=True)` once, applies any drift to the DB, and removes stale SKUs that Discord no longer reports. Idempotent. `asyncio.sleep(0)` between users keeps the gateway heartbeat happy. Catches entitlement changes that happened while the bot was offline.
+- **2 new achievements:** `store_first_purchase` (visible, 100 XP) on the first entitlement of any kind; `store_supporter` (visible, 250 XP) the first time `user.premium` flips on via a supporter SKU.
+- **Env vars `store_enabled` and `support_invite`.** `store_enabled` default 0 — the `/store` command short-circuits to a friendly "not available" message when off, and the entitlement handlers + reconciliation pass become no-ops. `support_invite` default empty — wherever the upstream bot used to link to `discord.gg/staring`, the fork now uses this env var, with empty meaning the line or button is omitted.
+
+### Changed
+- **All live upstream-store references stripped from the bot surface.** `/editprofile`, `/customcat`, the `/rain` intro, `/rain` "not enough" error, `/inventory` blessings supporter prompt, the donor-channel rain DM, `on_guild_join` welcome, and the admin `cat!sweep` / `/reset` rollback hints all now key off `store_enabled` and `support_invite` instead of hardcoded upstream URLs. The 🛒 Store button on the `/rain` view (which pointed at `catbot.shop`) is removed entirely. The dormant `/news` body still contains historical upstream URLs in its early-returned code path — left alone per design intent.
+
+### Internal
+- Migration `017_store_entitlements.py` adds `user.entitlements jsonb NOT NULL DEFAULT '[]'`. Mirrored in `schema.sql`.
+- New `config/store.json` catalog file (empty `skus[]` by default). New `config.STORE_ENABLED` and `config.SUPPORT_INVITE` in `config.py`. `config.store` loaded at module init alongside `config.battle` / `config.tuning` so it survives `cat!restart`.
+- New helpers next to `_perks_*` in `main.py`: `_user_entitlements_load`, `_user_has_sku`, `_supporter_sku_ids`, `_store_sku_by_id`, `_recompute_premium`, `_apply_entitlement_create`, `_apply_entitlement_delete`. All idempotent; all no-op when `STORE_ENABLED` is off.
+
 ## [0.3.0.160922052026]
 
 ### Fixed

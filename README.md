@@ -59,12 +59,18 @@ Set env vars, then run `python bot.py`.
 | `donor_channel_id` | no | supporter images channel ID |
 | `rain_channel_id` | no | rain log channel ID |
 | `voting_enabled` | default `0` | re-enable the retired voting path. `daily_catch_streak` drives gameplay regardless |
+| `store_enabled` | default `0` | enable the `/store` slash command, entitlement event handlers, and the startup reconciliation pass. SKUs live in `config/store.json` |
+| `support_invite` | default empty | invite to your support / community Discord. Used wherever the upstream bot used to link to its own server. Empty means the link is omitted entirely |
 
 Tip: append `export VAR=value` lines to `venv/bin/activate` so they are set whenever the venv is active.
 
 ## Admin webui
 
 If the bot is running, browse `http://127.0.0.1:9445`. It is **localhost-only and unauthenticated**, so never expose it. The webui edits live game state and JSON configs.
+
+## Cat Bot Store
+
+This fork ships its own optional `/store` command backed by **Discord's native monetization system** (SKUs and entitlements). The fork is not affiliated with the upstream bot's store. To enable it: set `store_enabled=1`, create your SKUs in the Discord Developer Portal under **Monetization**, then paste their numeric ids into `config/store.json` with a `kind` of `supporter` (grants `user.premium`) or `cosmetic` (recorded without changing premium). Discord handles checkout. The bot reconciles entitlement state on every startup so changes that happen offline are not lost.
 
 ## Migrations
 
@@ -89,6 +95,8 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 013 | `/catslots` state, 5 counter columns plus 4 ach booleans |
 | 014 | Rain in catstore, `rain_blocks_bought_today` and `rain_blocks_last_date` |
 | 015 | Packs in catstore, `store_purchased_pack_tiers` JSONB |
+| 016 | `/catslots` eGirl bonus round counters and ach booleans |
+| 017 | Cat Bot Store, `user.entitlements` JSONB |
 
 Run in numeric order. Each script is safe to re-run.
 

@@ -914,6 +914,20 @@
         "category": "Hidden",
         "xp": 500
     },
+    "store_first_purchase": {
+        "title": "Patron of the Cats",
+        "description": "make your first purchase from /store",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 100
+    },
+    "store_supporter": {
+        "title": "Supporter",
+        "description": "unlock supporter status via /store",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 250
+    },
     "mafia_discount_max": {
         "title": "Made Man",
         "description": "buy a cat at maximum mafia discount",

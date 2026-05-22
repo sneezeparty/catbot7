@@ -4,6 +4,26 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.2.0.084322052026]
+
+### Added
+- **`/catstore` Extras now has two sub-pages: Rain *and* Packs.** Browsing Extras lands on a small sub-menu pointing at both. Navigation tree is now `landing → cats → cat_detail` and `landing → extras → rain` / `landing → extras → packs`; Back pops one level at a time.
+- **📦 Packs in `/catstore` → Extras → Packs.** Stone, Bronze, Silver, Gold, Platinum, Diamond, and Celestial packs are sold for coins at face `pack["totalvalue"]` (with Cat Mafia discount/tax applied). **Wooden is excluded** — `/stocks` already provides a coins↔Wooden exchange at 100 coins/pack and selling Wooden here would duplicate that path. Each tier shows its current owned count next to its price; clicking Buy opens a quantity modal (max 99 per purchase). Packs land in the same `pack_{tier}` inventory columns as battlepass-rewarded packs — opening them with `/packs` is indistinguishable.
+- **2 new achievements:**
+  - **Pack Mule** (`catstore_pack_buyer`, Commands • 250 XP) — first pack purchase from /catstore.
+  - **Stocked Up** (`catstore_pack_collector`, Hard • 500 XP, hidden) — bought at least one of every catstore pack tier (Stone, Bronze, Silver, Gold, Platinum, Diamond, Celestial). Backed by a new `profile.store_purchased_pack_tiers` JSONB array, parallel to the existing `store_purchased_rarities` (which still tracks cats only).
+- **Existing catstore achievements also fire on pack purchases:** `catstore_first_buy` (any first /catstore purchase), `catstore_whale` (≥ 10k single transaction), `mafia_discount_max` (Lv10+), `mafia_tax_payer` (Lv0). `catstore_collector` is intentionally NOT touched — packs are not cat rarities.
+- **Help pagination expanded to 5 pages.** Cat Store Overview / Cats / Extras Overview / Rain in the Store / Packs in the Store. The 💡 Help button now opens the right page based on which screen you clicked from.
+
+### Changed
+- **Extras landing tile reworded** from "Spend coins on rain…" to "Rain blocks and higher-tier packs." Emoji changed from ☔ to ✨ to reflect the broader scope.
+- **`docs/design/economy.md`** — the "Before /catstore had two main sinks" framing is updated to acknowledge /catstore now spans three purchase shapes (targeted cats, ephemeral rain, non-targeted packs). New "Packs in /catstore" subsection with the full pricing table, design intent, no-arbitrage explanation against `/stocks`, and achievement integration.
+
+### Internal
+- Migration `015_store_pack_tiers.py` — adds `profile.store_purchased_pack_tiers jsonb NOT NULL DEFAULT '[]'::jsonb`. Existing profiles get `[]` — no backfill needed.
+- New module-scope helpers in `main.py`: `CATSTORE_PACK_TIERS` tuple, `pack_buy_price(pack_name, mafia_discount_pct)`, `mark_pack_tier_purchased(profile, pack_name)` (parallel to `mark_store_purchased`).
+- `gen_extras` renamed to `gen_rain`; new `gen_extras` is the sub-landing menu and a new `gen_packs` renders the pack catalog. `PackBuyModal` mirrors `/stocks` `WithdrawalModal`'s structure (int validation, max-count hint in the label).
+
 ## [0.1.0.081122052026]
 
 ### Fixed

@@ -211,9 +211,9 @@ Existing users were backfilled from their `cat_<Type>` counters by migration 005
 
 ### Currency
 
-`/catstore` touches `profile.coins` only. Since migration 006 merged `roulette_balance` into `coins`, this means roulette winnings can now be spent in the store — that is an accepted consequence of the merge. The coins↔rain-minutes wall remains intact; the store does not interact with rain minutes.
+`/catstore` touches `profile.coins` only. Since migration 006 merged `roulette_balance` into `coins`, this means roulette winnings can now be spent in the store — that is an accepted consequence of the merge. The coins↔rain-minutes wall is now puncturable via the Rain sub-page in Extras (see below), but the puncture is gated by a steep, exponentially-scaling tax rather than removed outright.
 
-Before `/catstore`, coins had two main sinks: depositing into `/stocks` (volatile speculation) and spending via `/packs` (gacha lottery). Neither let a player target a specific rarity. `/catstore` is the intentional targeted coin sink the economy was missing.
+Before `/catstore`, coins had two main sinks: depositing into `/stocks` (volatile speculation) and spending via `/packs` (gacha lottery). `/catstore` was originally added as **the third — the *targeted* sink** the economy was missing: pick the rarity you want, pay coins. The Extras sub-tree extends that with two non-targeted coin sinks: **ephemeral rain** (no inventory, just channel-spawn cats) and **random-roll packs** (`/catstore`'s gacha path, kept deliberately at face `totalvalue` so it adds no arbitrage versus `/stocks`). Packs in /catstore are *intentionally non-targeted* — they're a coin-sink convenience for coin-rich players, not a correction of the original "targeted sink" design.
 
 ### Achievement integration
 
@@ -278,3 +278,46 @@ Existing catstore achievements that also fire on qualifying rain purchases:
 Explicitly **not** fired by rain: `catstore_collector` (which counts distinct cat rarities purchased — rain is not a rarity, and `store_purchased_rarities` is not touched by the rain path).
 
 **Design intent**. The coins↔rain wall is preserved by pricing, not prohibition. A casual player will never break it; a coin-rich player gets a luxury escape valve at a punishing markup. The exponential per-block scaling specifically prevents whale players from bulk-converting in a single day — the 8th block of a day costs ≈ 17× the first, and the cumulative-to-block-8 already exceeds half a million coins.
+
+### Packs in /catstore
+
+`/catstore` → Extras → Packs sells **Stone through Celestial** packs at face `totalvalue` (with Cat Mafia discount applied). The store gives players a way to spend a surplus coin pile on pack content without going through `/stocks` or waiting for the battlepass.
+
+**Wooden is excluded.** `/stocks` already exposes a coins↔Wooden exchange at `COIN_PER_PACK = 100` via the deposit/withdraw flow. Selling Wooden in /catstore would duplicate that path with no benefit and create a second price reference. The Stone-and-up tiers are a genuine economic addition because `/stocks` doesn't sell them.
+
+**Pricing (`main.py:pack_buy_price`)**:
+
+```
+raw      = pack["totalvalue"]
+adjusted = raw * (1 - mafia_discount_pct / 100)
+price    = max(1, ceil(adjusted))
+```
+
+| Pack      | totalvalue | Lv0 (-20%) | Lv4 (0%) | Lv10 (+30%) |
+| --------- | ---------- | ---------- | -------- | ----------- |
+| Stone     | 150        | 180        | 150      | 105         |
+| Bronze    | 195        | 234        | 195      | 137         |
+| Silver    | 300        | 360        | 300      | 210         |
+| Gold      | 600        | 720        | 600      | 420         |
+| Platinum  | 1,200      | 1,440      | 1,200    | 840         |
+| Diamond   | 1,800      | 2,160      | 1,800    | 1,260       |
+| Celestial | 3,000      | 3,600      | 3,000    | 2,100       |
+
+`pack["totalvalue"]` is the same field `/stocks` deposit uses to reward Wooden equivalents; pricing at exactly that value makes the buy-then-deposit round trip net-zero. **Buy-then-open** is gacha-negative in expectation because pack `value` (expected contents) is less than `totalvalue` (aggregate), exactly the same way a real-world card pack works. Cat Mafia rank tilts that math: at Lv10 the +30% discount makes opening packs much more favorable; at Lv0 the −20% tax makes it much worse.
+
+**Quantity per purchase** is capped at 99 by the modal (`max_length=2`). Players who want more can transact twice — same convention as `/stocks` withdraw.
+
+**Pack contents and opening** are identical to packs earned from the battlepass. The pack columns (`profile.pack_{tier}`) are shared inventory; a `/catstore`-bought pack and a battlepass-rewarded pack of the same tier are indistinguishable once they land. All existing pack-opening achievements and quest progress fire the same way.
+
+**Achievements**:
+- `catstore_pack_buyer` (visible, 250 XP) — first pack purchase from /catstore.
+- `catstore_pack_collector` (hidden, 500 XP) — bought at least one of every Stone-through-Celestial tier. Backed by `profile.store_purchased_pack_tiers` (JSONB array). Wooden is intentionally NOT in this set since it isn't sold here.
+
+Existing catstore achievements that fire on qualifying pack purchases:
+- `catstore_first_buy` — first /catstore purchase of any kind (cat OR pack).
+- `catstore_whale` — single transaction ≥ 10,000 coins. Trips on 6× Diamond (10,800 at Lv4), or much sooner if the player buys multiple Platinum+.
+- `mafia_discount_max` (Lv10+) and `mafia_tax_payer` (Lv0) — apply the same way they do for cats.
+
+Explicitly **not** fired: `catstore_collector` (counts cat rarities, not packs — `store_purchased_rarities` and `store_purchased_pack_tiers` are independent arrays).
+
+**Design intent**. /catstore packs are a *non-targeted* sink — the gacha path the original "targeted sink" design avoided. They're a convenience for coin-rich players, included because the store needed something to do at the high end without inflating the cat catalog. The face-value pricing guarantees no arbitrage vs `/stocks` deposit; the cat-side targeted purchases remain the cheaper and more reliable use of /catstore.

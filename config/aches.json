@@ -293,6 +293,20 @@
         "category": "Hard",
         "xp": 500
     },
+    "catstore_pack_buyer": {
+        "title": "Pack Mule",
+        "description": "buy a pack from /catstore → Extras → Packs",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 250
+    },
+    "catstore_pack_collector": {
+        "title": "Stocked Up",
+        "description": "buy at least one of every /catstore pack tier (Stone through Celestial)",
+        "is_hidden": true,
+        "category": "Hard",
+        "xp": 500
+    },
     "define": {
         "title": "Definer",
         "description": "find out a definition of a word",

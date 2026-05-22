@@ -731,6 +731,46 @@ def _rain_blocks_today(profile: Profile) -> int:
     return int(getattr(profile, "rain_blocks_bought_today", 0) or 0)
 
 
+# Pack purchase (catstore Extras → Packs). Stone through Celestial are sold
+# at face-`totalvalue` (with mafia discount/tax). Wooden is intentionally
+# excluded — /stocks already provides a coins↔Wooden exchange and selling
+# Wooden here would duplicate that path with no economic benefit. The
+# `special` tag on Halloween/Christmas/etc. packs keeps them out of the
+# regular catalog.
+# Round-trip check: buy at totalvalue → /stocks deposit pays totalvalue,
+# so the round-trip nets zero. Buy-then-open is gacha-negative on
+# expectation since `value` (expected contents) is less than `totalvalue`.
+CATSTORE_PACK_TIERS = ("Stone", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Celestial")
+
+
+def pack_buy_price(pack_name: str, mafia_discount_pct: int) -> int:
+    """Coins to buy one pack of the given tier from /catstore. Wooden is
+    rejected — it's handled by /stocks and intentionally not sold here.
+    Special-event packs (Christmas/Halloween/etc.) are also rejected."""
+    if pack_name == "Wooden":
+        raise ValueError("Wooden packs are sold via /stocks, not /catstore")
+    pack = next((p for p in pack_data if p["name"] == pack_name), None)
+    if not pack or pack.get("special"):
+        raise ValueError(f"Unknown or non-purchasable pack: {pack_name}")
+    raw = int(pack["totalvalue"])
+    adjusted = raw * (1 - mafia_discount_pct / 100)
+    # ceil to keep a 1-coin floor even with extreme discounts.
+    return max(1, math.ceil(adjusted))
+
+
+async def mark_pack_tier_purchased(profile: Profile, pack_name: str) -> None:
+    """Record that this player has bought at least one pack of this tier from
+    /catstore. Backs the `catstore_pack_collector` achievement. Idempotent.
+    Wooden never enters this set (it isn't sold in /catstore)."""
+    if pack_name == "Wooden" or pack_name not in CATSTORE_PACK_TIERS:
+        return
+    tiers = _coerce_array(profile.store_purchased_pack_tiers)
+    if pack_name in tiers:
+        return
+    profile.store_purchased_pack_tiers = tiers + [pack_name]
+    await profile.save()
+
+
 # ---------------------------------------------------------------------------
 # Jobs / Mafia Killings — Phase 1 helpers (offer-board generation, read-only).
 # Commit/resolve paths land in Phase 2; rep + heat math wires up in Phases 3-4.
@@ -9238,15 +9278,17 @@ async def catstore(message: discord.Interaction):
         return [t for t in cattypes if t in owned]
 
     # ----- help: paginated, context-aware via start_page -----
+    # Page indices are used by _help_start_for_screen() below — keep in sync:
+    #   0=Overview, 1=Cats, 2=Extras Overview, 3=Rain, 4=Packs
     HELP_PAGES = [
         {
             "title": "Cat Store Overview",
             "body": (
                 "**The store has two browses.**\n"
                 "- 🐈 **Cats** — buy & sell from rarities you've discovered in this server.\n"
-                "- ☔ **Extras** — spend coins on **rain blocks** (15-second cat-spawn bursts in the current channel).\n\n"
-                "Both browses share the same **coins** wallet and respect your **Cat Mafia** rank discount/tax. "
-                "Cats are the cheap, repeatable use of the store; Extras → Rain is a deliberately-expensive escape valve."
+                "- ✨ **Extras** — pricier coin sinks: **rain blocks** and **higher-tier packs**.\n\n"
+                "Everything shares the same **coins** wallet and respects your **Cat Mafia** rank discount/tax. "
+                "Cats are the cheap, repeatable use of the store; Extras is where the coin-rich go to burn surplus."
             ),
         },
         {
@@ -9257,6 +9299,15 @@ async def catstore(message: discord.Interaction):
                 "- You can only buy or sell cats you've personally discovered in this server. Catch one to discover it.\n"
                 "- Sell prices also scale with Cat Mafia level — Newbies sell at 50% of face value, mid-ranks peak around 80%, "
                 "and the rate stays below the buy price at every level so round-trips always lose money. You can't farm the store."
+            ),
+        },
+        {
+            "title": "Extras Overview",
+            "body": (
+                "**Extras has two sub-shops, both more expensive than Cats:**\n"
+                "- ☔ **Rain** — buy a 15-second cat rain in the current channel. Price scales per-block per UTC day.\n"
+                "- 📦 **Packs** — buy Stone-and-up packs at face value (with mafia discount). Wooden lives in `/stocks`.\n\n"
+                "Cat Mafia discount/tax applies to both. Open Help from each sub-page for the full math."
             ),
         },
         {
@@ -9272,8 +9323,19 @@ async def catstore(message: discord.Interaction):
                 f"**Each block** is {RAIN_BLOCK_SECONDS} seconds of cat rain in the current channel "
                 "(or extends an active rain by the same duration). Catches during bought rain count for battlepass quests, "
                 "streaks, and XP — same as battlepass-earned rain.\n\n"
-                "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition. "
-                "If you've stacked tens of thousands of coins, you can pay your way out — slowly, and at a punishing markup."
+                "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition."
+            ),
+        },
+        {
+            "title": "Packs in the Store",
+            "body": (
+                "**Stone through Celestial** are sold here at their face `totalvalue` (with your Cat Mafia discount/tax applied).\n\n"
+                "**Wooden is excluded** — `/stocks` already provides a coins↔Wooden exchange at 100 coins per pack via the deposit/withdraw flow. "
+                "Selling Wooden here would duplicate that path with no benefit. Use `/stocks` for Wooden.\n\n"
+                "**Pack contents are random when opened.** A pack you bought here behaves identically to a pack from the battlepass — same odds, same achievements, same quest progress. Buy then open with `/packs`.\n\n"
+                "**Round-trip economics:** buying a pack from /catstore and depositing it back via `/stocks` is net-zero (deposit pays `totalvalue`). "
+                "Buying then **opening** is gacha-negative on expectation, because expected pack contents are less than the face value — like every real-world pack. "
+                "Cat Mafia rank changes that math: at Lv10 the discount makes opening packs much more favorable."
             ),
         },
     ]
@@ -9493,7 +9555,11 @@ async def catstore(message: discord.Interaction):
         await gen_detail(interaction, mode["cat_type"], use_followup=False)
 
     async def on_back(interaction: discord.Interaction):
-        """Context-aware Back. cat_detail → cats, cats/extras → landing."""
+        """Context-aware Back. The navigation tree is:
+             landing → cats → cat_detail
+             landing → extras → rain
+             landing → extras → packs
+        Each Back click pops exactly one level."""
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
@@ -9505,6 +9571,9 @@ async def catstore(message: discord.Interaction):
             mode["screen"] = "cats"
             mode["cat_type"] = None
             await gen_cats_list(interaction, use_followup=False)
+        elif screen in ("rain", "packs"):
+            mode["screen"] = "extras"
+            await gen_extras(interaction, use_followup=False)
         else:
             # cats or extras → landing
             mode["screen"] = "landing"
@@ -9532,6 +9601,26 @@ async def catstore(message: discord.Interaction):
         await interaction.response.defer()
         await gen_extras(interaction, use_followup=False)
 
+    async def on_browse_rain(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+        last_toast = None
+        mode["screen"] = "rain"
+        await interaction.response.defer()
+        await gen_rain(interaction, use_followup=False)
+
+    async def on_browse_packs(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+        last_toast = None
+        mode["screen"] = "packs"
+        await interaction.response.defer()
+        await gen_packs(interaction, use_followup=False)
+
     async def on_prev(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
@@ -9549,7 +9638,13 @@ async def catstore(message: discord.Interaction):
         await gen_cats_list(interaction, use_followup=False)
 
     def _help_start_for_screen() -> int:
+        # Keep in sync with HELP_PAGES index order:
+        # 0=Overview, 1=Cats, 2=Extras Overview, 3=Rain, 4=Packs
         s = mode.get("screen", "landing")
+        if s == "packs":
+            return 4
+        if s == "rain":
+            return 3
         if s == "extras":
             return 2
         if s in ("cats", "cat_detail"):
@@ -9703,7 +9798,116 @@ async def catstore(message: discord.Interaction):
             logging.exception("catstore: rain ach wiring failed")
 
         # Re-render so the new (higher) next-block price shows up.
-        await gen_extras(interaction, use_followup=False)
+        await gen_rain(interaction, use_followup=False)
+
+    # ----- pack purchase modal + handler -----
+    class PackBuyModal(Modal):
+        def __init__(self, pack_name: str, max_affordable: int):
+            super().__init__(title=f"Buy {pack_name} packs", timeout=VIEW_TIMEOUT)
+            self.pack_name = pack_name
+            # max_length=2 caps single submissions at 99, matching the spec.
+            self.input = TextInput(
+                min_length=1,
+                max_length=2,
+                label=f"How many {pack_name} packs? (max {min(max_affordable, 99)})",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder="1",
+            )
+            self.add_item(self.input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            nonlocal last_toast, profile
+            try:
+                qty = int(self.input.value)
+                if qty <= 0:
+                    raise ValueError
+            except Exception:
+                await interaction.response.send_message("invalid quantity", ephemeral=True)
+                return
+            if qty > 99:
+                await interaction.response.send_message(
+                    "max 99 per purchase. transact twice if you want more.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.response.defer()
+            async with transaction() as conn:
+                fresh = await Profile.get_or_create(conn, user_id=message.user.id, guild_id=message.guild.id)
+                try:
+                    unit_price = pack_buy_price(self.pack_name, store_discount_pct(fresh.catnip_level))
+                except ValueError as e:
+                    await interaction.followup.send(str(e), ephemeral=True)
+                    return
+                total_cost = unit_price * qty
+                if fresh.coins < total_cost:
+                    await interaction.followup.send(
+                        f"not enough coins — need 🪙 {total_cost:,}, have 🪙 {fresh.coins:,}",
+                        ephemeral=True,
+                    )
+                    return
+                fresh.coins -= total_cost
+                col_name = f"pack_{self.pack_name.lower()}"
+                fresh[col_name] = int(fresh[col_name] or 0) + qty
+                # Mark this tier as ever-purchased (idempotent).
+                tiers = _coerce_array(fresh.store_purchased_pack_tiers)
+                if self.pack_name not in tiers:
+                    fresh.store_purchased_pack_tiers = tiers + [self.pack_name]
+                await fresh.save()
+                profile = fresh
+
+            last_toast = (
+                f"✅ Bought {qty}× {self.pack_name} pack{'s' if qty != 1 else ''} for 🪙 {total_cost:,}."
+                f" Open with /packs."
+            )
+
+            # Achievements — fire after the transaction commits.
+            try:
+                if not profile.has_ach("catstore_first_buy"):
+                    await achemb(interaction, "catstore_first_buy", "followup")
+                if not profile.has_ach("catstore_pack_buyer"):
+                    await achemb(interaction, "catstore_pack_buyer", "followup")
+                if total_cost >= 10000 and not profile.has_ach("catstore_whale"):
+                    await achemb(interaction, "catstore_whale", "followup")
+                if store_discount_pct(profile.catnip_level) >= 30 and not profile.has_ach("mafia_discount_max"):
+                    await achemb(interaction, "mafia_discount_max", "followup")
+                if profile.catnip_level == 0 and not profile.has_ach("mafia_tax_payer"):
+                    await achemb(interaction, "mafia_tax_payer", "followup")
+                # catstore_pack_collector — one of every Stone-through-Celestial.
+                tiers_set = set(_coerce_array(profile.store_purchased_pack_tiers))
+                if (
+                    all(t in tiers_set for t in CATSTORE_PACK_TIERS)
+                    and not profile.has_ach("catstore_pack_collector")
+                ):
+                    await achemb(interaction, "catstore_pack_collector", "followup")
+            except Exception:
+                logging.exception("catstore: pack ach wiring failed")
+
+            await gen_packs(interaction, use_followup=False)
+
+    async def on_buy_pack(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        # custom_id is "catstore_buy_pack_{name}".
+        pack_name = interaction.data["custom_id"].removeprefix("catstore_buy_pack_")
+        if pack_name not in CATSTORE_PACK_TIERS:
+            return
+        await profile.refresh_from_db()
+        try:
+            unit_price = pack_buy_price(pack_name, store_discount_pct(profile.catnip_level))
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        max_affordable = profile.coins // unit_price if unit_price > 0 else 0
+        if max_affordable < 1:
+            await interaction.response.send_message(
+                f"you need 🪙 {unit_price - profile.coins:,} more coins to buy one {pack_name} pack",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(PackBuyModal(pack_name, max_affordable))
 
     # ----- renderers -----
     async def gen_landing(interaction: discord.Interaction, use_followup: bool):
@@ -9734,8 +9938,8 @@ async def catstore(message: discord.Interaction):
         extras_btn.callback = on_browse_extras
         items.append(
             Section(
-                "### ☔ Extras",
-                "Spend coins on rain. Pricey and gets pricier.",
+                "### ✨ Extras",
+                "Rain blocks and higher-tier packs.",
                 extras_btn,
             )
         )
@@ -9856,6 +10060,63 @@ async def catstore(message: discord.Interaction):
             await interaction.edit_original_response(view=view)
 
     async def gen_extras(interaction: discord.Interaction, use_followup: bool):
+        """Extras sub-landing — a tiny menu pointing at Rain and Packs."""
+        await profile.refresh_from_db()
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        rank = _rank_name(profile.catnip_level)
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## ✨ Cat Store — Extras",
+            "What can I get you?",
+        ]
+        if last_toast:
+            items.append(last_toast)
+
+        rain_btn = Button(label="Browse →", style=ButtonStyle.blurple, custom_id="catstore_browse_rain")
+        rain_btn.callback = on_browse_rain
+        items.append(
+            Section(
+                "### ☔ Rain",
+                "Add rain to this channel. Pricey and scales daily.",
+                rain_btn,
+            )
+        )
+
+        packs_btn = Button(label="Browse →", style=ButtonStyle.blurple, custom_id="catstore_browse_packs")
+        packs_btn.callback = on_browse_packs
+        items.append(
+            Section(
+                "### 📦 Packs",
+                "Buy higher-tier packs with coins (Wooden lives in /stocks).",
+                packs_btn,
+            )
+        )
+
+        items.append(
+            f"-# 🪙 Your balance: {profile.coins:,}  ·  Cat Mafia: Lv{profile.catnip_level} ({rank}) "
+            f"{_signed_pct(discount)}"
+        )
+
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_landing")
+        back_btn.callback = on_back
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_extras")
+        help_btn.callback = on_help
+        items.append(ActionRow(back_btn, help_btn))
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def gen_rain(interaction: discord.Interaction, use_followup: bool):
         await profile.refresh_from_db()
         _buy_bonus = _perks_catstore_buy_bonus(profile)
         discount = store_discount_pct(profile.catnip_level, _buy_bonus)
@@ -9880,7 +10141,7 @@ async def catstore(message: discord.Interaction):
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
-            "## ☔ Cat Store — Extras (Rain)",
+            "## ☔ Cat Store — Rain",
             "Add rain to **this channel**. Spawns extra cats during the duration.",
             "-# ⚠️ Heads up: rain is normally earned from battlepass / supporters.",
             "-# Buying it with coins is intentionally expensive and scales up daily.",
@@ -9906,14 +10167,77 @@ async def catstore(message: discord.Interaction):
             buy_btn.label = f"Need 🪙 {next_price - profile.coins:,} more"
         buy_btn.callback = on_buy_rain
 
-        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_landing")
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_extras")
         back_btn.callback = on_back
 
-        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_extras")
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_rain")
         help_btn.callback = on_help
 
         items.append(ActionRow(buy_btn, back_btn, help_btn))
         items.append(f"-# Daily counter resets <t:{reset_epoch}:R>")
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def gen_packs(interaction: discord.Interaction, use_followup: bool):
+        """Pack catalog — Stone through Celestial. Wooden is intentionally
+        excluded; the help page points players to /stocks for that tier."""
+        await profile.refresh_from_db()
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        # Packs use the catnip-only discount (the catstore_discount_stack
+        # perk is scoped to cats, not packs). Keep it explicit so the
+        # displayed price matches the charged price.
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        pack_discount = store_discount_pct(profile.catnip_level)
+        rank = _rank_name(profile.catnip_level)
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## 📦 Cat Store — Packs",
+            f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(pack_discount)}",
+            "Buy packs to open later. Higher tiers = better cats inside.",
+            "-# Wooden packs are sold via `/stocks` (deposit/withdraw flow).",
+        ]
+        if last_toast:
+            items.append(last_toast)
+
+        for pack_name in CATSTORE_PACK_TIERS:
+            try:
+                price = pack_buy_price(pack_name, pack_discount)
+            except ValueError:
+                continue
+            owned = int(profile[f"pack_{pack_name.lower()}"] or 0)
+            body = f"Owned: {owned:,}  ·  🪙 {price:,}"
+            btn = Button(
+                label="Buy",
+                style=ButtonStyle.green,
+                custom_id=f"catstore_buy_pack_{pack_name}",
+            )
+            if profile.coins < price:
+                btn.disabled = True
+                btn.label = f"Need 🪙 {price - profile.coins:,} more"
+            btn.callback = on_buy_pack
+            items.append(
+                Section(
+                    f"### {get_emoji(pack_name.lower() + 'pack')} {pack_name}",
+                    body,
+                    btn,
+                )
+            )
+
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_extras")
+        back_btn.callback = on_back
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_packs")
+        help_btn.callback = on_help
+        items.append(ActionRow(back_btn, help_btn))
 
         container = Container(*items)
         try:

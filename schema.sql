@@ -360,7 +360,8 @@ CREATE TABLE public.profile (
     job_perks jsonb DEFAULT '[]'::jsonb NOT NULL,
     perks_received jsonb DEFAULT '[]'::jsonb NOT NULL,
     rain_blocks_bought_today integer DEFAULT 0 NOT NULL,
-    rain_blocks_last_date text
+    rain_blocks_last_date text,
+    store_purchased_pack_tiers jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

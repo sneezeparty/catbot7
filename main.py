@@ -3471,7 +3471,15 @@ async def achemb(message, ach_id, send_type, author_string=None):
         if send_type == "send" and do:
             result = await message.channel.send(embed=embed)
         if send_type == "followup":
-            result = await message.followup.send(embed=embed, ephemeral=not do)
+            # `followup` only exists on discord.Interaction. Callers that
+            # receive a discord.Message (e.g. on_message → bounty()) and
+            # accidentally pass it through can land here; degrade gracefully
+            # to channel.send instead of crashing the achievement grant.
+            if hasattr(message, "followup"):
+                result = await message.followup.send(embed=embed, ephemeral=not do)
+            elif do:
+                logging.warning("achemb: 'followup' send_type used on a non-Interaction object for %s — falling back to channel.send", ach_id)
+                result = await message.channel.send(embed=embed)
         if send_type == "response":
             result = await message.response.send_message(embed=embed, ephemeral=not do)
     except Exception:

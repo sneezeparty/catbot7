@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.2.0.084522052026]
+
+### Fixed
+- **`achemb` no longer crashes when `bounty_novice` / `bounty_hunter` / `bounty_lord` unlocks via `on_message`.** The bounty callsites pass `send_type="followup"`, but `bounty()` is invoked from `on_message` paths with a `discord.Message` (which has no `.followup` — that's Interaction-only). Added a defensive fallback that mirrors the existing `reply → followup` fallback: when `send_type="followup"` is used on a non-Interaction object, the embed is sent via `channel.send` instead, with a warning log. The achievement still unlocks either way; only the failed embed send was crashing.
+
 ## [0.2.0.084322052026]
 
 ### Added

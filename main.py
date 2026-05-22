@@ -1041,7 +1041,6 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
         int(profile.guild_id),
         win_start,
         win_end,
-        fields=["template_id"],
     )
     existing_templates = {row.template_id for row in used_rows}
 

@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.0.5.073822052026]
+
+### Fixed
+- **`/jobs` no longer crashes with `TypeError: Model.collect() got an unexpected keyword argument 'fields'`.** Introduced in the duplicate-offer dedup fix (`0.0.5.060722052026`); `Model.collect()` doesn't accept a `fields=` projection (that's `filter`/`limit`/`collect_limit`). Dropped the projection — the per-window result set is at most a handful of rows, so the full-column fetch is negligible.
+
 ## [0.0.5.071722052026]
 
 ### Added

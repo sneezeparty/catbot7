@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.2.0.090422052026]
+
+### Fixed
+- **`/stocks` chart no longer crashes on macOS hosts** with `RuntimeError: Cannot create a GUI FigureManager outside the main thread using the MacOS backend`. matplotlib was autodetecting the macOS GUI backend, which is main-thread-only, but the chart renderer runs via `bot.loop.run_in_executor(...)` on a worker thread. Forced the non-interactive `Agg` backend at the top of `graph.py` before pyplot is imported. We only render PNG buffers anyway.
+
 ## [0.2.0.084522052026]
 
 ### Fixed

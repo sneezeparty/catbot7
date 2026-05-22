@@ -20,9 +20,15 @@ import io
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timedelta, timezone
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.ticker import MaxNLocator
+# Force the non-interactive Agg backend BEFORE pyplot is imported. We render
+# straight to PNG buffers, so we never need a GUI. Without this, matplotlib
+# autodetects the macOS backend on Mac hosts and crashes the moment a chart
+# is rendered from a worker thread (graph generation runs via run_in_executor).
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 
 def floor_to_bucket(ts_seconds: int, bucket_min: int) -> int:

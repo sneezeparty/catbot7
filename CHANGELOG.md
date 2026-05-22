@@ -4,6 +4,25 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.1.0.080822052026]
+
+### Added
+- **`/catstore` is now a two-level menu with a new Extras → Rain item.** The command opens to a landing page that asks "what are you here for?" with two browses: **🐈 Cats** (the existing storefront, unchanged behavior) and **☔ Extras** (new). The cat list now sits one click deeper but gets a "← Back" button alongside the existing Help, so navigation feels lighter rather than heavier. Internally the command tracks state via a `mode` dict on the closure (mirroring `/jobs`), with screens `landing / cats / cat_detail / extras`.
+- **☔ Rain blocks in `/catstore` → Extras.** A coin-purchased 15-second cat rain in the current channel. **The coins↔rain wall is now puncturable — but at a steep, exponentially-scaling tax.** Each block costs `12,000 × 1.5^blocks_bought_today` before the player's Cat Mafia discount/tax. The 8-block cumulative at Lv4 is ~591k coins; the 5th block alone is ~61k. Catches during bought rain count for everything battlepass-rain catches count for (quests, streaks, XP) — the price wall is what keeps the casino out of the rain economy, not a runtime gate. Daily counter resets at UTC midnight via lazy read; no cron. Buying into an already-running rain extends it by 15 seconds; buying into a quiet setupped channel kicks off `spawn_cat` + `rain_recovery_loop` like `/rain`. Operator constants `RAIN_BASE_PRICE`, `RAIN_SCALE`, `RAIN_BLOCK_SECONDS` live next to the other catstore helpers in `main.py`.
+- **2 new rain-purchase achievements:**
+  - **Cloud Seeder** (`catstore_rainmaker`, Commands • 300 XP) — buy any rain block.
+  - **Acts of God** (`catstore_monsoon`, Hard • 500 XP, hidden) — buy 5 rain blocks in a single UTC day.
+- **Existing catstore achievements also fire on qualifying rain purchases.** `catstore_whale` (≥ 10,000 coins) trips on block 1 already since the base price is 12k. `mafia_discount_max` and `mafia_tax_payer` apply the same way they do for cat purchases. `catstore_collector` is intentionally NOT touched — rain is not a rarity.
+- **Context-aware `/catstore` help.** The 💡 Help button is now paginated and opens to the page that matches where you clicked from: landing → Cat Store Overview, Cats/Cat-detail → Cats help (existing text), Extras → Rain in the Store. Follows the same Prev/Next pattern as `_jobs_send_help`.
+
+### Changed
+- **`docs/design/economy.md`** — the "coins-vs-rain-minutes segregation is preserved" framing is reworded as **"preserved by pricing, not by hard prohibition"**, with a new `Rain in /catstore` subsection covering the formula, the cost curve, lazy UTC reset, active-rain stacking, achievement integration, and design intent.
+
+### Internal
+- Migration `014_rain_blocks.py` — adds `profile.rain_blocks_bought_today INTEGER NOT NULL DEFAULT 0` and `profile.rain_blocks_last_date TEXT` (nullable). NULL last-date naturally compares "not today" so the counter starts fresh on first purchase — no backfill needed.
+- `_rain_blocks_today(profile)` — pure read; lazy UTC reset is computed at call time, not on write.
+- The `/catstore` command body is now ~600 lines structured around the `mode` dict; cat-buy/sell modals and `gen_detail` are unchanged in behavior.
+
 ## [0.0.5.075722052026]
 
 ### Changed

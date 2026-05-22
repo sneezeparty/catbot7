@@ -358,7 +358,9 @@ CREATE TABLE public.profile (
     jobs_pending_difficulty_mult real DEFAULT 1.0 NOT NULL,
     jobs_pending_heat_bonus integer DEFAULT 0 NOT NULL,
     job_perks jsonb DEFAULT '[]'::jsonb NOT NULL,
-    perks_received jsonb DEFAULT '[]'::jsonb NOT NULL
+    perks_received jsonb DEFAULT '[]'::jsonb NOT NULL,
+    rain_blocks_bought_today integer DEFAULT 0 NOT NULL,
+    rain_blocks_last_date text
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

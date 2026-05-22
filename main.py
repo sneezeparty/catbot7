@@ -699,6 +699,38 @@ def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0)
     return max(1, value * pct // 100)
 
 
+# Rain block purchase (catstore Extras). Coins → rain is intentionally a
+# steep tax: exponential per-block scaling within a UTC daily window keeps
+# the coins↔rain wall functionally intact for everyone but coin-rich
+# players, for whom it's a luxury escape valve.
+RAIN_BASE_PRICE = 12_000        # coins, before mafia adjustment
+RAIN_SCALE = 1.5                # multiplier per block bought today
+RAIN_BLOCK_SECONDS = 15         # duration of a single block, in real seconds
+# rain_recovery_loop ticks roughly every 2.75 s (matches existing rain math
+# at line ~5457). Number of spawns per 15s block = ceil(15 / 2.75) = 6.
+RAIN_BLOCK_SPAWNS = math.ceil(RAIN_BLOCK_SECONDS / 2.75)
+
+
+def rain_block_price(blocks_bought_today: int, mafia_discount_pct: int) -> int:
+    """Cost in coins of the NEXT rain block — block (N+1) where
+    N = blocks_bought_today. Applies the same mafia discount/tax convention
+    as `store_buy_price()`: positive discount lowers price, negative raises."""
+    raw = RAIN_BASE_PRICE * (RAIN_SCALE ** blocks_bought_today)
+    adjusted = raw * (1 - mafia_discount_pct / 100)
+    return max(1, int(round(adjusted)))
+
+
+def _rain_blocks_today(profile: Profile) -> int:
+    """Lazy UTC-daily reset. Returns the number of blocks the player has
+    bought so far today, treating any stored counter from a previous UTC
+    date as 0. Pure read — does NOT mutate the profile."""
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    last = getattr(profile, "rain_blocks_last_date", None) or ""
+    if last != today:
+        return 0
+    return int(getattr(profile, "rain_blocks_bought_today", 0) or 0)
+
+
 # ---------------------------------------------------------------------------
 # Jobs / Mafia Killings — Phase 1 helpers (offer-board generation, read-only).
 # Commit/resolve paths land in Phase 2; rep + heat math wires up in Phases 3-4.
@@ -9165,15 +9197,17 @@ Select any stock and click `💡 Help` to learn more, or click `Deposit` to star
 
 @bot.tree.command(description="buy and sell cats with the cat mafia")
 async def catstore(message: discord.Interaction):
-    """Cat Store — the late-game coin sink. Players spend coins on cats they've
-    personally discovered, gated by catnip-level discount. Sells are always at
-    face value (cat_value), so the discount is buy-side only."""
+    """Cat Store — the late-game coin sink. Two top-level browses from a
+    landing page:
+       - Cats (the original storefront — buy/sell discovered rarities)
+       - Extras → Rain blocks (puncture the coins↔rain wall at scaling cost)
+    Screen state lives in a `mode` dict on the closure, mirroring /jobs."""
 
     # ----- per-invocation state (closure-scoped) -----
     profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
-    current_page = 0
-    current_cat: Optional[str] = None  # None = on main page, else on detail page
-    last_toast: Optional[str] = None  # one-line "✅ Bought ..." banner, cleared on navigation
+    # screen ∈ {"landing", "cats", "cat_detail", "extras"}
+    mode: dict = {"screen": "landing", "cat_type": None, "page": 0}
+    last_toast: Optional[str] = None  # one-line banner, cleared on navigation
     PAGE_SIZE = 6
 
     def _container_color(discount: int) -> int:
@@ -9203,15 +9237,90 @@ async def catstore(message: discord.Interaction):
         owned = set(_coerce_array(p.discovered_cats))
         return [t for t in cattypes if t in owned]
 
-    async def show_help(interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "**🛒 Cat Store — quick guide**\n"
-            "- Cats cost coins. Their value comes from how rare they are.\n"
-            "- Your Cat Mafia level changes the price. Levels 5–10 give you a discount, levels 0–3 charge a tax, level 4 is even.\n"
-            "- You can only buy or sell cats you've personally discovered in this server. Catch one to discover it.\n"
-            "- Sell prices also scale with Cat Mafia level — Newbies sell at 50% of face value, mid-ranks peak around 80%, and the rate stays below the buy price at every level so round-trips always lose money. You can't farm the store.",
-            ephemeral=True,
-        )
+    # ----- help: paginated, context-aware via start_page -----
+    HELP_PAGES = [
+        {
+            "title": "Cat Store Overview",
+            "body": (
+                "**The store has two browses.**\n"
+                "- 🐈 **Cats** — buy & sell from rarities you've discovered in this server.\n"
+                "- ☔ **Extras** — spend coins on **rain blocks** (15-second cat-spawn bursts in the current channel).\n\n"
+                "Both browses share the same **coins** wallet and respect your **Cat Mafia** rank discount/tax. "
+                "Cats are the cheap, repeatable use of the store; Extras → Rain is a deliberately-expensive escape valve."
+            ),
+        },
+        {
+            "title": "Cats",
+            "body": (
+                "- Cats cost coins. Their value comes from how rare they are.\n"
+                "- Your Cat Mafia level changes the price. Levels 5–10 give you a discount, levels 0–3 charge a tax, level 4 is even.\n"
+                "- You can only buy or sell cats you've personally discovered in this server. Catch one to discover it.\n"
+                "- Sell prices also scale with Cat Mafia level — Newbies sell at 50% of face value, mid-ranks peak around 80%, "
+                "and the rate stays below the buy price at every level so round-trips always lose money. You can't farm the store."
+            ),
+        },
+        {
+            "title": "Rain in the Store",
+            "body": (
+                "**Rain is normally earned from battlepass / supporter rewards.** Buying it with coins is intentionally expensive.\n\n"
+                "**The price scales per block per UTC day:**\n"
+                f"- Base price: 🪙 **{RAIN_BASE_PRICE:,}** for the first block today.\n"
+                f"- Every block bought today multiplies the next block's price by **×{RAIN_SCALE:g}** (so block 2 is "
+                f"🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE):,}, block 3 is 🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE ** 2):,}, …).\n"
+                "- Your Cat Mafia discount/tax applies after the scaling — same `store_discount` as Cats.\n"
+                "- Counter resets at UTC midnight.\n\n"
+                f"**Each block** is {RAIN_BLOCK_SECONDS} seconds of cat rain in the current channel "
+                "(or extends an active rain by the same duration). Catches during bought rain count for battlepass quests, "
+                "streaks, and XP — same as battlepass-earned rain.\n\n"
+                "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition. "
+                "If you've stacked tens of thousands of coins, you can pay your way out — slowly, and at a punishing markup."
+            ),
+        },
+    ]
+
+    async def show_help(interaction: discord.Interaction, start_page: int = 0):
+        """Paginated help. start_page is chosen by the calling screen so the
+        first page shown matches where the player was when they clicked 💡."""
+        pages = HELP_PAGES
+        page_idx = max(0, min(len(pages) - 1, int(start_page)))
+
+        async def render(target_interaction: discord.Interaction, idx: int, is_initial: bool):
+            page = pages[idx]
+            items: list = [
+                f"## 💡 Cat Store Help — {page['title']}",
+                f"-# Page {idx + 1} / {len(pages)}",
+                Separator(),
+                page["body"],
+            ]
+            prev_btn = Button(label="← Prev", style=ButtonStyle.gray, custom_id="catstore_help_prev", disabled=idx == 0)
+            next_btn = Button(label="Next →", style=ButtonStyle.gray, custom_id="catstore_help_next", disabled=idx >= len(pages) - 1)
+
+            async def on_help_prev(intr: discord.Interaction):
+                await render(intr, idx - 1, is_initial=False)
+
+            async def on_help_next(intr: discord.Interaction):
+                await render(intr, idx + 1, is_initial=False)
+
+            prev_btn.callback = on_help_prev
+            next_btn.callback = on_help_next
+            items.append(ActionRow(prev_btn, next_btn))
+
+            v = LayoutView(timeout=VIEW_TIMEOUT)
+            container = Container(*items)
+            try:
+                container.accent_color = Colors.brown
+            except Exception:
+                pass
+            v.add_item(container)
+
+            if is_initial:
+                await target_interaction.response.send_message(view=v, ephemeral=True)
+            elif target_interaction.response.is_done():
+                await target_interaction.edit_original_response(view=v)
+            else:
+                await target_interaction.response.edit_message(view=v)
+
+        await render(interaction, page_idx, is_initial=True)
 
     # ----- buy/sell modals -----
     class BuyModal(Modal):
@@ -9376,80 +9485,280 @@ async def catstore(message: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        nonlocal current_cat, last_toast
+        nonlocal last_toast
         last_toast = None
-        current_cat = interaction.data["custom_id"].removeprefix("view_")
+        mode["cat_type"] = interaction.data["custom_id"].removeprefix("view_")
+        mode["screen"] = "cat_detail"
         await interaction.response.defer()
-        await gen_detail(interaction, current_cat, use_followup=False)
+        await gen_detail(interaction, mode["cat_type"], use_followup=False)
 
     async def on_back(interaction: discord.Interaction):
+        """Context-aware Back. cat_detail → cats, cats/extras → landing."""
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        nonlocal current_cat, last_toast
+        nonlocal last_toast
         last_toast = None
-        current_cat = None
+        screen = mode.get("screen", "landing")
         await interaction.response.defer()
-        await gen_main(interaction, use_followup=False)
+        if screen == "cat_detail":
+            mode["screen"] = "cats"
+            mode["cat_type"] = None
+            await gen_cats_list(interaction, use_followup=False)
+        else:
+            # cats or extras → landing
+            mode["screen"] = "landing"
+            mode["cat_type"] = None
+            await gen_landing(interaction, use_followup=False)
+
+    async def on_browse_cats(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+        last_toast = None
+        mode["screen"] = "cats"
+        mode["page"] = 0
+        await interaction.response.defer()
+        await gen_cats_list(interaction, use_followup=False)
+
+    async def on_browse_extras(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+        last_toast = None
+        mode["screen"] = "extras"
+        await interaction.response.defer()
+        await gen_extras(interaction, use_followup=False)
 
     async def on_prev(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        nonlocal current_page
-        current_page = max(0, current_page - 1)
+        mode["page"] = max(0, int(mode.get("page", 0)) - 1)
         await interaction.response.defer()
-        await gen_main(interaction, use_followup=False)
+        await gen_cats_list(interaction, use_followup=False)
 
     async def on_next(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        nonlocal current_page
-        current_page += 1
+        mode["page"] = int(mode.get("page", 0)) + 1
         await interaction.response.defer()
-        await gen_main(interaction, use_followup=False)
+        await gen_cats_list(interaction, use_followup=False)
+
+    def _help_start_for_screen() -> int:
+        s = mode.get("screen", "landing")
+        if s == "extras":
+            return 2
+        if s in ("cats", "cat_detail"):
+            return 1
+        return 0
 
     async def on_help(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        await show_help(interaction)
+        await show_help(interaction, start_page=_help_start_for_screen())
 
     async def on_buy(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        if not current_cat:
+        cat_type = mode.get("cat_type")
+        if not cat_type:
             return
         await profile.refresh_from_db()
-        unit_price = store_buy_price(current_cat, profile.catnip_level, _perks_catstore_buy_bonus(profile))
+        unit_price = store_buy_price(cat_type, profile.catnip_level, _perks_catstore_buy_bonus(profile))
         max_affordable = profile.coins // unit_price if unit_price > 0 else 0
         if max_affordable < 1:
             await interaction.response.send_message(
-                f"you need 🪙 {unit_price - profile.coins:,} more coins to buy one {current_cat}",
+                f"you need 🪙 {unit_price - profile.coins:,} more coins to buy one {cat_type}",
                 ephemeral=True,
             )
             return
-        await interaction.response.send_modal(BuyModal(current_cat, max_affordable))
+        await interaction.response.send_modal(BuyModal(cat_type, max_affordable))
 
     async def on_sell(interaction: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        if not current_cat:
+        cat_type = mode.get("cat_type")
+        if not cat_type:
             return
         await profile.refresh_from_db()
-        owned = profile[f"cat_{current_cat}"]
+        owned = profile[f"cat_{cat_type}"]
         if owned < 1:
             await interaction.response.send_message(
-                f"you don't have any {current_cat} cats to sell", ephemeral=True
+                f"you don't have any {cat_type} cats to sell", ephemeral=True
             )
             return
-        await interaction.response.send_modal(SellModal(current_cat, owned))
+        await interaction.response.send_modal(SellModal(cat_type, owned))
+
+    async def on_buy_rain(interaction: discord.Interaction):
+        """Buy one 15-second rain block in the current channel. Price scales
+        with `rain_blocks_bought_today` (lazy UTC reset). Extends an active
+        rain by RAIN_BLOCK_SECONDS instead of erroring."""
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+
+        await profile.refresh_from_db()
+        server = await Server.get_or_create(server_id=message.guild.id)
+        channel = await Channel.get_or_none(channel_id=message.channel.id)
+
+        if channel is None:
+            await interaction.response.send_message(
+                "rain needs to be in a setupped channel — run /setup first or move to one.",
+                ephemeral=True,
+            )
+            return
+        if not server.do_rain:
+            await interaction.response.send_message(
+                "rain is disabled in this server.", ephemeral=True
+            )
+            return
+        if channel.cat:
+            await interaction.response.send_message(
+                "there's a cat to catch in this channel first — finish that spawn, then buy rain.",
+                ephemeral=True,
+            )
+            return
+
+        blocks_today = _rain_blocks_today(profile)
+        discount = store_discount_pct(profile.catnip_level)
+        price = rain_block_price(blocks_today, discount)
+        if profile.coins < price:
+            await interaction.response.send_message(
+                f"not enough coins — need 🪙 {price:,}, have 🪙 {profile.coins:,}.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+
+        # ---- debit, persist counter ----
+        async with transaction() as conn:
+            fresh = await Profile.get_or_create(conn, user_id=message.user.id, guild_id=message.guild.id)
+            # Lazy reset against the fresh row in case another concurrent
+            # purchase wrote a new day before us.
+            fresh_blocks_today = _rain_blocks_today(fresh)
+            fresh_price = rain_block_price(fresh_blocks_today, store_discount_pct(fresh.catnip_level))
+            if fresh.coins < fresh_price:
+                await interaction.followup.send(
+                    f"price moved while you clicked — now 🪙 {fresh_price:,}, you have 🪙 {fresh.coins:,}.",
+                    ephemeral=True,
+                )
+                return
+            fresh.coins -= fresh_price
+            fresh.rain_blocks_bought_today = fresh_blocks_today + 1
+            fresh.rain_blocks_last_date = time.strftime("%Y-%m-%d", time.gmtime())
+            await fresh.save()
+            nonlocal profile
+            profile = fresh
+            price = fresh_price
+
+        # ---- bump the channel's rain counter ----
+        was_active = channel.cat_rains > 0
+        channel.cat_rains += RAIN_BLOCK_SPAWNS
+        if not was_active:
+            channel.yet_to_spawn = 0
+            config.cat_cought_rain[channel.channel_id] = {}
+            config.rain_starter[channel.channel_id] = message.user.id
+        await channel.save()
+
+        # ---- in-channel announcement + kick off rain loop if newly active ----
+        try:
+            if was_active:
+                await message.channel.send(
+                    f"{message.user.mention} bought {RAIN_BLOCK_SECONDS}s of cat rain — extending the current rain! ☔"
+                )
+            else:
+                await message.channel.send(
+                    f"{message.user.mention} bought a {RAIN_BLOCK_SECONDS}-second cat rain in this channel! ☔"
+                )
+                await spawn_cat(str(message.channel.id))
+                bot.loop.create_task(rain_recovery_loop(channel))
+        except Exception:
+            logging.exception("catstore: rain start/extend post failed")
+
+        # ---- toast + achievements ----
+        last_toast = f"☔ Bought {RAIN_BLOCK_SECONDS}s of cat rain for 🪙 {price:,}"
+        try:
+            await achemb(interaction, "catstore_rainmaker", "followup")
+            if profile.rain_blocks_bought_today >= 5:
+                await achemb(interaction, "catstore_monsoon", "followup")
+            if price >= 10000 and not profile.has_ach("catstore_whale"):
+                await achemb(interaction, "catstore_whale", "followup")
+            if store_discount_pct(profile.catnip_level) >= 30 and not profile.has_ach("mafia_discount_max"):
+                await achemb(interaction, "mafia_discount_max", "followup")
+            if profile.catnip_level == 0 and not profile.has_ach("mafia_tax_payer"):
+                await achemb(interaction, "mafia_tax_payer", "followup")
+        except Exception:
+            logging.exception("catstore: rain ach wiring failed")
+
+        # Re-render so the new (higher) next-block price shows up.
+        await gen_extras(interaction, use_followup=False)
 
     # ----- renderers -----
-    async def gen_main(interaction: discord.Interaction, use_followup: bool):
+    async def gen_landing(interaction: discord.Interaction, use_followup: bool):
+        await profile.refresh_from_db()
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        rank = _rank_name(profile.catnip_level)
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## 🛒 Cat Store",
+            "What are you here for?",
+        ]
+        if last_toast:
+            items.append(last_toast)
+
+        cats_btn = Button(label="Browse →", style=ButtonStyle.blurple, custom_id="catstore_browse_cats")
+        cats_btn.callback = on_browse_cats
+        items.append(
+            Section(
+                "### 🐈 Cats",
+                "Buy and sell from your discovered rarities.",
+                cats_btn,
+            )
+        )
+
+        extras_btn = Button(label="Browse →", style=ButtonStyle.blurple, custom_id="catstore_browse_extras")
+        extras_btn.callback = on_browse_extras
+        items.append(
+            Section(
+                "### ☔ Extras",
+                "Spend coins on rain. Pricey and gets pricier.",
+                extras_btn,
+            )
+        )
+
+        perk_note = f"  ·  🎁 +{_buy_bonus}pp perk" if _buy_bonus else ""
+        items.append(
+            f"-# 🪙 Your balance: {profile.coins:,}  ·  Cat Mafia: Lv{profile.catnip_level} ({rank}) "
+            f"{_signed_pct(discount)}{perk_note}"
+        )
+
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_landing")
+        help_btn.callback = on_help
+        items.append(ActionRow(help_btn))
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def gen_cats_list(interaction: discord.Interaction, use_followup: bool):
         await profile.refresh_from_db()
         # Show the combined catnip-level + job-perk discount in the header.
         _buy_bonus = _perks_catstore_buy_bonus(profile)
@@ -9459,7 +9768,7 @@ async def catstore(message: discord.Interaction):
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
-            "## 🛒 Cat Store",
+            "## 🛒 Cat Store — Cats",
             f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(discount)}"
             + (f"  ·  🎁 +{_buy_bonus}pp perk" if _buy_bonus else ""),
         ]
@@ -9470,9 +9779,11 @@ async def catstore(message: discord.Interaction):
             items.append(
                 "You haven't discovered any cats here yet! Catch one in this server first, then come back."
             )
+            back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_landing")
+            back_btn.callback = on_back
             help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help")
             help_btn.callback = on_help
-            items.append(ActionRow(help_btn))
+            items.append(ActionRow(back_btn, help_btn))
             container = Container(*items)
             try:
                 container.accent_color = _container_color(discount)
@@ -9487,10 +9798,12 @@ async def catstore(message: discord.Interaction):
 
         # Pagination math.
         total_pages = max(1, (len(discovered) + PAGE_SIZE - 1) // PAGE_SIZE)
-        nonlocal current_page
-        if current_page >= total_pages:
-            current_page = total_pages - 1
-        start = current_page * PAGE_SIZE
+        if int(mode.get("page", 0)) >= total_pages:
+            mode["page"] = total_pages - 1
+        if int(mode.get("page", 0)) < 0:
+            mode["page"] = 0
+        cur_page = int(mode["page"])
+        start = cur_page * PAGE_SIZE
         page_cats = discovered[start : start + PAGE_SIZE]
 
         for cat_type in page_cats:
@@ -9508,22 +9821,96 @@ async def catstore(message: discord.Interaction):
                 )
             )
 
-        # Footer: pagination only when multi-page, plus Help always.
+        # Footer: pagination only when multi-page, plus Back + Help always.
         action_buttons: list = []
         if total_pages > 1:
             prev_btn = Button(label="← Prev", style=ButtonStyle.gray, custom_id="catstore_prev")
             prev_btn.callback = on_prev
-            prev_btn.disabled = current_page == 0
+            prev_btn.disabled = cur_page == 0
             next_btn = Button(label="Next →", style=ButtonStyle.gray, custom_id="catstore_next")
             next_btn.callback = on_next
-            next_btn.disabled = current_page >= total_pages - 1
+            next_btn.disabled = cur_page >= total_pages - 1
             action_buttons.append(prev_btn)
             action_buttons.append(next_btn)
-            items.append(f"-# Page {current_page + 1}/{total_pages}")
+            items.append(f"-# Page {cur_page + 1}/{total_pages}")
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_landing")
+        back_btn.callback = on_back
+        action_buttons.append(back_btn)
         help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help")
         help_btn.callback = on_help
         action_buttons.append(help_btn)
         items.append(ActionRow(*action_buttons))
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def gen_extras(interaction: discord.Interaction, use_followup: bool):
+        await profile.refresh_from_db()
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        # Rain uses the catnip-only discount (perks don't apply to rain — they're
+        # buy-side perks scoped to cats). Keep it explicit so the displayed price
+        # matches the actually-charged price.
+        rain_discount = store_discount_pct(profile.catnip_level)
+        blocks_today = _rain_blocks_today(profile)
+        next_price = rain_block_price(blocks_today, rain_discount)
+        next_next_price = rain_block_price(blocks_today + 1, rain_discount)
+
+        # UTC midnight epoch for the "resets <t:...:R>" hint.
+        tomorrow = (datetime.datetime.utcnow() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        midnight_struct = time.strptime(tomorrow, "%Y-%m-%d")
+        # calendar.timegm interprets a struct_time as UTC; falls back to a
+        # close-enough approximation if calendar isn't on the path.
+        try:
+            import calendar
+            reset_epoch = int(calendar.timegm(midnight_struct))
+        except Exception:
+            reset_epoch = int(time.time()) + 86400
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## ☔ Cat Store — Extras (Rain)",
+            "Add rain to **this channel**. Spawns extra cats during the duration.",
+            "-# ⚠️ Heads up: rain is normally earned from battlepass / supporters.",
+            "-# Buying it with coins is intentionally expensive and scales up daily.",
+            Separator(),
+            f"### Next block: {RAIN_BLOCK_SECONDS} seconds",
+            (f"🪙 **{next_price:,}**" + (f"  (catnip-rank {_signed_pct(rain_discount)})" if rain_discount else "")),
+            f"Bought today: **{blocks_today}** block{'s' if blocks_today != 1 else ''} "
+            f"({blocks_today * RAIN_BLOCK_SECONDS}s)",
+            f"After this: next block costs 🪙 **{next_next_price:,}**",
+        ]
+        if last_toast:
+            items.append(last_toast)
+
+        # Buy button — disabled with a helpful label when the player can't
+        # afford the next block.
+        buy_btn = Button(
+            label=f"Buy ☔ {RAIN_BLOCK_SECONDS}s — 🪙 {next_price:,}",
+            style=ButtonStyle.green,
+            custom_id="catstore_buy_rain",
+        )
+        if profile.coins < next_price:
+            buy_btn.disabled = True
+            buy_btn.label = f"Need 🪙 {next_price - profile.coins:,} more"
+        buy_btn.callback = on_buy_rain
+
+        back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_landing")
+        back_btn.callback = on_back
+
+        help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_extras")
+        help_btn.callback = on_help
+
+        items.append(ActionRow(buy_btn, back_btn, help_btn))
+        items.append(f"-# Daily counter resets <t:{reset_epoch}:R>")
 
         container = Container(*items)
         try:
@@ -9619,7 +10006,7 @@ async def catstore(message: discord.Interaction):
 
     # ----- entry point -----
     await message.response.defer(ephemeral=True)
-    await gen_main(message, use_followup=True)
+    await gen_landing(message, use_followup=True)
 
 
 @bot.tree.command(description="take contracts from the cat mafia")

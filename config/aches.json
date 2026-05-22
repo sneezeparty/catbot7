@@ -279,6 +279,20 @@
         "category": "Commands",
         "xp": 200
     },
+    "catstore_rainmaker": {
+        "title": "Cloud Seeder",
+        "description": "buy a rain block at /catstore → Extras",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 300
+    },
+    "catstore_monsoon": {
+        "title": "Acts of God",
+        "description": "buy 5 rain blocks in a single UTC day",
+        "is_hidden": true,
+        "category": "Hard",
+        "xp": 500
+    },
     "define": {
         "title": "Definer",
         "description": "find out a definition of a word",

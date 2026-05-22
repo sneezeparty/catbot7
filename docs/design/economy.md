@@ -56,7 +56,7 @@ There are now two distinct currency pools:
 - **Coins** are the single shared wallet for `/roulette`, `/catslots`, `/stocks`, `/packs`, and `/catstore`. New profiles start at **0 coins** (no default grant). The `failed_gambler` achievement still fires when coins go negative — only the underlying column changed, not the game mechanic. A player in debt can still bet up to 100 coins (`max(coins, 100)`) but cannot buy from `/stocks` or `/catstore` until they grind back to positive.
 - **Rain minutes** are channel-affecting (`/rain` triggers a multi-cat spawn event). They're gift-able and accumulate from battlepass + supporters.
 
-**Design intent:** the coins-vs-rain-minutes segregation is preserved — if someone could convert /roulette winnings directly into rain minutes, the casino would dominate. Coins stay in the coins silo; rain minutes stay in the rain silo.
+**Design intent:** the coins-vs-rain-minutes segregation is preserved **by pricing, not by hard prohibition.** With the addition of `/catstore` → Extras → Rain (see [Rain in /catstore](#rain-in-catstore) below), a coin-rich player *can* convert coins to rain blocks — but the per-block scaling tax is steep enough that casual conversion never pays off, and the casino doesn't dominate the rain economy for any player who isn't sitting on a six-figure coin balance.
 
 ### Historical note: the cat-dollars / coins merge (migration 006)
 
@@ -232,3 +232,49 @@ Five achievements unlock inline in the buy handler via `achemb()` calls:
 ### Out of scope
 
 No cross-server store. No packs in the catalog. No custom cat support. The buy modal is the confirmation step (matching `/stocks` UX); there is no separate confirmation dialog. (The historical "no coins↔roulette_balance bridge" note is obsolete — `roulette_balance` no longer exists as a separate column; see the [currency merge history](#historical-note-the-cat-dollars--coins-merge-migration-006) above.)
+
+### Rain in /catstore
+
+`/catstore` exposes a second top-level browse, **Extras**, with a single item: **rain blocks**. Each block is `RAIN_BLOCK_SECONDS = 15` seconds of cat rain in the current channel. Players spend `coins`. This intentionally punctures the coins↔rain wall — but only at extreme cost.
+
+**Pricing (`main.py:rain_block_price`)**:
+
+```
+raw      = RAIN_BASE_PRICE * (RAIN_SCALE ** blocks_bought_today)
+adjusted = raw * (1 - mafia_discount_pct / 100)
+```
+
+Defaults: `RAIN_BASE_PRICE = 12_000`, `RAIN_SCALE = 1.5`. The mafia discount uses the same `store_discount` field from `config/catnip.json` that drives cat-buy pricing. Job perks **do not** apply to rain (the buy-side perks are scoped to cats, so the displayed price equals the charged price).
+
+**Cost curve at mafia Lv4 (0% adjustment):**
+
+| Block | Cost     | Cumulative |
+|-------|----------|------------|
+| 1     | 12,000   | 12,000     |
+| 2     | 18,000   | 30,000     |
+| 3     | 27,000   | 57,000     |
+| 4     | 40,500   | 97,500     |
+| 5     | 60,750   | 158,250    |
+| 6     | 91,125   | 249,375    |
+| 7     | 136,688  | 386,063    |
+| 8     | 205,031  | 591,094    |
+
+**Lazy UTC daily reset**. `profile.rain_blocks_bought_today` (INT) holds the counter; `profile.rain_blocks_last_date` (TEXT, e.g. `"2026-05-22"`) holds the UTC date the counter was last incremented. On every read (`_rain_blocks_today`), the stored date is compared against today's UTC date; on mismatch, the read returns 0. On the next successful purchase, both columns are written with `count=1` and today's date. No cron, no scheduled task.
+
+**Active-rain stacking**. Buying a block while a rain is already running in the channel adds `RAIN_BLOCK_SPAWNS = ceil(15 / 2.75) = 6` to `channel.cat_rains` without restarting the recovery loop. Buying into an inactive channel sets `channel.cat_rains`, resets `channel.yet_to_spawn`, kicks off `spawn_cat` + `rain_recovery_loop` (mirrors `/rain`).
+
+**Quest / streak / XP**. Catches during bought rain behave identically to catches during battlepass-earned rain — full quest progress, catch streaks, XP. The price wall (≥ 12k coins for 15 s) is steep enough that arbitrage doesn't pay even at the discount cap.
+
+**Gating**. The Extras purchase button is only meaningful in a setupped channel with `server.do_rain = true` and no active spawn — the handler ephemeral-rejects all three failure modes before deducting any coins.
+
+**Achievements**:
+- `catstore_rainmaker` (visible, 300 XP) — first rain block purchase.
+- `catstore_monsoon` (hidden, 500 XP) — `rain_blocks_bought_today >= 5` in a single UTC day.
+
+Existing catstore achievements that also fire on qualifying rain purchases:
+- `catstore_whale` — any block ≥ 10,000 coins (so block 1 already trips it at the base price).
+- `mafia_discount_max` (+30% discount) and `mafia_tax_payer` (Lv0 buyer) — apply the same way they do for cat purchases.
+
+Explicitly **not** fired by rain: `catstore_collector` (which counts distinct cat rarities purchased — rain is not a rarity, and `store_purchased_rarities` is not touched by the rain path).
+
+**Design intent**. The coins↔rain wall is preserved by pricing, not prohibition. A casual player will never break it; a coin-rich player gets a luxury escape valve at a punishing markup. The exponential per-block scaling specifically prevents whale players from bulk-converting in a single day — the 8th block of a day costs ≈ 17× the first, and the cumulative-to-block-8 already exceeds half a million coins.

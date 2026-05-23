@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.0.170522052026]
+
+### Changed
+- **`/catslots` eGirl Party opening animation rebuilt.** The old 5-frame quick-cut version was too fast to read. Replaced with a ~13s letter-by-letter reveal that spells out **EGIRL** and then **BONUS** one character at a time, each rendered as a 5×5 emoji bitmap (egirl emoji on, blank emoji off). Six stages: sparkle anticipation (3 frames), EGIRL letters (5 frames), pause, BONUS letters (5 frames), stats reveal (Free Spins / Multiplier / Sticky eGirls), and "PARTY STARTING". Five `BONUS_INTRO_*_DELAY` module-scope constants make the timing tunable in one place. New `LETTER_SHAPES` dict at module scope holds the bitmaps; new `_catslots_render_letter()` helper renders one letter. Bonus spin animation, sticky mechanic, payout math, wild substitution, and breakdown animation are all unchanged.
+
 ## [0.4.1.165622052026]
 
 ### Fixed

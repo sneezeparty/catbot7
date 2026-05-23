@@ -501,6 +501,35 @@ CATSLOTS_BONUS_RETRIGGER_REWARD = 5      # extra spins added on retrigger
 CATSLOTS_BONUS_COLOR_OPENING = 0xFFD700  # gold
 CATSLOTS_BONUS_COLOR_PARTY = 0xFF1493    # hot pink
 
+# Bonus-round opening animation: spells out E-G-I-R-L then B-O-N-U-S one
+# letter at a time using a 5×5 emoji bitmap per letter. Total runtime
+# ~13s. Tune via the *_DELAY constants below — they're the only knobs.
+BONUS_INTRO_SPARKLE_DELAY = 0.4
+BONUS_INTRO_LETTER_DELAY = 0.8
+BONUS_INTRO_PAUSE_DELAY = 1.0
+BONUS_INTRO_REVEAL_DELAY = 2.0
+BONUS_INTRO_STARTING_DELAY = 0.8
+LETTER_SHAPES = {
+    "E": ["#####", "#....", "###..", "#....", "#####"],
+    "G": [".####", "#....", "#.###", "#...#", ".###."],
+    "I": ["#####", "..#..", "..#..", "..#..", "#####"],
+    "R": ["####.", "#...#", "####.", "#..#.", "#...#"],
+    "L": ["#....", "#....", "#....", "#....", "#####"],
+    "B": ["####.", "#...#", "####.", "#...#", "####."],
+    "O": [".###.", "#...#", "#...#", "#...#", ".###."],
+    "N": ["#...#", "##..#", "#.#.#", "#..##", "#...#"],
+    "U": ["#...#", "#...#", "#...#", "#...#", ".###."],
+    "S": [".####", "#....", ".###.", "....#", "####."],
+}
+
+
+def _catslots_render_letter(letter: str) -> str:
+    """Render a single bonus-intro letter as a 5-row emoji block."""
+    egirl = get_emoji("egirlcat")
+    blank = get_emoji("empty")
+    rows = LETTER_SHAPES[letter]
+    return "\n".join("".join(egirl if c == "#" else blank for c in row) for row in rows)
+
 
 # WELCOME TO THE TEMP_.._STORAGE HELL
 
@@ -13898,25 +13927,79 @@ async def catslots(message: discord.Interaction):
                 free_spins_initial = int(cfg["spins"])
                 bonus_mult = int(cfg["multiplier"])
 
-                # ---- opening animation (5 frames, ~0.5s each) ----
-                opening = [
-                    ("🎉 something's happening... 🎉", "", CATSLOTS_BONUS_COLOR_OPENING),
-                    (f"🎉🎉 EGIRL PARTY?! 🎉🎉", f"{trigger_egirls} eGirls have arrived...", CATSLOTS_BONUS_COLOR_OPENING),
-                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉", "", CATSLOTS_BONUS_COLOR_PARTY),
-                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉",
-                     f"**Free spins:** {free_spins_initial}\n**Multiplier:** {bonus_mult}×\n\nGet ready...",
-                     CATSLOTS_BONUS_COLOR_PARTY),
-                    ("🎉🎉🎉 EGIRL PARTY BONUS!!! 🎉🎉🎉", "🌟✨🎊 PARTY STARTING 🎊✨🌟", CATSLOTS_BONUS_COLOR_PARTY),
-                ]
-                for op_title, op_desc, op_color in opening:
+                # ---- opening animation: letter-by-letter EGIRL BONUS reveal ----
+                async def _bonus_frame(title: str, desc: str, color: int, delay: float) -> None:
                     try:
                         await interaction.edit_original_response(
-                            embed=discord.Embed(title=op_title, description=op_desc, color=op_color),
+                            embed=discord.Embed(title=title, description=desc, color=color),
                             view=None,
                         )
                     except Exception:
                         pass
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(delay)
+
+                # Stage 1 — sparkle anticipation (3 frames)
+                sparkle_title = "🎰 The Slot Machine"
+                for sparkles in ("✨", "✨    ✨", "✨    ✨    ✨"):
+                    await _bonus_frame(
+                        sparkle_title, sparkles,
+                        CATSLOTS_BONUS_COLOR_OPENING, BONUS_INTRO_SPARKLE_DELAY,
+                    )
+
+                # Stage 2 — EGIRL letter by letter
+                egirl_letters = "EGIRL"
+                for i, letter in enumerate(egirl_letters, start=1):
+                    revealed = " ".join(egirl_letters[:i])
+                    await _bonus_frame(
+                        f"🎉  {revealed}  🎉",
+                        _catslots_render_letter(letter),
+                        CATSLOTS_BONUS_COLOR_OPENING,
+                        BONUS_INTRO_LETTER_DELAY,
+                    )
+
+                # Stage 3 — EGIRL pause
+                await _bonus_frame(
+                    "🎉🎉🎉  E G I R L  🎉🎉🎉",
+                    "✨ ✨ ✨ ✨ ✨ ✨ ✨ ✨",
+                    CATSLOTS_BONUS_COLOR_OPENING,
+                    BONUS_INTRO_PAUSE_DELAY,
+                )
+
+                # Stage 4 — BONUS letter by letter
+                bonus_letters = "BONUS"
+                for i, letter in enumerate(bonus_letters, start=1):
+                    revealed = " ".join(bonus_letters[:i])
+                    await _bonus_frame(
+                        f"🎉  E G I R L  ·  {revealed}  🎉",
+                        _catslots_render_letter(letter),
+                        CATSLOTS_BONUS_COLOR_PARTY,
+                        BONUS_INTRO_LETTER_DELAY,
+                    )
+
+                # Stage 5 — stats reveal
+                reveal_desc = (
+                    "✨✨✨✨✨✨✨✨\n"
+                    "\n"
+                    f"🎰  **FREE SPINS:**  {free_spins_initial}\n"
+                    f"⚡  **MULTIPLIER:**   {bonus_mult}×\n"
+                    f"🐱  **STICKY EGIRLS:** {trigger_egirls}\n"
+                    "\n"
+                    "✨✨✨✨✨✨✨✨"
+                )
+                await _bonus_frame(
+                    "🎉🎉🎉  EGIRL BONUS  🎉🎉🎉",
+                    reveal_desc,
+                    CATSLOTS_BONUS_COLOR_PARTY,
+                    BONUS_INTRO_REVEAL_DELAY,
+                )
+
+                # Stage 6 — starting
+                await _bonus_frame(
+                    "🎉  PARTY STARTING  🎉",
+                    "🌟 GET READY 🌟",
+                    CATSLOTS_BONUS_COLOR_PARTY,
+                    BONUS_INTRO_STARTING_DELAY,
+                )
 
                 # sticky_mask[col][row]; True = locked to eGirl going forward.
                 sticky_mask = [[trigger_grid[r][c] == "eGirl" for r in range(3)] for c in range(5)]

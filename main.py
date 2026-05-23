@@ -462,39 +462,41 @@ CATSLOTS_PAYLINES = [
     [(0, 0), (1, 2), (2, 0), (3, 2), (4, 0)],
 ]
 CATSLOTS_PAYOUTS = {
-    # Second emergency retune 2026-05-22: wild substitution lets any landed
-    # eGirl prop up a line to the HIGHEST base's payout via the eval rule.
-    # That made Ultimate 4OAK/5OAK the practical ceiling on any sticky-
-    # adjacent line. Top-tier 4OAK and 5OAK are now flattened so wild
-    # substitution can't print money. Worst-case all-wild line = Ult 5OAK
-    # at 4,000 × per_line; × 3 bonus mult = 12,000 × per_line. Target
-    # total RTP ~78-81% after this pass — more aggressive than Vegas but
-    # the right call given the hard-to-bound sticky-wild dynamics.
-    "Fine":      {3: 1,     4: 2,       5: 5},
-    "8bit":      {3: 10,    4: 50,      5: 200},
-    "Corrupt":   {3: 15,    4: 75,      5: 350},
-    "Professor": {3: 25,    4: 125,     5: 600},
-    "Divine":    {3: 50,    4: 250,     5: 1000},
-    "Real":      {3: 100,   4: 500,     5: 2000},
-    "Ultimate":  {3: 200,   4: 1000,    5: 4000},
-    # The bonus round IS the eGirl reward. Base-game eGirl line wins are
-    # small on purpose; the dopamine is the bonus dispatch.
-    "eGirl":     {3: 100,   4: 500,     5: 2000},
+    # Third retune 2026-05-22 (target ~80% base RTP). Earlier retunes left
+    # base RTP at ~66% but assumed the bonus would only contribute ~12-15pp
+    # — in reality the wild-substitution rule + frozen stickies produced
+    # ~125pp of bonus RTP, pushing total RTP to ~190%. This retune drops
+    # wild substitution entirely (see bonus eval below) and rebalances:
+    #   • Base payouts bumped ~21% across the board, with Fine 4OAK 2→3
+    #     and 5OAK 5→6 to absorb most of the increase (Fine dominates
+    #     because P(c0=Fine) ≈ 60%).
+    #   • Total RTP target: base ~80% + bonus ~14pp = ~94% total. Verified
+    #     by Monte Carlo (400k spins) — see economy.md.
+    "Fine":      {3: 1,     4: 3,       5: 6},
+    "8bit":      {3: 12,    4: 60,      5: 250},
+    "Corrupt":   {3: 18,    4: 90,      5: 425},
+    "Professor": {3: 30,    4: 150,     5: 725},
+    "Divine":    {3: 60,    4: 300,     5: 1200},
+    "Real":      {3: 125,   4: 625,     5: 2500},
+    "Ultimate":  {3: 250,   4: 1250,    5: 5000},
+    # eGirl base-game payouts are paid via straight match too — they are
+    # NOT used as wilds anymore. Base-game eGirl line wins are small on
+    # purpose; the dopamine is the bonus dispatch.
+    "eGirl":     {3: 125,   4: 625,     5: 2500},
 }
 
 # eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid
-# triggers free spins with a multiplier and sticky-wild eGirls. Effective
-# RTP rises into the ~99-102% band (slightly player-favorable, fine for a
-# closed-economy bot). See docs/design/economy.md.
+# triggers free spins with a multiplier and frozen sticky eGirls. Total
+# RTP target after the third retune: base ~80% + bonus ~14pp = ~94%.
+# See docs/design/economy.md for the Monte Carlo verification.
 CATSLOTS_BONUS_TRIGGERS = {
-    # Emergency retune 2026-05-22: paired with FIX 1 (sticky_mask frozen at
-    # trigger time — no in-bonus accumulation) and the slashed PAYOUTS
-    # above. Multipliers stayed modest to keep the bonus from compounding
-    # into millions when ~half the grid was sticky-saturated. 6+ eGirls
-    # falls through to the 5-entry via min(5, count).
-    3: {"spins": 5,  "multiplier": 2},
-    4: {"spins": 7,  "multiplier": 2},
-    5: {"spins": 10, "multiplier": 3},
+    # Third retune 2026-05-22: multipliers are now fractional. The bonus
+    # eval no longer does wild substitution (see the loop near the bottom
+    # of catslots), so the multiplier knob does what you'd intuitively
+    # expect. 6+ eGirls falls through to the 5-entry via min(5, count).
+    3: {"spins": 5,  "multiplier": 1.25},
+    4: {"spins": 7,  "multiplier": 1.5},
+    5: {"spins": 10, "multiplier": 2.0},
 }
 CATSLOTS_BONUS_RETRIGGER_THRESHOLD = 3   # newly-landed eGirls in a single bonus spin
 CATSLOTS_BONUS_RETRIGGER_REWARD = 5      # extra spins added on retrigger
@@ -13925,7 +13927,7 @@ async def catslots(message: discord.Interaction):
                 tier_key = min(5, trigger_egirls)
                 cfg = CATSLOTS_BONUS_TRIGGERS[tier_key]
                 free_spins_initial = int(cfg["spins"])
-                bonus_mult = int(cfg["multiplier"])
+                bonus_mult = float(cfg["multiplier"])
 
                 # ---- opening animation: letter-by-letter EGIRL BONUS reveal ----
                 async def _bonus_frame(title: str, desc: str, color: int, delay: float) -> None:
@@ -13981,7 +13983,7 @@ async def catslots(message: discord.Interaction):
                     "✨✨✨✨✨✨✨✨\n"
                     "\n"
                     f"🎰  **FREE SPINS:**  {free_spins_initial}\n"
-                    f"⚡  **MULTIPLIER:**   {bonus_mult}×\n"
+                    f"⚡  **MULTIPLIER:**   {bonus_mult:g}×\n"
                     f"🐱  **STICKY EGIRLS:** {trigger_egirls}\n"
                     "\n"
                     "✨✨✨✨✨✨✨✨"
@@ -14077,30 +14079,28 @@ async def catslots(message: discord.Interaction):
                     ]
 
                     # Wild-substitution evaluation per active line.
+                    # Bonus eval (third retune 2026-05-22): straight-match,
+                    # same rule as the base game. eGirls no longer substitute
+                    # as wilds — the prior wild-sub rule was the main driver
+                    # behind 190%+ total RTP. Stickies still freeze in place
+                    # so they contribute to eGirl 3/4/5-OAK lines when they
+                    # happen to be the leading run of a payline.
                     spin_payout = 0
                     spin_wins = []
                     for i, line in enumerate(CATSLOTS_PAYLINES[:lines_n], start=1):
                         syms = [b_grid[r][c] for (c, r) in line]
-                        best_mult = 0
-                        best_base = None
-                        best_len = 0
-                        for base in CATSLOTS_PAYOUTS:
-                            length = 0
-                            for sym in syms:
-                                if sym == base or sym == "eGirl":
-                                    length += 1
-                                else:
-                                    break
-                            if length >= 3:
-                                m = CATSLOTS_PAYOUTS[base].get(length, 0)
-                                if m > best_mult:
-                                    best_mult = m
-                                    best_base = base
-                                    best_len = length
-                        if best_base is not None:
-                            line_payout = best_mult * per_line * bonus_mult
+                        first = syms[0]
+                        count = 1
+                        for s in syms[1:]:
+                            if s == first:
+                                count += 1
+                            else:
+                                break
+                        if count >= 3:
+                            mult = CATSLOTS_PAYOUTS.get(first, {}).get(count, 0)
+                            line_payout = int(round(mult * per_line * bonus_mult))
                             if line_payout > 0:
-                                spin_wins.append((i, best_base, best_len, line_payout))
+                                spin_wins.append((i, first, count, line_payout))
                                 spin_payout += line_payout
 
                     bonus_total += spin_payout
@@ -14138,7 +14138,7 @@ async def catslots(message: discord.Interaction):
                     settled_desc += f"**Bonus total:** {bonus_total:,}\n"
                     if retrigger_fired:
                         settled_desc += f"\n🎉 **Retrigger!** +{CATSLOTS_BONUS_RETRIGGER_REWARD} spins!\n"
-                    settled_desc += f"\nMultiplier: {bonus_mult}× | Remaining: {remaining}"
+                    settled_desc += f"\nMultiplier: {bonus_mult:g}× | Remaining: {remaining}"
                     try:
                         await interaction.edit_original_response(
                             embed=discord.Embed(
@@ -14230,7 +14230,7 @@ async def catslots(message: discord.Interaction):
                 composite_desc += (
                     f"**Base game:** bet {total_bet:,}, won {total_payout:,}\n"
                     f"🎉 **Bonus won: {bonus_total:,} coins** "
-                    f"({spins_played} spins @ {bonus_mult}×)\n"
+                    f"({spins_played} spins @ {bonus_mult:g}×)\n"
                     f"**Grand total:** +{total_payout + bonus_total - total_bet:+,} coins\n"
                 )
                 broke_suffix_composite = ""

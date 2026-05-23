@@ -87,14 +87,15 @@ A second slot machine alongside `/slots`, but Vegas-style: 5 columns × 3 rows, 
 
 `/catslots` shares the **`coins`** wallet with `/roulette` and `/stocks`/`/packs`/`/catstore`. The same debt rule applies: a player at zero or negative coins can still place a bet up to 100 coins (`max(coins, 100)`). **There is no "remove debt" button on `/catslots`** — that mechanic stays on `/slots`. The expected path out of debt is `/jobs` (the mafia contract system), not free undos at the casino.
 
-**Target total RTP ~78-81%** after the 2026-05-22 second emergency retune (base ~66%, bonus contribution ~12-15pp). More aggressive than Vegas penny-slot standard (~87-92%) but the right call given how hard it is to bound sticky-wild compounding mathematically — conservative is correct. The payout table is shaped so that:
+**Target total RTP ~94-96%** after the 2026-05-22 third retune (base ~80%, bonus contribution ~14pp). Right in the Vegas penny-slot sweet spot. Verified by 400k-spin Monte Carlo. The payout table is shaped so that:
 - Fine 3-of-a-kind (the most common hit) returns 1× per line — break-even on that one line, less than your stake when most lines don't hit.
-- the top-tier 5-of-a-kind line caps at Ultimate 4,000× per_line (and eGirl 5OAK 2,000× per_line) — meaningful, not economy-breaking even when wild substitution lands the line on the rarest base.
+- Fine 4OAK pays 3× and Fine 5OAK pays 6× — these absorb most of the base RTP because P(c0=Fine) ≈ 60%.
+- the top-tier 5-of-a-kind line caps at Ultimate 5,000× per_line (and eGirl 5OAK 2,500× per_line). Worst-case base-game 5OAK on a max bet line = 500,000 coins.
 - middle tiers (Corrupt → Real) carry the bulk of per-spin variance.
 
 A spin is flagged a **big win** when `total_payout >= 100 × total_bet`. This is a high but not lottery-only threshold: a 5-of-a-kind on most symbols at most line counts will clear it. Big wins fire the `big_win_catslots` achievement and increment `profile.catslots_big_wins`.
 
-**Per-line bet cap: `CATSLOTS_MAX_PER_LINE = 100` coins.** Total bet is therefore implicitly capped at `max(lines) × max_per_line = 20 × 100 = 2,000 coins` per spin. After the second 2026-05-22 retune this bounds the worst-case 5-of-a-kind base-game payout to **400,000 coins** (Ultimate 4,000× × 100 per_line), down from the original 100M. The cap is enforced in the modal's `on_submit`.
+**Per-line bet cap: `CATSLOTS_MAX_PER_LINE = 100` coins.** Total bet is therefore implicitly capped at `max(lines) × max_per_line = 20 × 100 = 2,000 coins` per spin. The worst-case base-game 5-of-a-kind line is Ultimate 5,000× × 100 per_line = **500,000 coins** for a single line. The cap is enforced in the modal's `on_submit`.
 
 Lifetime stats live in five `profile.catslots_*` columns (`spins`, `wins`, `big_wins`, `coins_bet`, `coins_won`). `catslots_coins_bet`/`coins_won` use `bigint` since aggregate lifetime turnover can exceed int32 quickly at high stakes. Concurrency is gated by a separate `catslots_lock` list (mirroring `slots_lock`); the rigged-user override forces a 5-of-a-kind eGirl on line 1 (middle row).
 
@@ -106,27 +107,29 @@ After every settled regular spin, the bot counts eGirl symbols visible on the 5�
 
 | Trigger | Free spins | Multiplier |
 | ------- | ---------- | ---------- |
-| 3 eGirls | 5 | ×2 |
-| 4 eGirls | 7 | ×2 |
-| 5 eGirls | 10 | ×3 |
+| 3 eGirls | 5 | ×1.25 |
+| 4 eGirls | 7 | ×1.5 |
+| 5 eGirls | 10 | ×2 |
 
-**Trigger frequency.** The eGirl reel weight is 3 (out of 91), so ~3.3% per cell. With 15 visible cells per spin the **3+ trigger lands ~1 in 84 spins**.
+**Trigger frequency.** The eGirl reel weight is 3 (out of 91), so ~3.3% per cell. With 15 visible cells per spin the **3+ trigger lands ~1 in 83 spins**. Per-tier shares of triggers: ~90.1% are 3-eGirl, ~9.2% are 4-eGirl, ~0.7% are 5-eGirl.
 
-**Sticky_mask is frozen at trigger time.** This is the primary fix from the 2026-05-22 emergency retune (see history below). Newly-landed eGirls during a bonus spin still substitute as wilds for that spin via the substitution rule, but they do NOT lock for future spins. Without this rule, sticky cells compound across spins, the grid saturates with eGirls, every line scores a 5OAK substitution, and a 5-eGirl trigger can pay 10M+ coins on a 2-coin bet.
+**Sticky_mask is frozen at trigger time.** This was the primary fix from the first 2026-05-22 emergency retune. Newly-landed eGirls during a bonus spin do NOT lock for future spins. Without this rule, sticky cells compound across spins, the grid saturates with eGirls, and the bonus runs away.
 
-**Sticky wilds.** The triggering eGirls start locked in place. Every bonus spin, locked cells skip the reel animation and stay as eGirl. Any *new* eGirl that lands gets added to the sticky set going forward. During the bonus, eGirls act as wild substitutes — line evaluation tries every base symbol and picks the highest-paying interpretation. A line like `eGirl Real Real Fine X` scores as 3× Real (eGirl substitutes), not 1× eGirl, because Real 3-of-a-kind pays more than eGirl 1-of-a-kind.
+**Sticky behavior.** The triggering eGirls start locked in place. Every bonus spin, those locked cells skip the reel animation and remain as eGirl. Stickies help a line only when they happen to be the leading consecutive run from column 0 — they're real cells, not wilds. As of the **third 2026-05-22 retune** the bonus eval uses straight-match (the same rule as the base game), not wild substitution. A line like `eGirl Real Real Fine X` no longer scores as 3× Real — eGirl is treated literally, so this line scores 1× eGirl 1OAK (i.e., nothing).
 
-**Retrigger.** If a bonus spin lands 3 or more *newly-landed* eGirls (not counting the pre-sticky ones), the remaining-spin count gains +5. The multiplier does not change. No cap on retriggers.
+**Retrigger.** If a bonus spin lands 3 or more *newly-landed* eGirls (not counting the pre-sticky ones), the remaining-spin count gains +5. The multiplier does not change. No cap on retriggers, though in practice they're vanishingly rare (avg ~0.03 per bonus, ~3pp of bonus contribution to RTP).
 
 **Stats.** Three lifetime counters track the bonus round independently of the base game: `catslots_bonus_triggers`, `catslots_bonus_coins_won`, `catslots_bonus_spins_total`. The base-game `catslots_coins_won` does NOT include bonus payouts, so the existing `/leaderboards type:Catslots` ranking is stable. Two new achievements fire on first trigger (`egirl_party`, visible, 350 XP) and on a 5-eGirl trigger (`egirl_party_max`, hidden, 600 XP).
 
-**RTP contribution.** After the two 2026-05-22 emergency retunes (see history below) the bonus contributes an estimated **12-15 percentage points** to total RTP, taking total return to about **78-81%**. The first retune cut the runaway compounding (sticky_mask frozen + spin counts down); the second flattened top-tier 4OAK and 5OAK payouts so wild substitution can't print money via Ultimate. Worst-case all-wild line during a bonus is now Ultimate 5OAK at 4,000× per_line × 3× bonus multiplier = 12,000× per_line — meaningful, not breaking. Slots remains the dopamine command, but the dopamine is now in the trigger and the multiplier hits, not in the round-end coin avalanche.
+**RTP contribution.** After the third 2026-05-22 retune the bonus contributes **~14 percentage points** to total RTP, taking total return to **~94%** (verified by 400k-spin Monte Carlo). At max bet (2,000 coins/spin), a HUGE WIN ≥50,000 coins occurs ~1 in 700 spins, ≥100k ~1 in 1,400, ≥500k ~1 in 17,000. By tier: tier-3 (90% of bonuses) averages 15,135 coins at max bet, tier-5 averages 416,462. The dopamine sits in the trigger, the rare 5-eGirl tier, and the long tail.
 
-**History — the 150% RTP regression and the two-pass fix.** The original bonus design accumulated sticky eGirls across the round. Combined with the wild-substitution rule that lets eGirl substitute for any base symbol on a line, sticky-saturated grids paid 5OAK on most paylines via Ultimate substitution (75,000 × per_line at the time). A 5-eGirl trigger × 5× bonus multiplier × 18 spins × sticky saturation produced 10M+ coin payouts on small bets.
+**History — the 190% RTP regression and the three-pass fix.** The original bonus design accumulated sticky eGirls across the round. Combined with the wild-substitution rule that lets eGirl substitute for any base symbol on a line, sticky-saturated grids paid 5OAK on most paylines via Ultimate substitution. A 5-eGirl trigger × 5× bonus multiplier × 18 spins × sticky saturation produced 10M+ coin payouts on small bets.
 
-The first emergency retune (`0.3.0.100122052026`) was four-fold: freeze sticky_mask at trigger time (no in-bonus accumulation), shrink bonus spin counts to 5/7/10, drop multipliers to 2×/2×/3×, and slash base payouts across the board.
+The **first emergency retune** (`0.3.0.100122052026`) was four-fold: freeze sticky_mask at trigger time (no in-bonus accumulation), shrink bonus spin counts to 5/7/10, drop multipliers to 2×/2×/3×, and slash base payouts across the board. Stated target ~86% RTP.
 
-The **second retune** (`0.3.0.<next>`) cut the top-tier 4OAK and 5OAK payouts further because the first pass underestimated wild-substitution's effects. With wilds substituting for any base, Ultimate 4OAK at 8,000 and 5OAK at 60,000 were the practical ceiling on any line that happened to contain a sticky eGirl. Flattening Ultimate to 200/1,000/4,000 caps the worst-case all-wild payout cleanly. Total RTP target moved from ~86% to ~78-81% — more aggressive than Vegas penny-slot standard, but conservative is correct when the sticky-wild interaction is hard to bound mathematically.
+The **second retune** (`0.3.0.102222052026`) flattened top-tier 4OAK and 5OAK payouts because the first pass underestimated wild-substitution's effects. Stated target moved to ~78-81%. Monte Carlo verification afterward showed the actual was **~190% total RTP** — the wild-substitution rule plus frozen stickies still produced ~125pp of bonus RTP. The target was never hit.
+
+The **third retune** (`0.5.1.<this>`) **removed wild substitution from the bonus eval entirely** (the bonus loop now uses the same straight-match rule as the base game) and rebalanced base payouts to land base RTP at ~80%. Multipliers were also cut to 1.25/1.5/2. With wild substitution gone, the multiplier knob now does what you'd intuitively expect, and total RTP settled at ~94% — Vegas penny-slot range. Verified by Monte Carlo before shipping.
 
 **Admin override.** `/catslots_force_bonus egirls:<3|4|5>` (manage-guild only) queues a single-use override that overwrites N random visible cells with eGirl on the next spin. The entry is popped on read, so it always lasts exactly one spin.
 

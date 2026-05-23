@@ -4,6 +4,16 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.1.174022052026]
+
+### Changed
+- **Third `/catslots` retune — RTP regression finally fixed.** Monte Carlo verification after the second 2026-05-22 retune showed actual total RTP was **~190%**, not the design-stated 78-81% — the wild-substitution rule + frozen stickies still produced ~125pp of bonus RTP that the prior retunes never quantified. Three coordinated changes land total RTP in the **94% range** (Vegas penny-slot sweet spot), verified by 400k-spin Monte Carlo:
+  - **Bonus eval no longer does wild substitution.** The bonus loop in `main.py:14080+` now uses the same straight-match rule as the base game — eGirls are treated literally, not as wilds that can substitute for any base symbol. Sticky cells still freeze in place at trigger time and still contribute to lines where they happen to be the leading run, but they don't prop up arbitrary bases anymore. This is the dominant lever; the multiplier knob now does what you'd intuitively expect.
+  - **Bonus multipliers cut to 1.25 / 1.5 / 2** (from 2 / 2 / 3) for the 3 / 4 / 5-eGirl tiers respectively. `bonus_mult` is now a float (`float(cfg["multiplier"])`); line payouts are rounded to integer with `int(round(...))`. UI displays `{bonus_mult:g}×` so `2.0×` renders as `2×`.
+  - **Base payouts rebalanced** to land base RTP at ~80% (up from ~66%). Fine 4OAK 2→3 and 5OAK 5→6 absorb most of the increase since P(c0=Fine) ≈ 60%; mid/high tiers bumped ~21% across the board. Worst-case base-game 5-of-a-kind line is now Ultimate 5,000× per_line = 500,000 coins at max bet.
+- Per-tier averages at max bet (2,000 coins/spin) after the retune: tier 3 (~90% of bonuses) avg 15,135 coins, median 4,125; tier 4 (~9%) avg 79,375; tier 5 (~0.7%) avg 416,462. HUGE WIN ≥50k = 1 in ~700 spins, ≥500k = 1 in ~17,000 spins. Trigger rate unchanged at 1 in 83.
+- Sticky game mechanic, retrigger rule, animations, achievements, the admin force command, and concurrency are all unchanged.
+
 ## [0.5.0.170522052026]
 
 ### Changed

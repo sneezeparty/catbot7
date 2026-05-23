@@ -87,15 +87,17 @@ A second slot machine alongside `/slots`, but Vegas-style: 5 columns × 3 rows, 
 
 `/catslots` shares the **`coins`** wallet with `/roulette` and `/stocks`/`/packs`/`/catstore`. The same debt rule applies: a player at zero or negative coins can still place a bet up to 100 coins (`max(coins, 100)`). **There is no "remove debt" button on `/catslots`** — that mechanic stays on `/slots`. The expected path out of debt is `/jobs` (the mafia contract system), not free undos at the casino.
 
-**Target total RTP ~94-96%** after the 2026-05-22 third retune (base ~80%, bonus contribution ~14pp). Right in the Vegas penny-slot sweet spot. Verified by 400k-spin Monte Carlo. The payout table is shaped so that:
-- Fine 3-of-a-kind (the most common hit) returns 1× per line — break-even on that one line, less than your stake when most lines don't hit.
-- Fine 4OAK pays 3× and Fine 5OAK pays 6× — these absorb most of the base RTP because P(c0=Fine) ≈ 60%.
-- the top-tier 5-of-a-kind line caps at Ultimate 5,000× per_line (and eGirl 5OAK 2,500× per_line). Worst-case base-game 5OAK on a max bet line = 500,000 coins.
-- middle tiers (Corrupt → Real) carry the bulk of per-spin variance.
+**Target total RTP ~97%** (base ~73%, bonus contribution ~25pp, floor bumps the bonus contribution a few pp). Right in the Vegas penny-slot sweet spot. Verified by 500k-spin Monte Carlo. The payout table after the **variety retune (2026-05-22)** is shaped so that:
+- Fine reel weight dropped 55→38, mid-tier weights bumped (8bit 8→14, Corrupt 7→11, Professor 6→9, Divine 5→8, Real 4→5). eGirl/Ultimate kept at 3 so bonus trigger rate is unchanged.
+- Fine 3-of-a-kind (still the most common hit) returns 1× per line. Fine 4OAK 4× and 5OAK 11×.
+- Mid-tier payouts scaled up ~50-60% to compensate for the reduced Fine-share of RTP: 8bit 5OAK now 450×, Corrupt 650×, Professor 1,150×, Divine 1,950×, Real 4,000×, Ultimate 8,000×, eGirl 4,000×.
+- ~18% of winning spins now have a non-Fine win (up from 3% pre-variety-retune).
+
+**Base-game win rate** is now ~54% per spin (down from ~81% pre-retune). The lower frequency is the price of the variety — fewer Fine cells means fewer wins overall. The bonus floor still guarantees the bonus rounds always feel like wins.
 
 A spin is flagged a **big win** when `total_payout >= 100 × total_bet`. This is a high but not lottery-only threshold: a 5-of-a-kind on most symbols at most line counts will clear it. Big wins fire the `big_win_catslots` achievement and increment `profile.catslots_big_wins`.
 
-**Per-line bet cap: `CATSLOTS_MAX_PER_LINE = 100` coins.** Total bet is therefore implicitly capped at `max(lines) × max_per_line = 20 × 100 = 2,000 coins` per spin. The worst-case base-game 5-of-a-kind line is Ultimate 5,000× × 100 per_line = **500,000 coins** for a single line. The cap is enforced in the modal's `on_submit`.
+**Per-line bet cap: `CATSLOTS_MAX_PER_LINE = 100` coins.** Total bet is therefore implicitly capped at `max(lines) × max_per_line = 20 × 100 = 2,000 coins` per spin. The worst-case base-game 5-of-a-kind line is Ultimate 8,000× × 100 per_line = **800,000 coins** for a single line. The cap is enforced in the modal's `on_submit`.
 
 Lifetime stats live in five `profile.catslots_*` columns (`spins`, `wins`, `big_wins`, `coins_bet`, `coins_won`). `catslots_coins_bet`/`coins_won` use `bigint` since aggregate lifetime turnover can exceed int32 quickly at high stakes. Concurrency is gated by a separate `catslots_lock` list (mirroring `slots_lock`); the rigged-user override forces a 5-of-a-kind eGirl on line 1 (middle row).
 

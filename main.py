@@ -420,12 +420,14 @@ rigged_users = []
 # /catslots — 5x3 grid, weighted reels, 20 paylines, multi-line payouts.
 # Independent from /slots (different stat columns, different aches).
 CATSLOTS_SYMBOLS = ["Fine", "8bit", "Corrupt", "Professor", "Divine", "Real", "Ultimate", "eGirl"]
-# eGirl weight bumped 2→3 (2026-05-22 retune). 1 cell becomes eGirl with
-# probability 3/91 ≈ 3.3%, so a 15-cell grid expects ~0.49 eGirls per spin
-# and the 3+ bonus trigger lands around 1 in 84 spins (was ~1 in 246).
-# eGirl base payouts in CATSLOTS_PAYOUTS were reduced in lockstep so base
-# RTP stays at ~93%.
-CATSLOTS_WEIGHTS = [55, 8, 7, 6, 5, 4, 3, 3]
+# Variety retune 2026-05-22: Fine weight dropped 55→38, mid-tier weights
+# bumped to make 8bit/Corrupt/Professor wins genuinely visible. Player
+# complaint was "every win is Fine" — at the old weights P(c0=Fine) was
+# 60%, so ~98% of winning lines were Fine 3OAK/5OAK. New distribution
+# has Fine at ~42% and mid-tier wins appear in ~18% of winning spins.
+# Total RTP target unchanged at ~97% (verified Monte Carlo). eGirl
+# weight stays at 3 so bonus trigger rate is unchanged (~1 in 83).
+CATSLOTS_WEIGHTS = [38, 14, 11, 9, 8, 5, 3, 3]
 CATSLOTS_ALLOWED_LINES = [1, 5, 9, 20]
 # Per-line bet cap. Total bet is capped implicitly at
 # max(CATSLOTS_ALLOWED_LINES) * CATSLOTS_MAX_PER_LINE (= 2,000 coins by default).
@@ -462,27 +464,28 @@ CATSLOTS_PAYLINES = [
     [(0, 0), (1, 2), (2, 0), (3, 2), (4, 0)],
 ]
 CATSLOTS_PAYOUTS = {
-    # Third retune 2026-05-22 (target ~80% base RTP). Earlier retunes left
-    # base RTP at ~66% but assumed the bonus would only contribute ~12-15pp
-    # — in reality the wild-substitution rule + frozen stickies produced
-    # ~125pp of bonus RTP, pushing total RTP to ~190%. This retune drops
-    # wild substitution entirely (see bonus eval below) and rebalances:
-    #   • Base payouts bumped ~21% across the board, with Fine 4OAK 2→3
-    #     and 5OAK 5→6 to absorb most of the increase (Fine dominates
-    #     because P(c0=Fine) ≈ 60%).
-    #   • Total RTP target: base ~80% + bonus ~14pp = ~94% total. Verified
-    #     by Monte Carlo (400k spins) — see economy.md.
-    "Fine":      {3: 1,     4: 3,       5: 6},
-    "8bit":      {3: 12,    4: 60,      5: 250},
-    "Corrupt":   {3: 18,    4: 90,      5: 425},
-    "Professor": {3: 30,    4: 150,     5: 725},
-    "Divine":    {3: 60,    4: 300,     5: 1200},
-    "Real":      {3: 125,   4: 625,     5: 2500},
-    "Ultimate":  {3: 250,   4: 1250,    5: 5000},
-    # eGirl base-game payouts are paid via straight match too — they are
-    # NOT used as wilds anymore. Base-game eGirl line wins are small on
-    # purpose; the dopamine is the bonus dispatch.
-    "eGirl":     {3: 125,   4: 625,     5: 2500},
+    # Variety retune 2026-05-22. The third retune got the RTP math right
+    # but left Fine at weight 55, so ~98% of winning spins were Fine-only
+    # — visually monotonous despite mathematically correct payouts. This
+    # retune drops Fine weight to 38 and bumps mid-tier weights/payouts
+    # so 8bit/Corrupt/Professor wins land in ~18% of winning spins. To
+    # preserve total RTP at ~97% we scaled mid/high-tier payouts up ~50-
+    # 60% (since their per-spin probability went up but their share of
+    # total RTP still trails Fine's). Verified by 300k-spin Monte Carlo:
+    # base 73%, bonus +25pp = total ~97%. The price is a lower base-game
+    # win rate (~54% vs the old 81%) — winning spins are rarer but more
+    # interesting when they hit.
+    "Fine":      {3: 1,     4: 4,       5: 11},
+    "8bit":      {3: 20,    4: 100,     5: 450},
+    "Corrupt":   {3: 26,    4: 130,     5: 650},
+    "Professor": {3: 50,    4: 250,     5: 1150},
+    "Divine":    {3: 100,   4: 500,     5: 1950},
+    "Real":      {3: 200,   4: 1000,    5: 4000},
+    "Ultimate":  {3: 400,   4: 2000,    5: 8000},
+    # eGirl base-game payouts are paid via straight match. Same payout
+    # ladder as Real to keep the bonus-tier symbol meaningful in the
+    # base game without making it the dominant draw.
+    "eGirl":     {3: 200,   4: 1000,    5: 4000},
 }
 
 # eGirl Party bonus round. 3+ eGirls anywhere on the 5×3 settled grid

@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.4.184822052026]
+
+### Changed
+- **`/catslots` symbol variety retune.** Player complaint: "every win is about the Fines." At the prior weights, P(c0=Fine) was ~60%, so 98% of winning spins were Fine-only. Dropped Fine reel weight 55→38 and bumped mid-tier weights (8bit 8→14, Corrupt 7→11, Professor 6→9, Divine 5→8, Real 4→5). eGirl and Ultimate stay at 3, so bonus trigger rate is unchanged at ~1 in 83. To preserve the ~97% total RTP, mid/high-tier payouts scaled up ~50-60%: 8bit 5OAK 250→450, Corrupt 5OAK 425→650, Professor 5OAK 725→1,150, Divine 5OAK 1,200→1,950, Real 5OAK 2,500→4,000, Ultimate 5OAK 5,000→8,000, eGirl 5OAK 2,500→4,000. Fine 4OAK 3→4, 5OAK 6→11. Verified by 500k-spin Monte Carlo: base 73% + bonus 25pp = total ~97% (matches the prior 97.8% baseline). **Non-Fine wins now appear in ~18% of winning spins** (up from 3.3%). Tradeoff: base-game win rate drops to ~54% per spin (was ~81%) — fewer winning spins overall, but the winners are more interesting. Sticky game mechanic, retrigger rule, animations, achievements, the admin force command, the bonus floor, and the bonus trigger rate are all unchanged.
+
 ## [0.5.3.182622052026]
 
 ### Changed

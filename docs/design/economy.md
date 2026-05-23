@@ -133,7 +133,7 @@ The **second retune** (`0.3.0.102222052026`) flattened top-tier 4OAK and 5OAK pa
 
 The **third retune** (`0.5.1.<this>`) **removed wild substitution from the bonus eval entirely** (the bonus loop now uses the same straight-match rule as the base game) and rebalanced base payouts to land base RTP at ~80%. Multipliers were also cut to 1.25/1.5/2. With wild substitution gone, the multiplier knob now does what you'd intuitively expect, and total RTP settled at ~94% — Vegas penny-slot range. Verified by Monte Carlo before shipping.
 
-**Admin override.** `/catslots_force_bonus egirls:<3|4|5>` (manage-guild only) queues a single-use override that overwrites N random visible cells with eGirl on the next spin. The entry is popped on read, so it always lasts exactly one spin.
+**Admin override.** `/catslots_force_bonus egirls:<3|4|5> [user:<member>]` (manage-guild only) queues a single-use override that overwrites N random visible cells with eGirl on the next spin. The optional `user` parameter targets someone else's next spin — useful for set-up shots, giveaways, or testing. Defaults to the invoker if omitted. The entry is popped on read, so it always lasts exactly one spin.
 
 ## Catnip as the late-game money sink
 

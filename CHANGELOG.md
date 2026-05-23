@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.3.182622052026]
+
+### Changed
+- **`/catslots_force_bonus` now takes an optional `user` parameter.** Targets someone else's next `/catslots` spin instead of the invoker's. Useful for set-up shots, gifting a guaranteed bonus, or testing without spinning yourself. Keyed off the target user's `id + guild_id`, same scheme as the existing self-queue. Defaults to the invoker if omitted. Manage-guild permission unchanged.
+
 ## [0.5.2.182422052026]
 
 ### Added

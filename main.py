@@ -14354,18 +14354,30 @@ async def catslots(message: discord.Interaction):
 
 @bot.tree.command(description="(ADMIN) Force next /catslots spin to trigger the eGirl bonus")
 @discord.app_commands.default_permissions(manage_guild=True)
-@discord.app_commands.describe(egirls="How many eGirls to force on the next spin (3, 4, or 5)")
-async def catslots_force_bonus(message: discord.Interaction, egirls: Optional[int] = 3):
+@discord.app_commands.describe(
+    egirls="How many eGirls to force on the next spin (3, 4, or 5)",
+    user="Whose next /catslots spin to force (default: yourself)",
+)
+async def catslots_force_bonus(
+    message: discord.Interaction,
+    egirls: Optional[int] = 3,
+    user: Optional[discord.Member] = None,
+):
     if egirls not in (3, 4, 5):
         await message.response.send_message(
             "egirls must be 3, 4, or 5.", ephemeral=True
         )
         return
-    catslots_force_bonus_users[message.user.id + message.guild.id] = int(egirls)
-    await message.response.send_message(
-        f"✅ Your next /catslots spin will trigger a {egirls}-eGirl bonus round.",
-        ephemeral=True,
-    )
+    target = user or message.user
+    catslots_force_bonus_users[target.id + message.guild.id] = int(egirls)
+    if user is None:
+        reply = f"✅ Your next /catslots spin will trigger a {egirls}-eGirl bonus round."
+    else:
+        reply = (
+            f"✅ {user.mention}'s next /catslots spin will trigger a "
+            f"{egirls}-eGirl bonus round."
+        )
+    await message.response.send_message(reply, ephemeral=True)
 
 
 @bot.tree.command(description="what")

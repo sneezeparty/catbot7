@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.6.070123052026]
+
+### Fixed
+- **`/catstore` rain purchases are now server-isolated.** The previous patch credited `user.rain_minutes` (cross-server), which let coins earned on one server spawn rain on another. Switched to `profile.rain_minutes` (per-server) — the same "bonus minutes" column `/rain` already consumes before the cross-server inventory. Server economies stay independent. `user.rain_minutes_bought` (lifetime cumulative, drives the blessings system) is still incremented at the user level since that's a global tracker for blessings rewards, not consumable inventory. UI and help text updated to clarify "this server's inventory" vs cross-server.
+
 ## [0.5.5.065623052026]
 
 ### Changed

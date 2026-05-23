@@ -9818,15 +9818,15 @@ async def catstore(message: discord.Interaction):
         {
             "title": "Rain in the Store",
             "body": (
-                "**Each purchase adds 1 minute to your rain inventory.** It does NOT fire immediately — you start it later with `/rain`.\n\n"
+                "**Each purchase adds 1 minute to *this server's* rain inventory.** It does NOT fire immediately — you start it later with `/rain` in this server.\n\n"
                 "**The price scales per minute bought per UTC day:**\n"
                 f"- Base price: 🪙 **{RAIN_BASE_PRICE:,}** for the first minute today.\n"
                 f"- Every minute bought today multiplies the next price by **×{RAIN_SCALE:g}** (so #2 is "
                 f"🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE):,}, #3 is 🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE ** 2):,}, …).\n"
                 "- Your Cat Mafia discount/tax applies after the scaling — same `store_discount` as Cats.\n"
                 "- Counter resets at UTC midnight.\n\n"
-                "**Rain inventory is cross-server** — buy on one server, spend on another via `/rain`. Catches during your bought rain count for battlepass quests, streaks, and XP same as battlepass-earned rain.\n\n"
-                "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition."
+                "**Server-isolated.** Catstore-bought rain stays on the server you bought it on — it's stored in `profile.rain_minutes` (per-server) rather than `user.rain_minutes` (cross-server). Battlepass and supporter rain are still cross-server. Catches during your bought rain count for battlepass quests, streaks, and XP same as battlepass-earned rain.\n\n"
+                "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition. Per-server isolation keeps each server's economy independent."
             ),
         },
         {
@@ -10233,19 +10233,28 @@ async def catstore(message: discord.Interaction):
             fresh.coins -= fresh_price
             fresh.rain_blocks_bought_today = fresh_blocks_today + 1
             fresh.rain_blocks_last_date = time.strftime("%Y-%m-%d", time.gmtime())
+            # Server-isolated rain inventory: credit profile.rain_minutes
+            # (the per-server "bonus minutes" column /rain consumes first),
+            # NOT user.rain_minutes (which is cross-server). This keeps each
+            # server's economy independent.
+            fresh.rain_minutes = (fresh.rain_minutes or 0) + RAIN_BLOCK_MINUTES
             await fresh.save()
             profile = fresh
             price = fresh_price
 
+            # user.rain_minutes_bought is the lifetime cumulative tracker
+            # that drives the blessings system. It's correctly cross-server
+            # — it represents "how much rain has this person ever bought"
+            # for blessings-rewards purposes, not consumable inventory.
             user_row = await User.get_or_create(conn, user_id=message.user.id)
-            user_row.rain_minutes = (user_row.rain_minutes or 0) + RAIN_BLOCK_MINUTES
             user_row.rain_minutes_bought = (user_row.rain_minutes_bought or 0) + RAIN_BLOCK_MINUTES
             await user_row.save()
 
         # ---- toast + achievements ----
         last_toast = (
             f"☔ Bought {RAIN_BLOCK_MINUTES} rain minute for 🪙 {price:,}. "
-            f"Use `/rain` to start it. (Inventory: {user_row.rain_minutes} min)"
+            f"Use `/rain` here to start it. "
+            f"(This server's inventory: {profile.rain_minutes} min)"
         )
         try:
             await achemb(interaction, "catstore_rainmaker", "followup")
@@ -10590,8 +10599,10 @@ async def catstore(message: discord.Interaction):
         blocks_today = _rain_blocks_today(profile)
         next_price = rain_block_price(blocks_today, rain_discount)
         next_next_price = rain_block_price(blocks_today + 1, rain_discount)
-        user_row = await User.get_or_create(user_id=message.user.id)
-        current_inventory = int(user_row.rain_minutes or 0)
+        # Per-server inventory: profile.rain_minutes, NOT user.rain_minutes.
+        # Catstore-bought rain is server-isolated; what you buy here stays
+        # here. /rain consumes profile.rain_minutes before user.rain_minutes.
+        current_inventory = int(profile.rain_minutes or 0)
 
         # UTC midnight epoch for the "resets <t:...:R>" hint.
         tomorrow = (datetime.datetime.utcnow() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -10605,12 +10616,12 @@ async def catstore(message: discord.Interaction):
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
             "## ☔ Cat Store — Rain",
-            "Adds a minute to your rain inventory. **Start it later with `/rain`** — it does NOT fire automatically.",
-            "-# Rain inventory is cross-server: spend it wherever you want.",
+            "Adds a minute to **this server's** rain inventory. **Start it later with `/rain` here**.",
+            "-# Catstore-bought rain is server-isolated. Battlepass rain stays cross-server.",
             Separator(),
             f"### Next minute: 1 rain minute",
             (f"🪙 **{next_price:,}**" + (f"  (catnip-rank {_signed_pct(rain_discount)})" if rain_discount else "")),
-            f"Your inventory: **{current_inventory:,}** rain minute{'s' if current_inventory != 1 else ''}",
+            f"This server's inventory: **{current_inventory:,}** rain minute{'s' if current_inventory != 1 else ''}",
             f"Bought today: **{blocks_today}** minute{'s' if blocks_today != 1 else ''} "
             f"(price scales each buy)",
             f"After this: next minute costs 🪙 **{next_next_price:,}**",

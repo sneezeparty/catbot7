@@ -272,7 +272,7 @@ No cross-server store. No packs in the catalog. No custom cat support. The buy m
 
 ### Rain in /catstore
 
-`/catstore` exposes a second top-level browse, **Extras**, with a single item: **rain minutes**. Each purchase adds **1 minute** to the buyer's cross-server `user.rain_minutes` inventory. The buyer then triggers rain later via `/rain` — the catstore button does NOT fire rain in the current channel.
+`/catstore` exposes a second top-level browse, **Extras**, with a single item: **rain minutes**. Each purchase adds **1 minute** to the buyer's **per-server** `profile.rain_minutes` inventory (NOT the cross-server `user.rain_minutes`). The buyer then triggers rain later via `/rain` — the catstore button does NOT fire rain in the current channel. Server isolation is intentional: each server's coin economy stays its own, so coins earned in one server can't be converted into rain on another.
 
 **Pricing (`main.py:rain_block_price`)**:
 
@@ -298,7 +298,7 @@ Defaults after the **2026-05-23 retune**: `RAIN_BASE_PRICE = 3_000` (was 12,000 
 
 **Lazy UTC daily reset**. `profile.rain_blocks_bought_today` (INT) holds the per-day counter; `profile.rain_blocks_last_date` (TEXT, e.g. `"2026-05-23"`) holds the UTC date the counter was last incremented. On every read (`_rain_blocks_today`), the stored date is compared against today's UTC date; on mismatch, the read returns 0. On the next successful purchase, both columns are written with `count=1` and today's date. No cron, no scheduled task.
 
-**Inventory mechanics**. The purchase debits `profile.coins` (per-server wallet) and credits both `user.rain_minutes` (the consumable inventory that `/rain` spends) and `user.rain_minutes_bought` (the lifetime cumulative tracker that the blessings system reads). Cross-server: a player can buy rain minutes on one server and spend them on another. No channel-side validation — no need to be in a setupped channel, no "rain disabled" check, no "live cat" gate. Those concerns move to `/rain` time, where they already existed.
+**Inventory mechanics**. The purchase debits `profile.coins` (per-server wallet) and credits `profile.rain_minutes` (the per-server "bonus minutes" column that `/rain` consumes **before** the cross-server `user.rain_minutes`). The blessings lifetime tracker `user.rain_minutes_bought` is also incremented — it's a cross-server cumulative for blessings-rewards math, independent of the consumable inventory. Per-server isolation means coins earned on one server can't convert into rain on another; each server's economy stays its own. No channel-side validation at purchase — no "setupped channel" / "rain disabled" / "live cat" gate. Those concerns move to `/rain` time, where they already existed.
 
 **Quest / streak / XP**. Catches during the rain you eventually spawn via `/rain` behave identically to catches during battlepass-earned rain — full quest progress, catch streaks, XP.
 

@@ -272,7 +272,7 @@ No cross-server store. No packs in the catalog. No custom cat support. The buy m
 
 ### Rain in /catstore
 
-`/catstore` exposes a second top-level browse, **Extras**, with a single item: **rain blocks**. Each block is `RAIN_BLOCK_SECONDS = 15` seconds of cat rain in the current channel. Players spend `coins`. This intentionally punctures the coins↔rain wall — but only at extreme cost.
+`/catstore` exposes a second top-level browse, **Extras**, with a single item: **rain minutes**. Each purchase adds **1 minute** to the buyer's cross-server `user.rain_minutes` inventory. The buyer then triggers rain later via `/rain` — the catstore button does NOT fire rain in the current channel.
 
 **Pricing (`main.py:rain_block_price`)**:
 
@@ -281,28 +281,26 @@ raw      = RAIN_BASE_PRICE * (RAIN_SCALE ** blocks_bought_today)
 adjusted = raw * (1 - mafia_discount_pct / 100)
 ```
 
-Defaults: `RAIN_BASE_PRICE = 12_000`, `RAIN_SCALE = 1.5`. The mafia discount uses the same `store_discount` field from `config/catnip.json` that drives cat-buy pricing. Job perks **do not** apply to rain (the buy-side perks are scoped to cats, so the displayed price equals the charged price).
+Defaults after the **2026-05-23 retune**: `RAIN_BASE_PRICE = 3_000` (was 12,000 — a 75% reduction), `RAIN_SCALE = 1.5`. The mafia discount uses the same `store_discount` field from `config/catnip.json` that drives cat-buy pricing. Job perks **do not** apply to rain (the buy-side perks are scoped to cats, so the displayed price equals the charged price).
 
 **Cost curve at mafia Lv4 (0% adjustment):**
 
-| Block | Cost     | Cumulative |
-|-------|----------|------------|
-| 1     | 12,000   | 12,000     |
-| 2     | 18,000   | 30,000     |
-| 3     | 27,000   | 57,000     |
-| 4     | 40,500   | 97,500     |
-| 5     | 60,750   | 158,250    |
-| 6     | 91,125   | 249,375    |
-| 7     | 136,688  | 386,063    |
-| 8     | 205,031  | 591,094    |
+| # bought today | Cost   | Cumulative |
+|----------------|--------|------------|
+| 1              | 3,000  | 3,000      |
+| 2              | 4,500  | 7,500      |
+| 3              | 6,750  | 14,250     |
+| 4              | 10,125 | 24,375     |
+| 5              | 15,188 | 39,563     |
+| 6              | 22,781 | 62,344     |
+| 7              | 34,172 | 96,516     |
+| 8              | 51,258 | 147,773    |
 
-**Lazy UTC daily reset**. `profile.rain_blocks_bought_today` (INT) holds the counter; `profile.rain_blocks_last_date` (TEXT, e.g. `"2026-05-22"`) holds the UTC date the counter was last incremented. On every read (`_rain_blocks_today`), the stored date is compared against today's UTC date; on mismatch, the read returns 0. On the next successful purchase, both columns are written with `count=1` and today's date. No cron, no scheduled task.
+**Lazy UTC daily reset**. `profile.rain_blocks_bought_today` (INT) holds the per-day counter; `profile.rain_blocks_last_date` (TEXT, e.g. `"2026-05-23"`) holds the UTC date the counter was last incremented. On every read (`_rain_blocks_today`), the stored date is compared against today's UTC date; on mismatch, the read returns 0. On the next successful purchase, both columns are written with `count=1` and today's date. No cron, no scheduled task.
 
-**Active-rain stacking**. Buying a block while a rain is already running in the channel adds `RAIN_BLOCK_SPAWNS = ceil(15 / 2.75) = 6` to `channel.cat_rains` without restarting the recovery loop. Buying into an inactive channel sets `channel.cat_rains`, resets `channel.yet_to_spawn`, kicks off `spawn_cat` + `rain_recovery_loop` (mirrors `/rain`).
+**Inventory mechanics**. The purchase debits `profile.coins` (per-server wallet) and credits both `user.rain_minutes` (the consumable inventory that `/rain` spends) and `user.rain_minutes_bought` (the lifetime cumulative tracker that the blessings system reads). Cross-server: a player can buy rain minutes on one server and spend them on another. No channel-side validation — no need to be in a setupped channel, no "rain disabled" check, no "live cat" gate. Those concerns move to `/rain` time, where they already existed.
 
-**Quest / streak / XP**. Catches during bought rain behave identically to catches during battlepass-earned rain — full quest progress, catch streaks, XP. The price wall (≥ 12k coins for 15 s) is steep enough that arbitrage doesn't pay even at the discount cap.
-
-**Gating**. The Extras purchase button is only meaningful in a setupped channel with `server.do_rain = true` and no active spawn — the handler ephemeral-rejects all three failure modes before deducting any coins.
+**Quest / streak / XP**. Catches during the rain you eventually spawn via `/rain` behave identically to catches during battlepass-earned rain — full quest progress, catch streaks, XP.
 
 **Achievements**:
 - `catstore_rainmaker` (visible, 300 XP) — first rain block purchase.

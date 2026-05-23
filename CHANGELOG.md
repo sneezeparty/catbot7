@@ -4,6 +4,14 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.5.065623052026]
+
+### Changed
+- **`/catstore` rain is 75% cheaper and no longer fires immediately.** `RAIN_BASE_PRICE` dropped 12,000 → 3,000 coins. The buy button now adds **1 minute to your `user.rain_minutes` inventory** instead of immediately starting rain in the current channel — you trigger it later with `/rain`, on whichever server you want. Rain inventory is cross-server (`user.rain_minutes` is on the user, not the profile), so coins earned on one server can spawn rain on another. `RAIN_BLOCK_SECONDS` (15s, channel-fired) is gone, replaced by `RAIN_BLOCK_MINUTES = 1`. The buy handler also bumps `user.rain_minutes_bought` so blessings math (which keys off lifetime bought-rain) stays consistent.
+- **Removed channel-side gating from the rain buy flow.** No more "channel needs to be setupped" / "rain is disabled in this server" / "there's a cat to catch first" ephemeral errors at purchase time — those concerns belong to `/rain` and already exist there. Buying is now a pure transaction: debit coins, credit rain minutes, scale the next price.
+- **Catstore Rain UI rewrite.** The page now shows your current rain-minute inventory and explains that purchases queue rather than fire. The button reads "Buy ☔ 1 minute — 🪙 N", and the per-buy daily price scaling is preserved (`×1.5` per minute bought today, lazy UTC reset). Help text rewritten to match.
+- **Achievements unchanged** — `catstore_rainmaker` still fires on first rain purchase, `catstore_monsoon` still fires at 5+ minutes bought in a UTC day, `catstore_whale` still triggers at 10,000+ coins per purchase (which now requires 4-5 buys into the daily ramp instead of being trivially trippable on the first purchase).
+
 ## [0.5.4.184822052026]
 
 ### Changed

@@ -789,16 +789,14 @@ def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0)
     return max(1, value * pct // 100)
 
 
-# Rain block purchase (catstore Extras). Coins → rain is intentionally a
-# steep tax: exponential per-block scaling within a UTC daily window keeps
-# the coins↔rain wall functionally intact for everyone but coin-rich
-# players, for whom it's a luxury escape valve.
-RAIN_BASE_PRICE = 12_000        # coins, before mafia adjustment
-RAIN_SCALE = 1.5                # multiplier per block bought today
-RAIN_BLOCK_SECONDS = 15         # duration of a single block, in real seconds
-# rain_recovery_loop ticks roughly every 2.75 s (matches existing rain math
-# at line ~5457). Number of spawns per 15s block = ceil(15 / 2.75) = 6.
-RAIN_BLOCK_SPAWNS = math.ceil(RAIN_BLOCK_SECONDS / 2.75)
+# Rain purchase (catstore Extras → Rain). The 2026-05-23 retune dropped
+# the price ~75% (12,000 → 3,000 per minute) and switched from "fires
+# immediately in this channel" to "adds 1 minute to your rain inventory,
+# trigger with /rain when you're ready". Exponential daily scaling
+# preserved so a single player can't flood a channel by mass-buying.
+RAIN_BASE_PRICE = 3_000         # coins, before mafia adjustment
+RAIN_SCALE = 1.5                # multiplier per minute bought today
+RAIN_BLOCK_MINUTES = 1          # rain_minutes added to user inventory per buy
 
 
 def rain_block_price(blocks_bought_today: int, mafia_discount_pct: int) -> int:
@@ -9820,16 +9818,14 @@ async def catstore(message: discord.Interaction):
         {
             "title": "Rain in the Store",
             "body": (
-                "**Rain is normally earned from battlepass / supporter rewards.** Buying it with coins is intentionally expensive.\n\n"
-                "**The price scales per block per UTC day:**\n"
-                f"- Base price: 🪙 **{RAIN_BASE_PRICE:,}** for the first block today.\n"
-                f"- Every block bought today multiplies the next block's price by **×{RAIN_SCALE:g}** (so block 2 is "
-                f"🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE):,}, block 3 is 🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE ** 2):,}, …).\n"
+                "**Each purchase adds 1 minute to your rain inventory.** It does NOT fire immediately — you start it later with `/rain`.\n\n"
+                "**The price scales per minute bought per UTC day:**\n"
+                f"- Base price: 🪙 **{RAIN_BASE_PRICE:,}** for the first minute today.\n"
+                f"- Every minute bought today multiplies the next price by **×{RAIN_SCALE:g}** (so #2 is "
+                f"🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE):,}, #3 is 🪙 {int(RAIN_BASE_PRICE * RAIN_SCALE ** 2):,}, …).\n"
                 "- Your Cat Mafia discount/tax applies after the scaling — same `store_discount` as Cats.\n"
                 "- Counter resets at UTC midnight.\n\n"
-                f"**Each block** is {RAIN_BLOCK_SECONDS} seconds of cat rain in the current channel "
-                "(or extends an active rain by the same duration). Catches during bought rain count for battlepass quests, "
-                "streaks, and XP — same as battlepass-earned rain.\n\n"
+                "**Rain inventory is cross-server** — buy on one server, spend on another via `/rain`. Catches during your bought rain count for battlepass quests, streaks, and XP same as battlepass-earned rain.\n\n"
                 "**Design intent:** the coins↔rain wall is preserved by *pricing*, not prohibition."
             ),
         },
@@ -10199,12 +10195,10 @@ async def catstore(message: discord.Interaction):
         await interaction.response.send_modal(SellModal(cat_type, owned))
 
     async def on_buy_rain(interaction: discord.Interaction):
-        """Buy one 15-second rain block in the current channel. Price scales
-        with `rain_blocks_bought_today` (lazy UTC reset). Extends an active
-        rain by RAIN_BLOCK_SECONDS instead of erroring."""
-        # nonlocals MUST be declared before any use of these names in this
-        # function — Python raises SyntaxError otherwise. `profile` is read
-        # via .refresh_from_db() below, so the nonlocal goes up here.
+        """Buy one minute of rain — added to the buyer's user.rain_minutes
+        inventory, NOT fired in the current channel. The buyer triggers it
+        later with /rain. Price scales with `rain_blocks_bought_today`
+        (lazy UTC reset)."""
         nonlocal last_toast, profile
 
         if interaction.user.id != message.user.id:
@@ -10212,26 +10206,6 @@ async def catstore(message: discord.Interaction):
             return
 
         await profile.refresh_from_db()
-        server = await Server.get_or_create(server_id=message.guild.id)
-        channel = await Channel.get_or_none(channel_id=message.channel.id)
-
-        if channel is None:
-            await interaction.response.send_message(
-                "rain needs to be in a setupped channel — run /setup first or move to one.",
-                ephemeral=True,
-            )
-            return
-        if not server.do_rain:
-            await interaction.response.send_message(
-                "rain is disabled in this server.", ephemeral=True
-            )
-            return
-        if channel.cat:
-            await interaction.response.send_message(
-                "there's a cat to catch in this channel first — finish that spawn, then buy rain.",
-                ephemeral=True,
-            )
-            return
 
         blocks_today = _rain_blocks_today(profile)
         discount = store_discount_pct(profile.catnip_level)
@@ -10245,11 +10219,9 @@ async def catstore(message: discord.Interaction):
 
         await interaction.response.defer()
 
-        # ---- debit, persist counter ----
+        # ---- debit coins, credit user.rain_minutes, persist counter ----
         async with transaction() as conn:
             fresh = await Profile.get_or_create(conn, user_id=message.user.id, guild_id=message.guild.id)
-            # Lazy reset against the fresh row in case another concurrent
-            # purchase wrote a new day before us.
             fresh_blocks_today = _rain_blocks_today(fresh)
             fresh_price = rain_block_price(fresh_blocks_today, store_discount_pct(fresh.catnip_level))
             if fresh.coins < fresh_price:
@@ -10265,32 +10237,16 @@ async def catstore(message: discord.Interaction):
             profile = fresh
             price = fresh_price
 
-        # ---- bump the channel's rain counter ----
-        was_active = channel.cat_rains > 0
-        channel.cat_rains += RAIN_BLOCK_SPAWNS
-        if not was_active:
-            channel.yet_to_spawn = 0
-            config.cat_cought_rain[channel.channel_id] = {}
-            config.rain_starter[channel.channel_id] = message.user.id
-        await channel.save()
-
-        # ---- in-channel announcement + kick off rain loop if newly active ----
-        try:
-            if was_active:
-                await message.channel.send(
-                    f"{message.user.mention} bought {RAIN_BLOCK_SECONDS}s of cat rain — extending the current rain! ☔"
-                )
-            else:
-                await message.channel.send(
-                    f"{message.user.mention} bought a {RAIN_BLOCK_SECONDS}-second cat rain in this channel! ☔"
-                )
-                await spawn_cat(str(message.channel.id))
-                bot.loop.create_task(rain_recovery_loop(channel))
-        except Exception:
-            logging.exception("catstore: rain start/extend post failed")
+            user_row = await User.get_or_create(conn, user_id=message.user.id)
+            user_row.rain_minutes = (user_row.rain_minutes or 0) + RAIN_BLOCK_MINUTES
+            user_row.rain_minutes_bought = (user_row.rain_minutes_bought or 0) + RAIN_BLOCK_MINUTES
+            await user_row.save()
 
         # ---- toast + achievements ----
-        last_toast = f"☔ Bought {RAIN_BLOCK_SECONDS}s of cat rain for 🪙 {price:,}"
+        last_toast = (
+            f"☔ Bought {RAIN_BLOCK_MINUTES} rain minute for 🪙 {price:,}. "
+            f"Use `/rain` to start it. (Inventory: {user_row.rain_minutes} min)"
+        )
         try:
             await achemb(interaction, "catstore_rainmaker", "followup")
             if profile.rain_blocks_bought_today >= 5:
@@ -10634,12 +10590,12 @@ async def catstore(message: discord.Interaction):
         blocks_today = _rain_blocks_today(profile)
         next_price = rain_block_price(blocks_today, rain_discount)
         next_next_price = rain_block_price(blocks_today + 1, rain_discount)
+        user_row = await User.get_or_create(user_id=message.user.id)
+        current_inventory = int(user_row.rain_minutes or 0)
 
         # UTC midnight epoch for the "resets <t:...:R>" hint.
         tomorrow = (datetime.datetime.utcnow() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         midnight_struct = time.strptime(tomorrow, "%Y-%m-%d")
-        # calendar.timegm interprets a struct_time as UTC; falls back to a
-        # close-enough approximation if calendar isn't on the path.
         try:
             import calendar
             reset_epoch = int(calendar.timegm(midnight_struct))
@@ -10649,15 +10605,15 @@ async def catstore(message: discord.Interaction):
         view = LayoutView(timeout=VIEW_TIMEOUT)
         items: list = [
             "## ☔ Cat Store — Rain",
-            "Add rain to **this channel**. Spawns extra cats during the duration.",
-            "-# ⚠️ Heads up: rain is normally earned from battlepass / supporters.",
-            "-# Buying it with coins is intentionally expensive and scales up daily.",
+            "Adds a minute to your rain inventory. **Start it later with `/rain`** — it does NOT fire automatically.",
+            "-# Rain inventory is cross-server: spend it wherever you want.",
             Separator(),
-            f"### Next block: {RAIN_BLOCK_SECONDS} seconds",
+            f"### Next minute: 1 rain minute",
             (f"🪙 **{next_price:,}**" + (f"  (catnip-rank {_signed_pct(rain_discount)})" if rain_discount else "")),
-            f"Bought today: **{blocks_today}** block{'s' if blocks_today != 1 else ''} "
-            f"({blocks_today * RAIN_BLOCK_SECONDS}s)",
-            f"After this: next block costs 🪙 **{next_next_price:,}**",
+            f"Your inventory: **{current_inventory:,}** rain minute{'s' if current_inventory != 1 else ''}",
+            f"Bought today: **{blocks_today}** minute{'s' if blocks_today != 1 else ''} "
+            f"(price scales each buy)",
+            f"After this: next minute costs 🪙 **{next_next_price:,}**",
         ]
         if last_toast:
             items.append(last_toast)
@@ -10665,7 +10621,7 @@ async def catstore(message: discord.Interaction):
         # Buy button — disabled with a helpful label when the player can't
         # afford the next block.
         buy_btn = Button(
-            label=f"Buy ☔ {RAIN_BLOCK_SECONDS}s — 🪙 {next_price:,}",
+            label=f"Buy ☔ 1 minute — 🪙 {next_price:,}",
             style=ButtonStyle.green,
             custom_id="catstore_buy_rain",
         )

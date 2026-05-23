@@ -65,5 +65,26 @@
       "ACHS": {"base": 40, "baseline": 50,  "alpha": 0.5},
       "RAIN": {"base": 40, "baseline": 200, "alpha": 0.4}
     }
+  },
+  "respect": {
+    "max": 100,
+    "default": 50,
+    "decay_per_hour": 1,
+    "job_reward": {"1": 10, "2": 25, "3": 50, "4": 100, "5": 200},
+    "hours_at_zero_per_level_loss": 6,
+    "level_loss_floor": 4,
+    "level_loss_grace_respect": 25
+  },
+  "catstore_tier_mult": {
+    "Mythic": 1.5,
+    "Divine": 4,
+    "Real": 5,
+    "Ultimate": 6,
+    "eGirl": 7
+  },
+  "prism_craft_coin_cost": {
+    "base": 5000,
+    "growth": 2,
+    "cap": 320000
   }
 }

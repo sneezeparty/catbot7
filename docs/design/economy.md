@@ -201,7 +201,19 @@ When adding a new XP source, new pack tier, or new currency interaction, sanity-
 
 Each cat type has a **base value** derived from the same formula `/trade` and `/gift` have always used: `cat_value(type) = sum(type_dict.values()) // type_dict[type]`. The integer division (`//`) intentionally rounds down, keeping values consistent with trade valuation across the bot.
 
-The store applies a **`CATSTORE_PRICE_MULTIPLIER`** on top of `cat_value` (currently `2`) when computing every price it displays. This multiplier is scoped to catstore code only — trade/gift valuations and job reward magnitudes still use the unmultiplied `cat_value`. The store's working "face value" is therefore `catstore_face_value(type) = cat_value(type) * CATSTORE_PRICE_MULTIPLIER`. Doubling the multiplier doubles both sides of the storefront in lockstep, preserving the percentage-based discount/sell-cap math without touching arbitrage guards.
+The store applies a **`CATSTORE_PRICE_MULTIPLIER`** on top of `cat_value` (currently `2`) when computing every price it displays. This multiplier is scoped to catstore code only — trade/gift valuations and job reward magnitudes still use the unmultiplied `cat_value`. The store's working "face value" is therefore `catstore_face_value(type) = cat_value(type) * CATSTORE_PRICE_MULTIPLIER * tier_mult(type)`, where `tier_mult` is the per-rarity multiplier from `config/tuning.json → catstore_tier_mult`. Doubling the base multiplier doubles both sides of the storefront in lockstep, preserving the percentage-based discount/sell-cap math without touching arbitrage guards.
+
+**Per-rarity tier multiplier (`catstore_tier_mult`)** scales top-tier prices non-linearly so a single eGirl isn't a sub-day purchase for a maxed mafia player. The base multiplier is `1.0` for every rarity not in the table:
+
+| Rarity   | Multiplier | Effective face (Lv4, 0%) | Buy price (Lv4) | Buy price (Lv0, −20%) | Buy price (Lv10, +30%) |
+| -------- | ---------- | ------------------------ | --------------- | ---------------------- | ---------------------- |
+| Mythic   | 1.5×       | ~612                     | 612             | 734                    | 428                    |
+| Divine   | 4×         | ~5,104                   | 5,104           | 6,125                  | 3,573                  |
+| Real     | 5×         | ~10,208                  | 10,208          | 12,250                 | 7,146                  |
+| Ultimate | 6×         | ~20,416                  | 20,416          | 24,499                 | 14,291                 |
+| eGirl    | 7×         | ~35,728                  | 35,728          | 42,874                 | 25,010                 |
+
+(Above-Mythic face values shown round-numbered. Actual values: face = `(5104 / weight) * 2 * tier_mult`. Sell prices follow automatically because `store_sell_price` is a percentage of face.) The rebalance was driven by the same income/sink imbalance that motivated the pack price increases: at the pre-rebalance prices, eGirl cost ~4,100 coins, so a Tier‑4 player on a normal day could buy 3 of them. Bumping the top five rarities by 1.5× → 7× turns them into multi-day or week-scale purchases. `type_dict` itself is **unchanged** — drop rates from catching are unaffected.
 
 - **Buy price** = `max(1, ceil(face_value * (1 - discount_pct / 100)))`. When `discount_pct` is negative (lower ranks), this is a surcharge — the buyer pays *more* than face value. Ranges from 120% face at Newbie to 70% face at El Patrón.
 - **Sell price** = `face_value * sell_pct // 100`, where `sell_pct = min(natural, buy_pct - 5)`. The "natural" curve is `50 + level * 5` (Newbie 50%, El Patrón would-be 100%) but it is capped at 5 percentage points below the buy curve to guarantee every round-trip nets at least −5 percentage points. The cap kicks in at Lv7 and squeezes downward from there.
@@ -323,22 +335,26 @@ Explicitly **not** fired by rain: `catstore_collector` (which counts distinct ca
 **Pricing (`main.py:pack_buy_price`)**:
 
 ```
-raw      = pack["totalvalue"]
+raw      = pack.get("store_price", pack["totalvalue"])
 adjusted = raw * (1 - mafia_discount_pct / 100)
 price    = max(1, ceil(adjusted))
 ```
 
-| Pack      | totalvalue | Lv0 (-20%) | Lv4 (0%) | Lv10 (+30%) |
-| --------- | ---------- | ---------- | -------- | ----------- |
-| Stone     | 150        | 180        | 150      | 105         |
-| Bronze    | 195        | 234        | 195      | 137         |
-| Silver    | 300        | 360        | 300      | 210         |
-| Gold      | 600        | 720        | 600      | 420         |
-| Platinum  | 1,200      | 1,440      | 1,200    | 840         |
-| Diamond   | 1,800      | 2,160      | 1,800    | 1,260       |
-| Celestial | 3,000      | 3,600      | 3,000    | 2,100       |
+`store_price` was added to `pack_data` so the **catstore buy price** can diverge from `totalvalue` (which still drives the `/stocks` deposit payout and the `/trade` value display). Silver and up were inflated by a per-tier multiplier; Stone and Bronze are unchanged so low-tier packs remain accessible.
 
-`pack["totalvalue"]` is the same field `/stocks` deposit uses to reward Wooden equivalents; pricing at exactly that value makes the buy-then-deposit round trip net-zero. **Buy-then-open** is gacha-negative in expectation because pack `value` (expected contents) is less than `totalvalue` (aggregate), exactly the same way a real-world card pack works. Cat Mafia rank tilts that math: at Lv10 the +30% discount makes opening packs much more favorable; at Lv0 the −20% tax makes it much worse.
+| Pack      | totalvalue | store_price | Mult | Lv0 (-20%) | Lv4 (0%) | Lv10 (+30%) |
+| --------- | ---------- | ----------- | ---- | ---------- | -------- | ----------- |
+| Stone     | 150        | 150         | 1×   | 180        | 150      | 105         |
+| Bronze    | 195        | 195         | 1×   | 234        | 195      | 137         |
+| Silver    | 300        | 600         | 2×   | 720        | 600      | 420         |
+| Gold      | 600        | 1,800       | 3×   | 2,160      | 1,800    | 1,260       |
+| Platinum  | 1,200      | 4,800       | 4×   | 5,760      | 4,800    | 3,360       |
+| Diamond   | 1,800      | 9,000       | 5×   | 10,800     | 9,000    | 6,300       |
+| Celestial | 3,000      | 21,000      | 7×   | 25,200     | 21,000   | 14,700      |
+
+**Round-trip economics changed.** Pre-rebalance the round trip was net-zero — `store_price == totalvalue`, so buying a pack and immediately depositing it via `/stocks` returned the same coins. Post-rebalance, **Silver and up are net-negative**: buying a Celestial for 21,000 coins and depositing it pays back only 3,000. This is intentional — top-tier packs are meant to be opened, not flipped. Buy-then-**open** remains gacha-negative on expectation (pack `value` < `totalvalue` < `store_price`), but Cat Mafia rank still tilts the math; at Lv10 the +30% discount makes opening Celestial dramatically more favorable than at Lv0.
+
+**Design intent of the rebalance.** A maxed Tier‑4 jobs player nets ~13,800 coins/day. At the pre-rebalance Celestial price of 3,000, they could buy 4-5 Celestials a day — high-tier packs were impulse buys. Bumping `store_price` 5–7× for the top tiers turns Celestial into a multi-day grind even for whales, restoring the "aspirational" feel without crushing new players who still want a Stone/Bronze without thinking. Wooden continues to live only in `/stocks` — no catstore entry — because the existing coins↔Wooden exchange already serves the cheap-pack-on-demand role.
 
 **Quantity per purchase** is capped at 99 by the modal (`max_length=2`). Players who want more can transact twice — same convention as `/stocks` withdraw.
 
@@ -356,3 +372,31 @@ Existing catstore achievements that fire on qualifying pack purchases:
 Explicitly **not** fired: `catstore_collector` (counts cat rarities, not packs — `store_purchased_rarities` and `store_purchased_pack_tiers` are independent arrays).
 
 **Design intent**. /catstore packs are a *non-targeted* sink — the gacha path the original "targeted sink" design avoided. They're a convenience for coin-rich players, included because the store needed something to do at the high end without inflating the cat catalog. The face-value pricing guarantees no arbitrage vs `/stocks` deposit; the cat-side targeted purchases remain the cheaper and more reliable use of /catstore.
+
+## Prism crafting (coin tax)
+
+Pre-rebalance, prisms cost only cats — one of every rarity — and nothing else. Combined with the cheap top-tier packs and cheap eGirl/Ultimate cats, players who maxed `catnip_level` could turn job income into a prism every two days indefinitely. The coin tax adds a third axis on top of the cat recipe.
+
+**Cost formula (`main.py:prism_craft_coin_cost`)**:
+
+```
+cost = min(cap, base * growth^prisms_crafted)
+```
+
+with defaults `base = 5,000`, `growth = 2`, `cap = 320,000` (in `config/tuning.json → prism_craft_coin_cost`). `prisms_crafted` is per-profile (per user, per server), counted from the `prism` table's `creator` column at migration time. The ramp:
+
+| Craft # | Cost      |
+| ------- | --------- |
+| 1st     | 5,000     |
+| 2nd     | 10,000    |
+| 3rd     | 20,000    |
+| 4th     | 40,000    |
+| 5th     | 80,000    |
+| 6th     | 160,000   |
+| 7th+    | 320,000   |
+
+**Confirm dialog enforces it.** The craft button is disabled when `profile.coins < cost`, and the cost is shown alongside the recipe so players see what they're committing to before pressing Craft. A re-check at commit time prevents the "stay on confirm, spend coins elsewhere, then craft" race.
+
+**Per-profile (not per-user globally, not per-server-shared).** A returning player who opens a fresh server starts at the 5,000-coin first craft regardless of how many prisms they've crafted elsewhere. Conversely, a player on a server where other people have crafted prisms pays their own ramp, not the server's. This matches the codebase's per-server gameplay-state philosophy.
+
+**Achievements unchanged.** `prism` (first craft) and `collecter` (collecting every cat type, the recipe checker) still fire exactly as before. The coin tax is a separate concern from achievement gating.

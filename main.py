@@ -130,15 +130,18 @@ pack_data = [
     {"name": "Valentine", "value": 45, "upgrade": 70, "totalvalue": 338, "special": True},
     {"name": "Chef", "value": 45, "upgrade": 70, "totalvalue": 338, "special": True},
     {"name": "Birthday", "value": 45, "upgrade": 70, "totalvalue": 338, "special": True},
-    # normal
-    {"name": "Wooden", "value": 98, "upgrade": 30, "totalvalue": 113, "special": False},
-    {"name": "Stone", "value": 135, "upgrade": 30, "totalvalue": 150, "special": False},
-    {"name": "Bronze", "value": 150, "upgrade": 30, "totalvalue": 195, "special": False},
-    {"name": "Silver", "value": 173, "upgrade": 30, "totalvalue": 300, "special": False},
-    {"name": "Gold", "value": 345, "upgrade": 30, "totalvalue": 600, "special": False},
-    {"name": "Platinum", "value": 945, "upgrade": 30, "totalvalue": 1200, "special": False},
-    {"name": "Diamond", "value": 1290, "upgrade": 30, "totalvalue": 1800, "special": False},
-    {"name": "Celestial", "value": 3000, "upgrade": 0, "totalvalue": 3000, "special": False},  # is that a madeline celeste reference????
+    # normal. `totalvalue` is the /stocks deposit payout and the trade-display
+    # value — DO NOT inflate it. `store_price` is the /catstore buy price; it
+    # diverges from totalvalue on Silver+ to make high-tier packs aspirational.
+    # When `store_price` is missing, pack_buy_price falls back to totalvalue.
+    {"name": "Wooden",    "value": 98,   "upgrade": 30, "totalvalue": 113,  "store_price": 113,   "special": False},
+    {"name": "Stone",     "value": 135,  "upgrade": 30, "totalvalue": 150,  "store_price": 150,   "special": False},
+    {"name": "Bronze",    "value": 150,  "upgrade": 30, "totalvalue": 195,  "store_price": 195,   "special": False},
+    {"name": "Silver",    "value": 173,  "upgrade": 30, "totalvalue": 300,  "store_price": 600,   "special": False},
+    {"name": "Gold",      "value": 345,  "upgrade": 30, "totalvalue": 600,  "store_price": 1800,  "special": False},
+    {"name": "Platinum",  "value": 945,  "upgrade": 30, "totalvalue": 1200, "store_price": 4800,  "special": False},
+    {"name": "Diamond",   "value": 1290, "upgrade": 30, "totalvalue": 1800, "store_price": 9000,  "special": False},
+    {"name": "Celestial", "value": 3000, "upgrade": 0,  "totalvalue": 3000, "store_price": 21000, "special": False},  # is that a madeline celeste reference????
 ]
 
 stock_data = [
@@ -721,11 +724,24 @@ def cat_value(cat_type: str) -> int:
 CATSTORE_PRICE_MULTIPLIER = 2
 
 
+def _catstore_tier_mult(cat_type: str) -> float:
+    """Per-rarity multiplier on top of the base catstore face value. Rare
+    tiers (Divine and above) cost meaningfully more so a single eGirl isn't
+    a sub-day purchase for a maxed mafia player. Lives in tuning.json so it
+    can be tuned without code edits. Defaults to 1.0 for rarities that
+    aren't in the table."""
+    table = config.tuning.get("catstore_tier_mult", {}) if hasattr(config, "tuning") else {}
+    return float(table.get(cat_type, 1.0) or 1.0)
+
+
 def catstore_face_value(cat_type: str) -> int:
-    """Catstore's notion of face value: cat_value * CATSTORE_PRICE_MULTIPLIER.
-    All store-side pricing (buy, sell, discount/cut displays) routes through
-    this — change the multiplier here to rescale the whole storefront."""
-    return cat_value(cat_type) * CATSTORE_PRICE_MULTIPLIER
+    """Catstore's notion of face value: cat_value * CATSTORE_PRICE_MULTIPLIER
+    * per-rarity tuning multiplier. All store-side pricing (buy, sell,
+    discount/cut displays) routes through this — change the multiplier
+    here to rescale the whole storefront. Sell prices automatically follow
+    because store_sell_price is a percentage of this."""
+    base = cat_value(cat_type) * CATSTORE_PRICE_MULTIPLIER
+    return int(base * _catstore_tier_mult(cat_type))
 
 
 def store_discount_pct(catnip_level: int, perk_bonus: int = 0) -> int:
@@ -789,6 +805,32 @@ def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0)
     return max(1, value * pct // 100)
 
 
+def _ordinal(n: int) -> str:
+    """1 → '1st', 2 → '2nd', 11 → '11th', etc. Small helper, used for prism
+    craft messages and probably anywhere else humans want to count."""
+    n = int(n)
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+# Prism craft coin tax. Each player's Nth prism craft costs base * growth^N
+# (N = how many they've crafted before, on this server). Caps at `cap` so the
+# late game still has a ceiling. Per-PROFILE (not per-server, not per-user
+# globally) so the user's progress on each server stays independent and a
+# returning player doesn't get punished by other server members' activity.
+def prism_craft_coin_cost(prisms_crafted: int) -> int:
+    cfg = config.tuning.get("prism_craft_coin_cost", {}) if hasattr(config, "tuning") else {}
+    base = int(cfg.get("base", 5000) or 5000)
+    growth = float(cfg.get("growth", 2) or 2)
+    cap = int(cfg.get("cap", 320000) or 320000)
+    n = max(0, int(prisms_crafted or 0))
+    cost = base * (growth ** n)
+    return min(cap, int(cost))
+
+
 # Rain purchase (catstore Extras → Rain). The 2026-05-23 retune dropped
 # the price ~75% (12,000 → 3,000 per minute) and switched from "fires
 # immediately in this channel" to "adds 1 minute to your rain inventory,
@@ -820,27 +862,35 @@ def _rain_blocks_today(profile: Profile) -> int:
 
 
 # Pack purchase (catstore Extras → Packs). Stone through Celestial are sold
-# at face-`totalvalue` (with mafia discount/tax). Wooden is intentionally
+# at their `store_price` (with mafia discount/tax). Wooden is intentionally
 # excluded — /stocks already provides a coins↔Wooden exchange and selling
 # Wooden here would duplicate that path with no economic benefit. The
 # `special` tag on Halloween/Christmas/etc. packs keeps them out of the
 # regular catalog.
-# Round-trip check: buy at totalvalue → /stocks deposit pays totalvalue,
-# so the round-trip nets zero. Buy-then-open is gacha-negative on
-# expectation since `value` (expected contents) is less than `totalvalue`.
+# Round-trip note: pre-rebalance, store_price == totalvalue so buy-then-
+# /stocks-deposit was a net-zero round-trip. After the high-tier rebalance,
+# store_price > totalvalue for Silver+, which means a Celestial bought from
+# the store and immediately deposited via /stocks LOSES coins
+# (21,000 paid - 3,000 returned). This asymmetry is intentional — store-
+# bought packs are meant to be opened, not flipped, and the rebalance is
+# what makes top-tier packs aspirational.
 CATSTORE_PACK_TIERS = ("Stone", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Celestial")
 
 
 def pack_buy_price(pack_name: str, mafia_discount_pct: int) -> int:
     """Coins to buy one pack of the given tier from /catstore. Wooden is
     rejected — it's handled by /stocks and intentionally not sold here.
-    Special-event packs (Christmas/Halloween/etc.) are also rejected."""
+    Special-event packs (Christmas/Halloween/etc.) are also rejected.
+
+    Uses pack["store_price"] if present, else falls back to pack["totalvalue"].
+    The fallback keeps old pack_data entries (and any future tiers) working
+    without an explicit store_price field."""
     if pack_name == "Wooden":
         raise ValueError("Wooden packs are sold via /stocks, not /catstore")
     pack = next((p for p in pack_data if p["name"] == pack_name), None)
     if not pack or pack.get("special"):
         raise ValueError(f"Unknown or non-purchasable pack: {pack_name}")
-    raw = int(pack["totalvalue"])
+    raw = int(pack.get("store_price", pack["totalvalue"]))
     adjusted = raw * (1 - mafia_discount_pct / 100)
     # ceil to keep a 1-coin floor even with extreme discounts.
     return max(1, math.ceil(adjusted))
@@ -1969,6 +2019,23 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         haul = coin_reward + sum(cat_value(t) * int(c or 0) for t, c in (reward.get("cats") or {}).items())
         if haul > int(getattr(profile, "biggest_score_value", 0) or 0):
             profile.biggest_score_value = haul
+        # Respect: settle prior decay, then grant the tier-keyed bonus. Stamp
+        # the result on job.rep_changes so the result screen can render
+        # "+N Respect (now M/100)" without recomputing.
+        respect_levels_lost = _respect_settle(profile, int(time.time()))
+        respect_before = int(getattr(profile, "respect", 50) or 0)
+        respect_gain = _respect_grant_for_tier(int(job.tier or 0))
+        if respect_gain > 0:
+            cap = max(1, int(_respect_cfg().get("max", 100)))
+            profile.respect = min(cap, respect_before + respect_gain)
+            profile.respect_last_tick = int(time.time())
+        # Re-assign rep_changes so catpg sees the dirty change (mutating the
+        # JSONB dict in-place would not trigger __setattr__ tracking).
+        _rc = dict(job.rep_changes) if isinstance(job.rep_changes, dict) else {}
+        _rc["respect_gain"] = int(respect_gain)
+        _rc["respect_now"] = int(getattr(profile, "respect", 50) or 0)
+        _rc["respect_levels_lost"] = int(respect_levels_lost)
+        job.rep_changes = _rc
         # Big Score: bump win counter, grant the one-time perk on first win.
         if is_big_score:
             profile.big_score_wins = int(getattr(profile, "big_score_wins", 0) or 0) + 1
@@ -2176,6 +2243,113 @@ def _jobs_perks_suspended(profile: Profile, now: int | None = None) -> bool:
     player as if catnip were inactive while this returns True."""
     now = now if now is not None else int(time.time())
     return int(getattr(profile, "perks_suspended_until", 0) or 0) > now
+
+
+# ---------------------------------------------------------------------------
+# Respect — mafia-decay meter that pressures players to keep doing jobs.
+#
+# State (per profile):
+#   - profile.respect            (int 0..max, default 50)
+#   - profile.respect_last_tick  (unix seconds; 0 = "never ticked")
+#
+# Rules:
+#   - Passive: -decay_per_hour each hour since last_tick.
+#   - Job completion grants tier-keyed +N respect, capped at max.
+#   - At respect == 0, accumulating hours_at_zero_per_level_loss zero-hours
+#     drops catnip_level by 1 (down to level_loss_floor) and resets respect
+#     to level_loss_grace_respect ("the family gives you a chance").
+#   - Store discount continues to track current catnip_level — no separate
+#     discount-decay column, lost levels lose their discount too.
+#
+# Lazy-compute pattern: read/modify-time settle, no background task. last_tick
+# is banked forward by the consumed hours so partial hours roll into the next
+# call. Iterations are capped at 60 days; anyone gone longer effectively gets
+# multiple settles spread across sessions, eventually reaching the floor.
+# ---------------------------------------------------------------------------
+
+
+def _respect_cfg() -> dict:
+    return config.tuning.get("respect", {}) if hasattr(config, "tuning") else {}
+
+
+def _respect_grant_for_tier(tier: int) -> int:
+    """Respect gained for completing a job of this tier. Caller still has to
+    clamp against max and save the profile."""
+    cfg = _respect_cfg()
+    table = cfg.get("job_reward", {}) or {}
+    return int(table.get(str(int(tier)), 0) or 0)
+
+
+def _respect_settle(profile: Profile, now: int | None = None) -> int:
+    """Apply passive respect decay (and any resulting catnip_level losses)
+    since the last tick. Returns the number of catnip levels lost during
+    this call so the caller can surface a warning. Caller still has to
+    save the profile.
+
+    Safe to call from any read site; idempotent within the same hour. Skips
+    the decay pass when respect_last_tick == 0 (newly migrated profiles or
+    profiles that have never engaged with jobs) — we stamp the timestamp
+    and bail, so the first interaction sets the baseline rather than
+    retroactively punishing dormancy."""
+    cfg = _respect_cfg()
+    if not cfg:
+        return 0
+    now = now if now is not None else int(time.time())
+    last = int(getattr(profile, "respect_last_tick", 0) or 0)
+    if last <= 0:
+        profile.respect_last_tick = now
+        return 0
+    elapsed = (now - last) // 3600
+    if elapsed <= 0:
+        return 0
+    # 60-day per-call cap. Anyone gone longer will settle more on subsequent
+    # calls; this keeps any single call O(1440) iterations max.
+    elapsed = min(int(elapsed), 24 * 60)
+
+    decay = max(0, int(cfg.get("decay_per_hour", 1)))
+    hz_per_loss = max(1, int(cfg.get("hours_at_zero_per_level_loss", 6)))
+    floor = max(0, int(cfg.get("level_loss_floor", 4)))
+    grace = max(0, int(cfg.get("level_loss_grace_respect", 25)))
+    cap = max(1, int(cfg.get("max", 100)))
+
+    current = max(0, min(cap, int(getattr(profile, "respect", 50) or 0)))
+    cat_level = int(getattr(profile, "catnip_level", 0) or 0)
+    levels_lost = 0
+    hours_at_zero = 0
+
+    for _ in range(elapsed):
+        if current > 0:
+            current = max(0, current - decay)
+            hours_at_zero = 0
+        else:
+            hours_at_zero += 1
+            if hours_at_zero >= hz_per_loss and cat_level > floor:
+                cat_level -= 1
+                levels_lost += 1
+                current = grace
+                hours_at_zero = 0
+            # else: at floor or still accumulating — stay at 0
+
+    profile.respect = current
+    profile.catnip_level = cat_level
+    profile.respect_last_tick = last + elapsed * 3600
+    return levels_lost
+
+
+def _respect_apply_job_grant(profile: Profile, tier: int, now: int | None = None) -> int:
+    """Settle passive decay first, then add the tier-keyed bonus. Returns the
+    new respect value. Caller still has to save the profile and surface any
+    level loss returned by the settle pass."""
+    cfg = _respect_cfg()
+    cap = max(1, int(cfg.get("max", 100)))
+    _respect_settle(profile, now)
+    bonus = _respect_grant_for_tier(int(tier))
+    if bonus <= 0:
+        return int(getattr(profile, "respect", 50) or 0)
+    new_val = min(cap, int(getattr(profile, "respect", 50) or 0) + bonus)
+    profile.respect = new_val
+    profile.respect_last_tick = now if now is not None else int(time.time())
+    return new_val
 
 
 # ---------------------------------------------------------------------------
@@ -9832,13 +10006,13 @@ async def catstore(message: discord.Interaction):
         {
             "title": "Packs in the Store",
             "body": (
-                "**Stone through Celestial** are sold here at their face `totalvalue` (with your Cat Mafia discount/tax applied).\n\n"
+                "**Stone through Celestial** are sold here at their `store_price` (with your Cat Mafia discount/tax applied).\n\n"
                 "**Wooden is excluded** — `/stocks` already provides a coins↔Wooden exchange at 100 coins per pack via the deposit/withdraw flow. "
                 "Selling Wooden here would duplicate that path with no benefit. Use `/stocks` for Wooden.\n\n"
                 "**Pack contents are random when opened.** A pack you bought here behaves identically to a pack from the battlepass — same odds, same achievements, same quest progress. Buy then open with `/packs`.\n\n"
-                "**Round-trip economics:** buying a pack from /catstore and depositing it back via `/stocks` is net-zero (deposit pays `totalvalue`). "
-                "Buying then **opening** is gacha-negative on expectation, because expected pack contents are less than the face value — like every real-world pack. "
-                "Cat Mafia rank changes that math: at Lv10 the discount makes opening packs much more favorable."
+                "**Round-trip economics:** Stone/Bronze are net-zero versus a /stocks deposit (`store_price` == `totalvalue`). Silver and up are net-NEGATIVE — store_price is a multiple of the deposit value, so buying then depositing is the worst possible play. "
+                "Buying then **opening** is gacha-negative on expectation, because expected pack contents (`value`) are less than the deposit value (`totalvalue`), and the store_price is higher still. Top-tier packs are meant to be opened, not flipped. "
+                "Cat Mafia rank changes that math: at Lv10 the discount makes opening packs much more favorable, but Celestial is still meaningfully expensive."
             ),
         },
     ]
@@ -10844,6 +11018,16 @@ async def jobs(message: discord.Interaction):
         now = int(time.time())
         # Lazy heat decay on every board open.
         _jobs_apply_heat_decay(profile, now)
+        # Lazy respect decay too. If a level was lost since the last open, save
+        # so the persisted state matches what we're about to render, and queue
+        # a toast so the next render surfaces the loss.
+        _respect_levels_lost_on_open = _respect_settle(profile, now)
+        if _respect_levels_lost_on_open > 0:
+            last_toast.append(
+                f"-# 💀 You lost {_respect_levels_lost_on_open} catnip level"
+                f"{'s' if _respect_levels_lost_on_open > 1 else ''} from neglect — "
+                "the family doesn't reward absentees."
+            )
         level = int(profile.catnip_level or 0)
 
         async def _say(text: str):
@@ -10870,6 +11054,9 @@ async def jobs(message: discord.Interaction):
         _, win_end = _jobs_window_bounds(window_idx)
         heat = int(getattr(profile, "heat", 0) or 0)
         heat_band = "🟢" if heat <= 30 else ("🟡" if heat <= 70 else "🔴")
+        respect = int(getattr(profile, "respect", 50) or 0)
+        respect_max = max(1, int(_respect_cfg().get("max", 100)))
+        respect_band = "🟢" if respect >= 67 else ("🟡" if respect >= 26 else "🔴")
         suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
         pinch_active = suspended_until > now
         today_count = await _jobs_commits_today(int(profile.user_id), int(profile.guild_id), now)
@@ -10881,12 +11068,20 @@ async def jobs(message: discord.Interaction):
         items: list = [
             "## 📋 Jobs Board",
             (f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  "
+             f"{respect_band} Respect: {respect}/{respect_max}  ·  "
              f"Jobs today: {today_count}/{_eff_cap_board}  ·  Refreshes <t:{win_end}:R>"),
         ]
         if today_count >= _eff_cap_board:
             items.append(f"-# 🛑 **Daily limit hit.** Resets <t:{day_end}:R>.")
         if pinch_active:
             items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
+        if respect == 0:
+            floor_v = int(_respect_cfg().get("level_loss_floor", 4))
+            if level > floor_v:
+                items.append(
+                    f"-# ⚠️ **Zero respect.** Catnip level will drop (floor Lv{floor_v}) "
+                    "if you don't commit jobs."
+                )
         if level < 4:
             items.append("-# *Tutorial errand only. Reach Capo (Lv4) for the full board.*")
         for line in last_toast:
@@ -11203,6 +11398,20 @@ async def jobs(message: discord.Interaction):
         if destroyed_count:
             lost_summary = ", ".join(f"{c}× {t}" for t, c in cats_destroyed.items())
             items.append(f"💀 Lost: {lost_summary}")
+        # Respect line — only on success, since that's the only outcome that
+        # actually grants respect (failures don't deduct, decay handles that).
+        rep_changes_for_respect = _jobs_coerce_dict(job.rep_changes)
+        respect_gain_disp = int(rep_changes_for_respect.get("respect_gain", 0) or 0)
+        respect_now_disp = int(rep_changes_for_respect.get("respect_now", 0) or 0)
+        respect_lost_disp = int(rep_changes_for_respect.get("respect_levels_lost", 0) or 0)
+        respect_max_disp = max(1, int(_respect_cfg().get("max", 100)))
+        if outcome == "success" and respect_gain_disp > 0:
+            items.append(f"🤝 Respect: +{respect_gain_disp} (now {respect_now_disp}/{respect_max_disp})")
+        if respect_lost_disp > 0:
+            items.append(
+                f"💀 Lost {respect_lost_disp} catnip level"
+                f"{'s' if respect_lost_disp > 1 else ''} to mafia decay before this job."
+            )
         # Pinch follow-up — only shown on the commit that crossed the threshold.
         rep_changes = _jobs_coerce_dict(job.rep_changes)
         if rep_changes.get("pinched"):
@@ -11988,6 +12197,19 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
             await interaction.followup.send("This server has reached the prism limit.", ephemeral=True)
             return
 
+        # Coin tax — re-check at commit time so the player can't sit on a
+        # confirm screen, spend their coins elsewhere, then come back.
+        crafts_so_far = int(getattr(user, "prisms_crafted", 0) or 0)
+        coin_cost = prism_craft_coin_cost(crafts_so_far)
+        if int(getattr(user, "coins", 0) or 0) < coin_cost:
+            await interaction.followup.send(
+                f"You need 🪙 **{coin_cost:,}** coins to craft your "
+                f"{_ordinal(crafts_so_far + 1)} prism on this server. "
+                f"You have 🪙 **{int(getattr(user, 'coins', 0) or 0):,}**.",
+                ephemeral=True,
+            )
+            return
+
         # determine the next name
         for selected_name in prism_names:
             if not await Prism.get_or_none(guild_id=message.guild.id, name=selected_name):
@@ -12003,9 +12225,11 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         else:
             selected_time = round(time.time())
 
-        # actually take away cats
+        # actually take away cats and coins, and bump the crafted counter
         for i in cattypes:
             user["cat_" + i] -= 1
+        user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
+        user.prisms_crafted = crafts_so_far + 1
         await user.save()
 
         # create the prism
@@ -12019,7 +12243,10 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
 
         logging.debug("Created prism")
 
-        await message.followup.send(f"{icon} {interaction.user.mention} has created prism {selected_name}!")
+        await message.followup.send(
+            f"{icon} {interaction.user.mention} has created prism {selected_name}! "
+            f"(🪙 {coin_cost:,} coins spent)"
+        )
         await achemb(interaction, "prism", "followup")
         await achemb(interaction, "collecter", "followup")
 
@@ -12041,15 +12268,37 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         if unknowns:
             unknown_suffix = f" + {unknowns} unknown cat types (see /catalogue)"
 
+        crafts_so_far = int(getattr(user, "prisms_crafted", 0) or 0)
+        coin_cost = prism_craft_coin_cost(crafts_so_far)
+        coins_have = int(getattr(user, "coins", 0) or 0)
+        cost_line = (
+            f"\n**Coin cost (your {_ordinal(crafts_so_far + 1)} prism on this server):** "
+            f"🪙 **{coin_cost:,}** (you have 🪙 {coins_have:,})"
+        )
+
         if len(missing_cats) == 0:
             view = View(timeout=VIEW_TIMEOUT)
-            confirm_button = Button(label="Craft!", style=ButtonStyle.blurple, emoji=icon)
+            insufficient_coins = coins_have < coin_cost
+            confirm_button = Button(
+                label="Not enough coins!" if insufficient_coins else "Craft!",
+                style=ButtonStyle.red if insufficient_coins else ButtonStyle.blurple,
+                emoji=icon,
+                disabled=insufficient_coins,
+            )
             confirm_button.callback = confirm_craft
-            description = "The crafting recipe is __ONE of EVERY cat type__.\nContinue crafting?"
+            description = (
+                "The crafting recipe is __ONE of EVERY cat type__."
+                + cost_line
+                + "\nContinue crafting?"
+            )
         else:
             view = View(timeout=VIEW_TIMEOUT)
             confirm_button = Button(label="Not enough cats!", style=ButtonStyle.red, disabled=True)
-            description = "The crafting recipe is __ONE of EVERY cat type__.\nYou are missing " + "".join(missing_cats) + unknown_suffix
+            description = (
+                "The crafting recipe is __ONE of EVERY cat type__."
+                + cost_line
+                + "\nYou are missing " + "".join(missing_cats) + unknown_suffix
+            )
 
         view.add_item(confirm_button)
         await interaction.response.send_message(description, view=view, ephemeral=True)
@@ -15507,6 +15756,19 @@ async def catnip(message: discord.Interaction):
     if not user.dark_market_active:
         await message.followup.send("You don't have access to the catnip yet. Catch more cats to unlock it!")
         return
+
+    # Settle respect decay before rendering. A level loss here would have
+    # already been shown the next time the player opens /jobs; we still
+    # surface a one-shot notice so /catnip-only players see it too.
+    _respect_lost_at_catnip = _respect_settle(user, int(time.time()))
+    if _respect_lost_at_catnip > 0:
+        await user.save()
+        await message.followup.send(
+            f"💀 You lost {_respect_lost_at_catnip} catnip level"
+            f"{'s' if _respect_lost_at_catnip > 1 else ''} to mafia decay. "
+            "Commit jobs to rebuild Respect.",
+            ephemeral=True,
+        )
 
     if user.catnip_active < time.time() and not user.hibernation and user.catnip_level > 0:
         embed = await level_down(user, message, True)

@@ -136,6 +136,75 @@ Phase 2 Whiskers's Favor (Whiskers ≥+100 rep → next pack-open upgrades one t
 
 Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops constantly. Both can be active at the same time.
 
+## Respect — the decay meter
+
+Pre-rebalance, once a player maxed `catnip_level` they could coast indefinitely. Heat decayed on its own, the store discount was permanent, and Tier‑4 access never expired. **Respect** adds active pressure: you LOSE respect over time and GAIN it from completing jobs. Hit 0 and your catnip level starts dropping — losing tier access AND the store discount that came with it.
+
+### State
+
+Two columns on `profile`:
+
+- `respect` (int, 0..100, default 50) — current standing with the family
+- `respect_last_tick` (bigint, unix seconds, default 0) — timestamp of the last decay settle. `0` means "never ticked"; the first interaction stamps it and skips decay so freshly-migrated profiles aren't punished retroactively.
+
+### Rules
+
+- **Passive decay** of `decay_per_hour` (default 1) each hour since `respect_last_tick`. Capped at 0.
+- **Job completion grant** based on tier: `T1 +10, T2 +25, T3 +50, T4 +100, Big Score +200`. Capped at `max` (100).
+- **At respect == 0**, accumulating `hours_at_zero_per_level_loss` (default 6) zero-hours costs **−1 catnip_level**. After the loss, respect resets to `level_loss_grace_respect` (default 25) so the player has a runway before the next loss.
+- **Floor**: catnip_level cannot decay below `level_loss_floor` (default 4). Tier‑2 jobs always remain accessible as a recovery path, so a returning player from a long absence can always rebuild.
+- **Store discount tracks current catnip_level.** When a level is lost to decay, the discount drops with it (Lv10's +30% reverts to Lv9's +25%, etc.). This is the same code path catnip already used — no extra wiring.
+
+### Equilibrium math
+
+At default tuning, 1 hour of inactivity = −1 respect, so:
+
+| Catnip level / typical play | Hours-to-zero | Hours of zero before level loss | Total idle hours per level lost |
+| --------------------------- | ------------- | ------------------------------- | ------------------------------- |
+| Lv10, default respect (50)  | 50            | 6                               | 56 (then 31 per next level)     |
+| Lv6, default respect (50)   | 50            | 6                               | 56 (then 31 per next level)     |
+
+So a maxed Lv10 player going completely idle drops to the Lv4 floor in roughly `56 + 5 × 31 = 211 hours` (~8.8 days). After the first loss each subsequent one happens faster because respect resets to 25, not 50. A player who commits even one T2 (`+25`) per day from a 50-respect start sustains forever.
+
+### Implementation pattern (lazy compute on read)
+
+`_respect_settle(profile, now)` is called wherever respect is read or mutated:
+
+- `/jobs` board open (after `_jobs_apply_heat_decay`, same pattern)
+- `/jobs` result screen path (top of the success branch in `_jobs_apply_outcome`, so any level loss is reflected in the result UI)
+- `/catnip` command entry (so /catnip-only players see decay and level losses too)
+
+The helper iterates hour-by-hour from `last_tick` to `now`, applying decay and (if needed) level-loss cycles. **60-day per-call cap** keeps any single settle bounded; profiles dormant longer settle in chunks across subsequent interactions. No background task — purely on-demand. Returns the number of catnip levels lost on this call so the caller can surface a toast.
+
+### UI
+
+- **Status line** on the /jobs board: `🟢/🟡/🔴 Respect: N/100` alongside the existing `Heat` line. Bands at 67+ green, 26-66 yellow, ≤25 red.
+- **Result screen** shows `🤝 Respect: +25 (now 72/100)` on a successful commit.
+- **Level loss notice**: when settle drops a catnip level, the /jobs board (next open) and /catnip command surface a one-shot warning so the player isn't surprised.
+- **Zero respect warning** in the board status block: when respect is 0 AND the player is above the floor, an explicit "catnip level will drop" banner.
+
+### Tuning
+
+Everything lives in `config/tuning.json → respect` and is hot-reloadable via `cat!restart`:
+
+```json
+"respect": {
+  "max": 100,
+  "default": 50,
+  "decay_per_hour": 1,
+  "job_reward": {"1": 10, "2": 25, "3": 50, "4": 100, "5": 200},
+  "hours_at_zero_per_level_loss": 6,
+  "level_loss_floor": 4,
+  "level_loss_grace_respect": 25
+}
+```
+
+### Design intent
+
+The pre-rebalance coast — max catnip once, profit forever — broke the "active commitment" implicit in /jobs being a contract system. Respect fixes that with a mechanic that's visible (a clear meter, not silent rot), predictable (deterministic decay rate, easily-grokked thresholds), and recoverable (floor at Lv4, grace bump after each loss). No catch-up penalty for returning players; they just see decay running. Combined with the top-tier price increases and the prism coin tax, the loop becomes: do jobs to keep respect → keep respect to keep discount → keep discount to afford the new top-tier prices → top-tier purchases now actually feel like they cost something.
+
+The asymmetry with Heat is intentional: Heat punishes *over-commitment* (too many high-risk jobs in a row), Respect punishes *under-commitment* (going idle). Together they sandwich the player into a healthy middle: keep playing, but don't burn yourself out chasing T4s every window.
+
 ## Open questions
 
 > **TODO(design):** the recipe weights for Sofia T4 include a 5%-weight "Mythic + Silver pack" jackpot. If post-launch data shows it firing often enough to bend the late-game cat supply, drop it to weight 2-3 or move it to a separate `jackpot_pool` that requires +50 Sofia rep to unlock. Right now any Lv8 Sofia commit can hit it.

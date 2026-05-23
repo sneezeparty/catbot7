@@ -4,6 +4,22 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.0.164423052026]
+
+### Added
+- **Respect meter — mafia decay.** New `profile.respect` (0..100, default 50) ticks down passively while you ignore the family. Each completed job grants a tier-keyed bonus (`T1 +10, T2 +25, T3 +50, T4 +100, Big Score +200`, capped at 100). Decay rate is **−1/hr**, with a 60-day per-call cap on the lazy settle. When respect hits 0, every `hours_at_zero_per_level_loss` (default 6) hours at zero costs **−1 catnip_level**, floored at Lv4 so Tier‑2 jobs always remain a recovery path. After a level loss, respect resets to **25** (the grace bump) so the player has a runway to recover before the next loss. The store discount continues to track current catnip_level, so losing a level loses the discount that came with it. Wired into `/jobs` board, `/jobs` result screen, and `/catnip` open. `_respect_settle()`, `_respect_grant_for_tier()`, and the tuning block in `config/tuning.json → respect` are the source of truth.
+- **Prism craft coin tax.** Each player's Nth prism craft on a given server now costs **`5,000 × 2^N` coins** (capped at 320,000) on top of the cat recipe. Per-PROFILE counter (`profile.prisms_crafted`) keyed off the prism table's `creator` column at migration time, so the cost ramp is independent on each server. The confirm dialog surfaces the cost upfront, the craft button is disabled when you can't afford it, and a re-check at commit time prevents the "stay on confirm, spend coins elsewhere, then craft" race. Tunable via `config/tuning.json → prism_craft_coin_cost`.
+
+### Changed
+- **Top-tier pack prices increased** (Silver and up). New catstore prices: Silver **600** (was 300, 2×), Gold **1,800** (was 600, 3×), Platinum **4,800** (was 1,200, 4×), Diamond **9,000** (was 1,800, 5×), Celestial **21,000** (was 3,000, 7×). Wooden/Stone/Bronze unchanged. Implemented by adding a new `store_price` field to `pack_data` entries — `totalvalue` (the `/stocks` deposit payout and trade-display value) is unchanged, so deposits still pay what the cats inside are worth. Round-trip economics are now meaningfully negative for Silver+ (buying a Celestial then depositing it loses 18,000 coins), which is intentional: top-tier packs are meant to be opened, not flipped. Help text updated to explain the new asymmetry. Mafia discount continues to apply on top of `store_price`.
+- **Top-tier cat prices increased.** New `catstore_tier_mult` table in tuning.json applies a per-rarity multiplier on top of the base `cat_value × CATSTORE_PRICE_MULTIPLIER`: **Mythic ×1.5, Divine ×4, Real ×5, Ultimate ×6, eGirl ×7**. Rarities below Mythic are unchanged. Effective buy prices at Capo (Lv4, 0% adjustment): Divine ~5,600 (was ~1,400), Real ~10,000, Ultimate ~20,400, eGirl ~28,700 (was ~4,100). Sell prices follow automatically because `store_sell_price` is a percentage of face. `type_dict` itself is unchanged so catch drop rates are untouched. Mafia discount still stacks on top.
+
+### Internal
+- Migration `018_respect_and_prism_count.py` adds three columns to `profile`: `respect INT DEFAULT 50`, `respect_last_tick BIGINT DEFAULT 0`, `prisms_crafted INT DEFAULT 0`. Backfills `prisms_crafted` from the existing `prism` table grouped by `(creator, guild_id)` so current prism owners don't get hit with the "1st craft = 5,000" cost on their next craft. Mirrored in `schema.sql`.
+- `pack_data` entries gain an optional `store_price` field. `pack_buy_price()` reads it with a fallback to `totalvalue` so old pack definitions (and any future tiers added without a store_price) keep working.
+- New helpers in `main.py`: `_respect_cfg`, `_respect_grant_for_tier`, `_respect_settle`, `_respect_apply_job_grant`, `_catstore_tier_mult`, `prism_craft_coin_cost`, `_ordinal`. The respect helper lazy-computes decay on read (no background task) and is called from the `/jobs` board open, the `/jobs` result-screen path (via the success branch in `_jobs_apply_outcome`), and the `/catnip` command entry.
+- New tuning blocks in `config/tuning.json`: `respect`, `catstore_tier_mult`, `prism_craft_coin_cost`. All hot-reloadable via `cat!restart`.
+
 ## [0.5.6.070123052026]
 
 ### Fixed

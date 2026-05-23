@@ -14,6 +14,9 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 | Wallet | Two silos, "cat dollars" for /roulette and "coins" for /stocks and /packs | One `coins` wallet shared across /stocks, /packs, /roulette, /catstore, /catslots |
 | Marketplace | None | `/catstore` sells discovered cat rarities, plus an Extras sub-tree for paid rain blocks and Stone-through-Celestial packs |
 | PvE | None | `/jobs` Mafia Killings, six NPCs, deterministic 6h contract windows, complications, job perks, daily commit cap, once-per-season Big Score |
+| Mafia decay | None | **Respect** meter (0..100) ticks down 1/hr while idle, refills from job completions. At zero, catnip_level drops one per 6 zero-hours (floored at Lv4) along with its store discount. |
+| Top-tier prices | Pre-rebalance Celestial = 3k coins, eGirl = ~4k | Celestial 21k (7×), Diamond 9k (5×), Platinum 4.8k (4×), Gold 1.8k (3×), Silver 600 (2×). Cat tier multipliers: Mythic 1.5×, Divine 4×, Real 5×, Ultimate 6×, eGirl 7×. Low-tier prices unchanged. |
+| Prism crafting | One of every cat type, no coin cost | Cat recipe unchanged, plus a per-profile coin tax: **5k × 2^N** for your Nth prism on this server, capped at 320k. |
 | Slots | `/slots` 3-reel | `/slots` plus `/catslots` 5×3 Vegas-style with 20 paylines and a per-line cap |
 | Stock market | Static order book at the initial price | Bot-owned market maker ticks prices off in-game metrics (prism count, active catnip, average battlepass level, etc.) |
 | Catnip perks | Time Manipulator and the legacy lineup | Snowballer, Battlepass Booster, Bait & Switch added. Time Manipulator frozen in place to preserve stored-perk indices. Voting Booster renamed to Loyalty Streak |
@@ -97,6 +100,7 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 015 | Packs in catstore, `store_purchased_pack_tiers` JSONB |
 | 016 | `/catslots` eGirl bonus round counters and ach booleans |
 | 017 | Cat Bot Store, `user.entitlements` JSONB |
+| 018 | Respect meter (`profile.respect`, `respect_last_tick`) + prism craft counter (`profile.prisms_crafted`). Backfills the counter from existing prism rows. |
 
 Run in numeric order. Each script is safe to re-run.
 

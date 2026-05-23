@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.5.2.182422052026]
+
+### Added
+- **`/catslots` bonus payout floor.** Every bonus is now guaranteed to pay at least a tier-scaled multiple of the triggering spin's total bet, applied as a top-up after the natural spin payouts are summed: **tier 3 = 5× bet, tier 4 = 10× bet, tier 5 = 25× bet** (`CATSLOTS_BONUS_FLOORS` in `main.py`). Solves the "spent 13s on the letter-reveal animation and got 24 coins on a 20-coin bet" experience — small-bet bonuses now always feel like a real win. When the floor binds, the bonus summary surfaces it as `🛡️ Bonus floor: +N coins (guaranteed Xx bet minimum)`. The floor kicks in on ~74% of bonus triggers in simulation but rarely binds at max bet — natural variance still dominates the big wins. RTP impact: total RTP rises from ~94% to ~101%, making the slot effectively break-even on average (verified by 300k-spin Monte Carlo). This is the right trade for a closed-economy fun-game bot.
+
 ## [0.5.1.174022052026]
 
 ### Changed

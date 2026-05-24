@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.3.070224052026]
+
+### Changed
+- **Prism-owner passive XP is now visible inline in the catch message.** When somebody else's prism boosts your catch, the existing chat suffix already names the owner (`🔮 <@owner>'s prism Alpha boosted this catch from a Fine cat!`). That line now ends with `(+20 XP)` so the owner — already pinged by the @-mention — sees the grant in the same beat instead of having to check `/battlepass` to notice. The +20 grant itself has been there all along (`asyncio.create_task(_grant_prism_owner_xp(...))` in the catch handler); only the silence is fixed. Self-boosts still grant nothing and still show no XP tag. The XP value moves to a new `PRISM_OWNER_XP_PER_BOOST` module constant (tunable via `config/tuning.json → prism_owner_xp_per_boost`, default 20) so the grant call and the chat tag can't drift.
+
 ## [0.6.2.062624052026]
 
 ### Changed

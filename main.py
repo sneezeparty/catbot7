@@ -293,6 +293,10 @@ RAINBOOST_SHORT = config.tuning["rainboost_short_seconds"]
 PRISM_BOOST_GLOBAL_COEF = config.tuning["prism_boost_global_coef"]
 PRISM_BOOST_USER_COEF = config.tuning["prism_boost_user_coef"]
 PRISM_BOOST_FLOOR = config.tuning["prism_boost_floor"]
+# Passive XP granted to the prism OWNER when their prism boosts a catch for
+# a different player (self-boosts grant nothing). Sourced from tuning.json
+# with a literal default so existing tuning files keep working unchanged.
+PRISM_OWNER_XP_PER_BOOST = int(config.tuning.get("prism_owner_xp_per_boost", 20))
 CATNIP_TIMER_EXTEND = config.tuning["catnip_timer_extend_seconds"]
 COIN_PER_PACK = config.tuning["coin_per_pack"]
 BAKERY_COST_COOKIES = config.tuning["bakery_cost_cookies"]
@@ -5992,15 +5996,17 @@ async def on_message(message: discord.Message):
                     user.boosted_catches += 1
                     prism_which_boosted.catches_boosted += 1
                     asyncio.create_task(prism_which_boosted.save())
-                    # Passive XP: +20 to the prism owner when their prism
-                    # boosts a different user's catch. Silent grant — the
-                    # owner sees it next time they check /battlepass.
+                    # Passive XP to the prism owner when their prism boosts a
+                    # different user's catch. The XP value lives in
+                    # PRISM_OWNER_XP_PER_BOOST so the grant and the
+                    # (+N XP) tag appended to the chat suffix below can't
+                    # drift. Self-boosts grant nothing.
                     if prism_which_boosted.user_id != message.author.id:
                         async def _grant_prism_owner_xp(guild_id, owner_id):
                             try:
                                 owner = await Profile.get_or_none(guild_id=guild_id, user_id=owner_id)
                                 if owner is not None:
-                                    await grant_achievement_xp(owner, 20)
+                                    await grant_achievement_xp(owner, PRISM_OWNER_XP_PER_BOOST)
                             except Exception:
                                 logging.exception("prism owner XP grant failed")
                         asyncio.create_task(_grant_prism_owner_xp(message.guild.id, prism_which_boosted.user_id))
@@ -6036,14 +6042,21 @@ async def on_message(message: discord.Message):
                                 config.rain_starter[channel.channel_id] = message.author.id
                                 bot.loop.create_task(rain_recovery_loop(channel))
 
+                    # Cross-user boosts grant +PRISM_OWNER_XP_PER_BOOST XP to
+                    # the prism owner (the grant fires above via
+                    # _grant_prism_owner_xp). Mirror that gate here so the
+                    # suffix only annotates the XP when it actually flows —
+                    # self-boosts grant nothing and so display nothing.
+                    is_cross_user_boost = prism_which_boosted.user_id != message.author.id
+                    xp_tag = f" (+{PRISM_OWNER_XP_PER_BOOST} XP)" if is_cross_user_boost else ""
                     if normal_bump:
                         if double_boost:
-                            suffix_string += f"\n{get_emoji('prism')}{get_emoji('prism')} {boost_applied_prism} boosted this catch twice from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!"
+                            suffix_string += f"\n{get_emoji('prism')}{get_emoji('prism')} {boost_applied_prism} boosted this catch twice from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!{xp_tag}"
                         else:
-                            suffix_string += f"\n{get_emoji('prism')} {boost_applied_prism} boosted this catch from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!"
+                            suffix_string += f"\n{get_emoji('prism')} {boost_applied_prism} boosted this catch from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!{xp_tag}"
                     elif not channel.forcespawned:
                         suffix_string += (
-                            f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but failed! A {rainboost // 60}m rain will start!"
+                            f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but failed! A {rainboost // 60}m rain will start!{xp_tag}"
                         )
 
                 # ---- Job-perk catch-loop effects ----

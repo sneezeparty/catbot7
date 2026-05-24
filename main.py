@@ -2021,19 +2021,25 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
             profile.biggest_score_value = haul
         # Respect: settle prior decay, then grant the tier-keyed bonus. Stamp
         # the result on job.rep_changes so the result screen can render
-        # "+N Respect (now M/100)" without recomputing.
+        # "+N Respect (now M/100)" without recomputing. No-ops cleanly when
+        # migration 018 hasn't been applied yet (helper returns 0).
         respect_levels_lost = _respect_settle(profile, int(time.time()))
-        respect_before = int(getattr(profile, "respect", 50) or 0)
-        respect_gain = _respect_grant_for_tier(int(job.tier or 0))
-        if respect_gain > 0:
-            cap = max(1, int(_respect_cfg().get("max", 100)))
-            profile.respect = min(cap, respect_before + respect_gain)
-            profile.respect_last_tick = int(time.time())
+        if _profile_has_respect_columns(profile):
+            respect_before = int(profile.respect or 0)
+            respect_gain = _respect_grant_for_tier(int(job.tier or 0))
+            if respect_gain > 0:
+                cap = max(1, int(_respect_cfg().get("max", 100)))
+                profile.respect = min(cap, respect_before + respect_gain)
+                profile.respect_last_tick = int(time.time())
+            respect_now = int(profile.respect or 0)
+        else:
+            respect_gain = 0
+            respect_now = 0
         # Re-assign rep_changes so catpg sees the dirty change (mutating the
         # JSONB dict in-place would not trigger __setattr__ tracking).
         _rc = dict(job.rep_changes) if isinstance(job.rep_changes, dict) else {}
         _rc["respect_gain"] = int(respect_gain)
-        _rc["respect_now"] = int(getattr(profile, "respect", 50) or 0)
+        _rc["respect_now"] = respect_now
         _rc["respect_levels_lost"] = int(respect_levels_lost)
         job.rep_changes = _rc
         # Big Score: bump win counter, grant the one-time perk on first win.
@@ -2280,6 +2286,42 @@ def _respect_grant_for_tier(tier: int) -> int:
     return int(table.get(str(int(tier)), 0) or 0)
 
 
+def _profile_has_respect_columns(profile: Profile) -> bool:
+    """True iff the profile row has the respect-meter columns populated.
+    catpg's __getattr__ raises KeyError (not AttributeError) for missing
+    columns, so `getattr(profile, "respect", default)` does NOT fall back —
+    every read of a possibly-missing column has to be guarded. Used by
+    every respect helper to no-op cleanly when the migration hasn't been
+    applied yet, keeping /jobs and /catnip working in the meantime."""
+    try:
+        _ = profile.respect_last_tick
+        _ = profile.respect
+        return True
+    except (KeyError, AttributeError):
+        return False
+
+
+def _safe_prisms_crafted(profile: Profile) -> int:
+    """Return profile.prisms_crafted as an int, or 0 if the column doesn't
+    exist (migration 018 unrun). Same KeyError-vs-AttributeError dance as
+    _profile_has_respect_columns."""
+    try:
+        return int(profile.prisms_crafted or 0)
+    except (KeyError, AttributeError):
+        return 0
+
+
+def _prism_tax_enabled(profile: Profile) -> bool:
+    """True iff the prisms_crafted column exists on this profile row. Used
+    to gate the coin tax behavior so prism crafting still works pre-migration
+    (skip the charge and the counter bump entirely)."""
+    try:
+        _ = profile.prisms_crafted
+        return True
+    except (KeyError, AttributeError):
+        return False
+
+
 def _respect_settle(profile: Profile, now: int | None = None) -> int:
     """Apply passive respect decay (and any resulting catnip_level losses)
     since the last tick. Returns the number of catnip levels lost during
@@ -2290,12 +2332,15 @@ def _respect_settle(profile: Profile, now: int | None = None) -> int:
     the decay pass when respect_last_tick == 0 (newly migrated profiles or
     profiles that have never engaged with jobs) — we stamp the timestamp
     and bail, so the first interaction sets the baseline rather than
-    retroactively punishing dormancy."""
+    retroactively punishing dormancy. Also no-ops cleanly if migration 018
+    hasn't been applied yet (the columns don't exist on the row)."""
     cfg = _respect_cfg()
     if not cfg:
         return 0
+    if not _profile_has_respect_columns(profile):
+        return 0
     now = now if now is not None else int(time.time())
-    last = int(getattr(profile, "respect_last_tick", 0) or 0)
+    last = int(profile.respect_last_tick or 0)
     if last <= 0:
         profile.respect_last_tick = now
         return 0
@@ -2312,7 +2357,7 @@ def _respect_settle(profile: Profile, now: int | None = None) -> int:
     grace = max(0, int(cfg.get("level_loss_grace_respect", 25)))
     cap = max(1, int(cfg.get("max", 100)))
 
-    current = max(0, min(cap, int(getattr(profile, "respect", 50) or 0)))
+    current = max(0, min(cap, int(profile.respect or 0)))
     cat_level = int(getattr(profile, "catnip_level", 0) or 0)
     levels_lost = 0
     hours_at_zero = 0
@@ -2339,14 +2384,17 @@ def _respect_settle(profile: Profile, now: int | None = None) -> int:
 def _respect_apply_job_grant(profile: Profile, tier: int, now: int | None = None) -> int:
     """Settle passive decay first, then add the tier-keyed bonus. Returns the
     new respect value. Caller still has to save the profile and surface any
-    level loss returned by the settle pass."""
+    level loss returned by the settle pass. No-ops cleanly on profiles
+    without the respect columns (migration 018 unrun)."""
     cfg = _respect_cfg()
     cap = max(1, int(cfg.get("max", 100)))
     _respect_settle(profile, now)
+    if not _profile_has_respect_columns(profile):
+        return 0
     bonus = _respect_grant_for_tier(int(tier))
     if bonus <= 0:
-        return int(getattr(profile, "respect", 50) or 0)
-    new_val = min(cap, int(getattr(profile, "respect", 50) or 0) + bonus)
+        return int(profile.respect or 0)
+    new_val = min(cap, int(profile.respect or 0) + bonus)
     profile.respect = new_val
     profile.respect_last_tick = now if now is not None else int(time.time())
     return new_val
@@ -11054,9 +11102,13 @@ async def jobs(message: discord.Interaction):
         _, win_end = _jobs_window_bounds(window_idx)
         heat = int(getattr(profile, "heat", 0) or 0)
         heat_band = "🟢" if heat <= 30 else ("🟡" if heat <= 70 else "🔴")
-        respect = int(getattr(profile, "respect", 50) or 0)
+        # Respect column may not exist yet if migration 018 hasn't been run.
+        has_respect = _profile_has_respect_columns(profile)
+        respect = int(profile.respect or 0) if has_respect else None
         respect_max = max(1, int(_respect_cfg().get("max", 100)))
-        respect_band = "🟢" if respect >= 67 else ("🟡" if respect >= 26 else "🔴")
+        respect_band = None
+        if has_respect:
+            respect_band = "🟢" if respect >= 67 else ("🟡" if respect >= 26 else "🔴")
         suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
         pinch_active = suspended_until > now
         today_count = await _jobs_commits_today(int(profile.user_id), int(profile.guild_id), now)
@@ -11065,17 +11117,22 @@ async def jobs(message: discord.Interaction):
         # daily_cap_extension: peek-only; charge consumed at commit time.
         _eff_cap_board = _perks_effective_daily_cap(profile, JOBS_MAX_DAILY_COMMITS)
         view = LayoutView(timeout=VIEW_TIMEOUT)
+        status_parts = [f"Mafia Lv {level} ({rank_name})", f"{heat_band} Heat: {heat}/100"]
+        if has_respect:
+            status_parts.append(f"{respect_band} Respect: {respect}/{respect_max}")
+        status_parts.extend([
+            f"Jobs today: {today_count}/{_eff_cap_board}",
+            f"Refreshes <t:{win_end}:R>",
+        ])
         items: list = [
             "## 📋 Jobs Board",
-            (f"Mafia Lv {level} ({rank_name})  ·  {heat_band} Heat: {heat}/100  ·  "
-             f"{respect_band} Respect: {respect}/{respect_max}  ·  "
-             f"Jobs today: {today_count}/{_eff_cap_board}  ·  Refreshes <t:{win_end}:R>"),
+            "  ·  ".join(status_parts),
         ]
         if today_count >= _eff_cap_board:
             items.append(f"-# 🛑 **Daily limit hit.** Resets <t:{day_end}:R>.")
         if pinch_active:
             items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
-        if respect == 0:
+        if has_respect and respect == 0:
             floor_v = int(_respect_cfg().get("level_loss_floor", 4))
             if level > floor_v:
                 items.append(
@@ -12198,10 +12255,13 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
             return
 
         # Coin tax — re-check at commit time so the player can't sit on a
-        # confirm screen, spend their coins elsewhere, then come back.
-        crafts_so_far = int(getattr(user, "prisms_crafted", 0) or 0)
-        coin_cost = prism_craft_coin_cost(crafts_so_far)
-        if int(getattr(user, "coins", 0) or 0) < coin_cost:
+        # confirm screen, spend their coins elsewhere, then come back. Skipped
+        # entirely when the prisms_crafted column isn't present (migration 018
+        # unrun) so prism crafting keeps working.
+        tax_on = _prism_tax_enabled(user)
+        crafts_so_far = _safe_prisms_crafted(user)
+        coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
+        if coin_cost > 0 and int(getattr(user, "coins", 0) or 0) < coin_cost:
             await interaction.followup.send(
                 f"You need 🪙 **{coin_cost:,}** coins to craft your "
                 f"{_ordinal(crafts_so_far + 1)} prism on this server. "
@@ -12225,11 +12285,13 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         else:
             selected_time = round(time.time())
 
-        # actually take away cats and coins, and bump the crafted counter
+        # actually take away cats and coins, and bump the crafted counter.
+        # The coin-tax half no-ops when the column isn't present yet.
         for i in cattypes:
             user["cat_" + i] -= 1
-        user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
-        user.prisms_crafted = crafts_so_far + 1
+        if tax_on and coin_cost > 0:
+            user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
+            user.prisms_crafted = crafts_so_far + 1
         await user.save()
 
         # create the prism
@@ -12243,9 +12305,9 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
 
         logging.debug("Created prism")
 
+        cost_suffix = f" (🪙 {coin_cost:,} coins spent)" if (tax_on and coin_cost > 0) else ""
         await message.followup.send(
-            f"{icon} {interaction.user.mention} has created prism {selected_name}! "
-            f"(🪙 {coin_cost:,} coins spent)"
+            f"{icon} {interaction.user.mention} has created prism {selected_name}!{cost_suffix}"
         )
         await achemb(interaction, "prism", "followup")
         await achemb(interaction, "collecter", "followup")
@@ -12268,17 +12330,20 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         if unknowns:
             unknown_suffix = f" + {unknowns} unknown cat types (see /catalogue)"
 
-        crafts_so_far = int(getattr(user, "prisms_crafted", 0) or 0)
-        coin_cost = prism_craft_coin_cost(crafts_so_far)
+        tax_on = _prism_tax_enabled(user)
+        crafts_so_far = _safe_prisms_crafted(user)
+        coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
         coins_have = int(getattr(user, "coins", 0) or 0)
         cost_line = (
-            f"\n**Coin cost (your {_ordinal(crafts_so_far + 1)} prism on this server):** "
-            f"🪙 **{coin_cost:,}** (you have 🪙 {coins_have:,})"
+            (
+                f"\n**Coin cost (your {_ordinal(crafts_so_far + 1)} prism on this server):** "
+                f"🪙 **{coin_cost:,}** (you have 🪙 {coins_have:,})"
+            ) if (tax_on and coin_cost > 0) else ""
         )
 
         if len(missing_cats) == 0:
             view = View(timeout=VIEW_TIMEOUT)
-            insufficient_coins = coins_have < coin_cost
+            insufficient_coins = (tax_on and coin_cost > 0 and coins_have < coin_cost)
             confirm_button = Button(
                 label="Not enough coins!" if insufficient_coins else "Craft!",
                 style=ButtonStyle.red if insufficient_coins else ButtonStyle.blurple,
@@ -13847,7 +13912,21 @@ async def slots(message: discord.Interaction):
 
 
 @bot.tree.command(description="vegas-style 5x3 cat slots — pick lines, place a bet, spin")
-async def catslots(message: discord.Interaction):
+@discord.app_commands.describe(
+    lines="how many paylines to bet on. omit to use the menu.",
+    bet="coins to bet PER LINE (total = lines × bet). omit to use the menu.",
+)
+@discord.app_commands.choices(lines=[
+    discord.app_commands.Choice(name="1 line",   value=1),
+    discord.app_commands.Choice(name="5 lines",  value=5),
+    discord.app_commands.Choice(name="9 lines",  value=9),
+    discord.app_commands.Choice(name="20 lines", value=20),
+])
+async def catslots(
+    message: discord.Interaction,
+    lines: Optional[discord.app_commands.Choice[int]] = None,
+    bet: Optional[discord.app_commands.Range[int, 1, CATSLOTS_MAX_PER_LINE]] = None,
+):
     if message.user.id + message.guild.id in catslots_lock:
         await message.response.send_message(
             "you're already spinning /catslots — wait for the reels to settle, time-traveler",
@@ -14563,6 +14642,38 @@ async def catslots(message: discord.Interaction):
         prefill = catslots_last_bet.get(lock_key)
         await interaction.response.send_modal(CatSlotsModal(prefill=prefill))
 
+    # Slash-param fast path. Both `lines` and `bet` must be supplied to skip
+    # the lobby + modal. Choice and Range have already validated value bounds
+    # at the Discord layer, so all that's left is affordability and a final
+    # concurrency re-check (the entry-point lock check is too early — coins
+    # could have moved between command invocation and now). When only one of
+    # the two is supplied we silently fall through to the lobby; the modal
+    # presents both fields anyway, so the partial-input case is recoverable
+    # without a separate hint message.
+    if lines is not None and bet is not None:
+        await profile.refresh_from_db()
+        lines_n = int(lines.value)
+        per_line = int(bet)
+        total_bet = lines_n * per_line
+        max_bet = max(profile.coins, 100)
+        if total_bet > max_bet:
+            await message.response.send_message(
+                f"your total bet ({total_bet:,}) exceeds your max ({max_bet:,}). "
+                f"debt is allowed up to 100 coins.",
+                ephemeral=True,
+            )
+            return
+        if lock_key in catslots_lock:
+            await message.response.send_message(
+                "you're already spinning /catslots — wait for the reels to settle, time-traveler",
+                ephemeral=True,
+            )
+            await achemb(message, "paradoxical_catslots", "followup")
+            return
+        await message.response.defer()
+        await _do_spin(message, lines_n, per_line)
+        return
+
     bet_btn = Button(label="Place Bet", style=ButtonStyle.green)
     bet_btn.callback = on_open_modal
     view = View(timeout=VIEW_TIMEOUT)
@@ -14599,11 +14710,170 @@ async def catslots_force_bonus(
     await message.response.send_message(reply, ephemeral=True)
 
 
-@bot.tree.command(description="what")
-async def roulette(message: discord.Interaction):
+@bot.tree.command(description="bet on red, black, green, or a number 0–36")
+@discord.app_commands.describe(
+    color="red / black / green. omit if betting on a number.",
+    number="any number 0–36. omit if betting on a color.",
+    bet="coins to wager. omit to use the menu.",
+)
+@discord.app_commands.choices(color=[
+    discord.app_commands.Choice(name="🔴 red",   value="red"),
+    discord.app_commands.Choice(name="⚫ black", value="black"),
+    discord.app_commands.Choice(name="🟢 green", value="green"),
+])
+async def roulette(
+    message: discord.Interaction,
+    color: Optional[discord.app_commands.Choice[str]] = None,
+    number: Optional[discord.app_commands.Range[int, 0, 36]] = None,
+    bet: Optional[discord.app_commands.Range[int, 1, 2147483647]] = None,
+):
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
 
-    # this is the silly popup when you click the button
+    # Shared spin runner. Called by both the modal-submit path (after its
+    # input validation passes) and the slash-param fast path. Takes the
+    # already-validated bet target (a string: "red"/"black"/"green" or
+    # "0".."36") and the bet amount. Defers the interaction first thing —
+    # callers must NOT have already responded.
+    async def _do_roulette_spin(interaction: discord.Interaction, bet_value: str, bet_amount: int):
+        # Defer BEFORE the DB query — discord's interaction-response window
+        # is only 3 seconds. A slow DB call (or a gateway blip) used to
+        # expire the token before defer was even called, raising 404 Unknown
+        # interaction. Lock in the window first, then do everything that
+        # touches I/O.
+        await interaction.response.defer()
+        await user.refresh_from_db()
+
+        # Affordability check needs the fresh balance, so it runs as a
+        # followup after defer rather than as the initial response.
+        if bet_amount > max(user.coins, 100):
+            await interaction.followup.send(
+                f"your max bet is {max(user.coins, 100):,}", ephemeral=True
+            )
+            return
+
+        # mapping of colors to numbers by indexes
+        colors = [
+            "green",
+            "red", "black", "red", "black", "red", "black", "red", "black",
+            "red", "black", "black", "red", "black", "red", "black", "red",
+            "black", "red", "red", "black", "red", "black", "red", "black",
+            "red", "black", "red", "black", "black", "red", "black", "red",
+            "black", "red", "black", "red",
+        ]
+
+        emoji_map = {
+            "red": "🔴",
+            "black": "⚫",
+            "green": "🟢",
+        }
+
+        # ---- Roulette job-perks ----
+        # roulette_luck: bias final_choice toward a winning slot.
+        # roulette_mercy: refund a fraction of losing bets.
+        # free_spin:      one-shot — losing bets fully refunded.
+        roulette_perks_msgs: list[str] = []
+        luck_pp = float(_perks_strength(user, "roulette_luck", "bonus_pp", 0.0)) \
+            if "roulette_luck" in _perks_active_ids(user) else 0.0
+        mercy_pct = float(_perks_strength(user, "roulette_mercy", "refund_pct", 0.0)) \
+            if "roulette_mercy" in _perks_active_ids(user) else 0.0
+        free_spin_fired = False
+        if "free_spin" in _perks_active_ids(user):
+            _fs_cap = int(_perks_strength(user, "free_spin", "max_bet", 1000) or 0)
+            if bet_amount <= _fs_cap and _perks_consume_charge(user, "free_spin"):
+                free_spin_fired = True
+
+        def _is_winning_slot(idx: int, bv_inner: str) -> bool:
+            bv = bv_inner.lower()
+            if bv in [str(i) for i in range(37)]:
+                return str(idx) == bv
+            if bv == "green":
+                return colors[idx] == "green"
+            if bv == "red":
+                return colors[idx] == "red"
+            if bv == "black":
+                return colors[idx] == "black"
+            return False
+
+        if luck_pp > 0 and random.random() < luck_pp:
+            winning_slots = [i for i in range(37) if _is_winning_slot(i, bet_value)]
+            if winning_slots:
+                final_choice = random.choice(winning_slots)
+                roulette_perks_msgs.append("🍀 Loaded Wheel: the croupier owed you a favor.")
+            else:
+                final_choice = random.randint(0, 36)
+        else:
+            final_choice = random.randint(0, 36)
+
+        user.coins -= bet_amount
+        user.roulette_spins += 1
+        win = False
+        funny_win = False
+        if str(final_choice) == bet_value or colors[final_choice] == bet_value.lower():
+            if bet_value in [str(i) for i in range(37)] or bet_value.lower() == "green":
+                user.coins += bet_amount * 36
+                funny_win = True
+            else:
+                user.coins += bet_amount * 2
+            user.roulette_wins += 1
+            win = True
+        # Loss-side perks: refund some/all of the bet.
+        if not win:
+            if free_spin_fired:
+                user.coins += bet_amount
+                roulette_perks_msgs.append(f"🎟️ Free Spin: full {bet_amount:,} coin refund.")
+            elif mercy_pct > 0:
+                refund = int(round(bet_amount * mercy_pct))
+                if refund > 0:
+                    user.coins += refund
+                    roulette_perks_msgs.append(f"🤝 House Mercy: refunded 🪙 {refund:,}.")
+        user.coins = int(round(user.coins))
+        await user.save()
+
+        for wait_time in [0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.375]:
+            choice = random.randint(0, 36)
+            color = colors[choice]
+            embed = discord.Embed(
+                color=Colors.maroon,
+                title="woo its spinnin",
+                description=f"your bet is {bet_amount:,} coins on {bet_value.capitalize()}\n\n{emoji_map[color]} **{choice}**",
+            )
+            await interaction.edit_original_response(embed=embed, view=None)
+            await asyncio.sleep(wait_time)
+
+        color = colors[final_choice]
+
+        broke_suffix = ""
+        if user.coins <= 0:
+            broke_suffix = "\ndebt is allowed - you can still gamble up to **100** coins"
+
+        perk_suffix = ("\n\n" + "\n".join(roulette_perks_msgs)) if roulette_perks_msgs else ""
+        embed = discord.Embed(
+            color=Colors.maroon,
+            title="winner!!!" if win else "womp womp",
+            description=(
+                f"your bet was {bet_amount:,} coins on {bet_value.capitalize()}\n\n"
+                f"{emoji_map[color]} **{final_choice}**\n\n"
+                f"your new balance is **{user.coins:,}** coins{broke_suffix}{perk_suffix}"
+            ),
+        )
+        view = View(timeout=VIEW_TIMEOUT)
+        b = Button(label="spin", style=ButtonStyle.blurple)
+        b.callback = modal_select
+        view.add_item(b)
+        await interaction.edit_original_response(embed=embed, view=view)
+
+        if win:
+            await progress(message, user, "roulette")
+            await achemb(interaction, "roulette_winner", "followup")
+        # casino quest counts every roulette spin (win or lose)
+        await progress_casino_quest(message, user, "roulette")
+        if funny_win:
+            await achemb(interaction, "roulette_prodigy", "followup")
+        if user.coins < 0:
+            await achemb(interaction, "failed_gambler", "followup")
+
+    # The lobby button. Reads bettype/betamount via the modal, then delegates
+    # the actual spin to _do_roulette_spin.
     class RouletteModel(Modal):
         def __init__(self):
             super().__init__(
@@ -14638,7 +14908,6 @@ async def roulette(message: discord.Interaction):
             if self.bettype.value.lower() not in valids:
                 await interaction.response.send_message("invalid bet", ephemeral=True)
                 return
-
             try:
                 bet_amount = int(self.betamount.value)
             except ValueError:
@@ -14647,174 +14916,7 @@ async def roulette(message: discord.Interaction):
             if bet_amount <= 0:
                 await interaction.response.send_message("bet amount must be greater than 0", ephemeral=True)
                 return
-
-            # Defer BEFORE the DB query — discord's interaction-response
-            # window is only 3 seconds. A slow DB call (or a gateway blip)
-            # used to expire the token before defer was even called,
-            # raising 404 Unknown interaction. Lock in the window first,
-            # then do everything that touches I/O.
-            await interaction.response.defer()
-            await user.refresh_from_db()
-
-            # Affordability check needs the fresh balance, so it runs as a
-            # followup after defer rather than as the initial response.
-            if bet_amount > max(user.coins, 100):
-                await interaction.followup.send(
-                    f"your max bet is {max(user.coins, 100):,}", ephemeral=True
-                )
-                return
-
-            # mapping of colors to numbers by indexes
-            colors = [
-                "green",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-                "black",
-                "red",
-            ]
-
-            emoji_map = {
-                "red": "🔴",
-                "black": "⚫",
-                "green": "🟢",
-            }
-
-            # ---- Roulette job-perks ----
-            # roulette_luck: bias final_choice toward a winning slot.
-            # roulette_mercy: refund a fraction of losing bets.
-            # free_spin:      one-shot — losing bets fully refunded.
-            roulette_perks_msgs: list[str] = []
-            luck_pp = float(_perks_strength(user, "roulette_luck", "bonus_pp", 0.0)) \
-                if "roulette_luck" in _perks_active_ids(user) else 0.0
-            mercy_pct = float(_perks_strength(user, "roulette_mercy", "refund_pct", 0.0)) \
-                if "roulette_mercy" in _perks_active_ids(user) else 0.0
-            free_spin_fired = False
-            if "free_spin" in _perks_active_ids(user):
-                _fs_cap = int(_perks_strength(user, "free_spin", "max_bet", 1000) or 0)
-                if bet_amount <= _fs_cap and _perks_consume_charge(user, "free_spin"):
-                    free_spin_fired = True
-
-            def _is_winning_slot(idx: int, bet_value: str) -> bool:
-                bv = bet_value.lower()
-                if bv in [str(i) for i in range(37)]:
-                    return str(idx) == bv
-                if bv == "green":
-                    return colors[idx] == "green"
-                if bv == "red":
-                    return colors[idx] == "red"
-                if bv == "black":
-                    return colors[idx] == "black"
-                return False
-
-            if luck_pp > 0 and random.random() < luck_pp:
-                winning_slots = [i for i in range(37) if _is_winning_slot(i, self.bettype.value)]
-                if winning_slots:
-                    final_choice = random.choice(winning_slots)
-                    roulette_perks_msgs.append("🍀 Loaded Wheel: the croupier owed you a favor.")
-                else:
-                    final_choice = random.randint(0, 36)
-            else:
-                final_choice = random.randint(0, 36)
-
-            user.coins -= bet_amount
-            user.roulette_spins += 1
-            win = False
-            funny_win = False
-            if str(final_choice) == self.bettype.value or colors[final_choice] == self.bettype.value.lower():
-                if self.bettype.value in [str(i) for i in range(37)] or self.bettype.value.lower() == "green":
-                    user.coins += bet_amount * 36
-                    funny_win = True
-                else:
-                    user.coins += bet_amount * 2
-                user.roulette_wins += 1
-                win = True
-            # Loss-side perks: refund some/all of the bet.
-            if not win:
-                if free_spin_fired:
-                    user.coins += bet_amount
-                    roulette_perks_msgs.append(f"🎟️ Free Spin: full {bet_amount:,} coin refund.")
-                elif mercy_pct > 0:
-                    refund = int(round(bet_amount * mercy_pct))
-                    if refund > 0:
-                        user.coins += refund
-                        roulette_perks_msgs.append(f"🤝 House Mercy: refunded 🪙 {refund:,}.")
-            user.coins = int(round(user.coins))
-            await user.save()
-
-            for wait_time in [0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.375]:
-                choice = random.randint(0, 36)
-                color = colors[choice]
-                embed = discord.Embed(
-                    color=Colors.maroon,
-                    title="woo its spinnin",
-                    description=f"your bet is {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n{emoji_map[color]} **{choice}**",
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
-                await asyncio.sleep(wait_time)
-
-            color = colors[final_choice]
-
-            broke_suffix = ""
-            if user.coins <= 0:
-                broke_suffix = "\ndebt is allowed - you can still gamble up to **100** coins"
-
-            perk_suffix = ("\n\n" + "\n".join(roulette_perks_msgs)) if roulette_perks_msgs else ""
-            embed = discord.Embed(
-                color=Colors.maroon,
-                title="winner!!!" if win else "womp womp",
-                description=(
-                    f"your bet was {int(self.betamount.value):,} coins on {self.bettype.value.capitalize()}\n\n"
-                    f"{emoji_map[color]} **{final_choice}**\n\n"
-                    f"your new balance is **{user.coins:,}** coins{broke_suffix}{perk_suffix}"
-                ),
-            )
-            view = View(timeout=VIEW_TIMEOUT)
-            b = Button(label="spin", style=ButtonStyle.blurple)
-            b.callback = modal_select
-            view.add_item(b)
-            await interaction.edit_original_response(embed=embed, view=view)
-
-            if win:
-                await progress(message, user, "roulette")
-                await achemb(interaction, "roulette_winner", "followup")
-            # casino quest counts every roulette spin (win or lose)
-            await progress_casino_quest(message, user, "roulette")
-            if funny_win:
-                await achemb(interaction, "roulette_prodigy", "followup")
-            if user.coins < 0:
-                await achemb(interaction, "failed_gambler", "followup")
+            await _do_roulette_spin(interaction, self.bettype.value, bet_amount)
 
     async def modal_select(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -14822,6 +14924,23 @@ async def roulette(message: discord.Interaction):
             return
 
         await interaction.response.send_modal(RouletteModel())
+
+    # Slash-param fast path. The user must supply exactly one of color/number
+    # plus a bet amount. Both/neither falls through to the lobby (with an
+    # ephemeral error when both are supplied — that's user intent we should
+    # correct, not silently coerce). Partial input (target without bet, or
+    # bet without target) silently opens the lobby; the modal collects what
+    # was missing.
+    if color is not None and number is not None:
+        await message.response.send_message(
+            "Pick **one** of `color` or `number`, not both.", ephemeral=True
+        )
+        return
+    target_given = color is not None or number is not None
+    if target_given and bet is not None:
+        bet_value = color.value if color is not None else str(int(number))
+        await _do_roulette_spin(message, bet_value, int(bet))
+        return
 
     broke_suffix = ""
     if user.coins <= 0:
@@ -14842,6 +14961,22 @@ async def roulette(message: discord.Interaction):
 
     if user.coins < 0:
         await achemb(message, "failed_gambler", "followup")
+
+
+@roulette.autocomplete("number")
+async def roulette_number_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete the `number` param with 0..36. Discord caps suggestions
+    at 25 per response, so on empty input we surface 0..24 and rely on the
+    user typing a digit to filter into the high teens / twenties / thirties.
+    The actual Range[0, 36] validator catches anything out of bounds at the
+    server side, so this callback is a UX hint, not a constraint."""
+    pool = list(range(37))
+    current = (current or "").strip()
+    if current:
+        matches = [n for n in pool if str(n).startswith(current)]
+    else:
+        matches = pool
+    return [discord.app_commands.Choice(name=str(n), value=n) for n in matches[:25]]
 
 
 @bot.tree.command(description="roll a dice")

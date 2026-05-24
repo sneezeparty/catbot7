@@ -4,6 +4,14 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.1.180323052026]
+
+### Changed
+- **`/catslots` and `/roulette` accept native slash-command parameters.** Skip the lobby + modal round-trip for repeat play. `/catslots lines:5 bet:10` goes straight to spin (total wager 50). `/roulette color:red bet:100` or `/roulette number:17 bet:50` likewise. The existing lobby + modal flow is the **fallback** when params are omitted, so the onboarding path is unchanged for first-time players. For `/roulette`, exactly one of `color` or `number` must be supplied — both at once gets an ephemeral "pick one" error. The `number` param uses an autocomplete callback that surfaces matching numbers as you type (Discord caps suggestions at 25 per response, so empty input shows 0–24 and typing a digit filters into the higher numbers). Discord-side `Choice` + `Range[int]` validation handles bound-checking before the bot is even invoked; the existing affordability + concurrency guards still run server-side.
+
+### Fixed
+- **`/catnip` and `/jobs` no longer crash with `KeyError: 'respect_last_tick'` when migration 018 hasn't been applied.** catpg's `__getattr__` raises `KeyError` (not `AttributeError`), so `getattr(profile, "respect", default)` was not falling back. Added `_profile_has_respect_columns()` / `_prism_tax_enabled()` / `_safe_prisms_crafted()` guards so the respect meter and prism coin tax cleanly no-op on profiles that don't have the new columns yet. The bot will now boot and serve `/catnip`, `/jobs`, and `/prism` even if migration 018 is still queued.
+
 ## [0.6.0.164423052026]
 
 ### Added

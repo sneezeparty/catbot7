@@ -6,7 +6,7 @@ The battlepass is Cat Bot's meta-progression layer: catch cats → do quests →
 
 - **Season number** = months elapsed since `2026-04-01` (the self-hosted instance's epoch).
 - Rollover happens on the 1st of each calendar month, UTC (with a +4h offset to match the bot's day boundary).
-- Each season has its own 30-level ladder defined in `config/battlepass.json` under `seasons["<n>"]`.
+- Each season has its own level ladder defined in `config/battlepass.json` under `seasons["<n>"]`. **Season 1 has 30 levels (legacy onboarding shape). Seasons 2 and up have 40 levels.**
 
 When season rolls over, **all per-user quest state is wiped** (catch/misc/extra cooldowns reset; passive XP counters like `catnip_xp_awarded` reset to 0). The user's prior season is appended to `profile.bp_history` as a `"season,level,progress;"` string.
 
@@ -14,9 +14,14 @@ When season rolls over, **all per-user quest state is wiped** (catch/misc/extra 
 
 ## Level rewards
 
-Each of the 30 levels has a fixed reward: cats, packs, or rain minutes. The reward XP cost climbs from 550 to 1000 across the season. Past level 30, the ladder enters an "Extra Rewards" tier: every 1500 XP grants one Stone pack indefinitely.
+Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 1500 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
 
-**Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Stone-pack-forever tail exists so engaged players past level 30 don't feel like they hit a wall.
+**XP cost curves:**
+
+- **Levels 1–30** (all seasons): ramp from 550 to 1000 XP per level. Total: 23,250 XP.
+- **Levels 31–40** (seasons 2+): gentle ramp 1100 → 2000 XP per level. Total: 15,500 XP. **Combined season 2+ total: 38,750 XP.**
+
+**Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Stone-pack-forever tail exists so engaged players past the final level don't feel like they hit a wall. The 31–40 tail added in seasons 2+ replaces the early Stone-pack farm with more meaningful per-level rewards, capped by a per-season capstone (typically a Celestial pack at level 40), with the Stone-pack tail still kicking in past level 40 for the very-engaged.
 
 ## Quest slots
 

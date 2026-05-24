@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.4.071424052026]
+
+### Changed
+- **Battlepass seasons 2+ extended from 30 to 40 levels.** Every season from Season 2 onward now has 10 additional levels (31 through 40) after the original 30. Season 1 is unchanged (kept at 30 levels as the legacy onboarding shape). The new levels use a gentle XP ramp — **1100, 1200, 1300, …, 2000 XP** — adding 15,500 XP to season completion (total goes from 23,250 to 38,750). Each season's new levels were designed to mirror its existing 21–30 character: pack-heavy seasons get more packs at higher tiers, the dominant-tier-of-that-season repeats early in 31–34, then ramps up through Silver/Gold/Platinum/Diamond, and **every season's level 40 is a 1× Celestial pack** as a consistent capstone. Past level 40, the existing Extra Rewards fallback (1 Stone pack per 1,500 XP) still kicks in. The `/battlepass` embed and `/stats` "seasons completed" calculation are both per-season-aware now (no more hardcoded `30` checks). Existing players past level 30 keep their current state; their next level-up grants the new level-N reward instead of an Extra Rewards Stone pack.
+
 ## [0.6.3.070224052026]
 
 ### Changed

@@ -7825,7 +7825,11 @@ async def gen_stats(profile, star):
     levels_complete = 0
     max_level = 0
     total_xp = 0
-    # past seasons
+    # past seasons. season_max is the configured level count for that season
+    # (30 for season 1, 40 for seasons 2+). Going past it means the player
+    # entered the Extra Rewards fallback, which is what "season complete"
+    # means here — and the bonus XP they earned in Extra Rewards mode is
+    # 1500 per overflow level.
     for season in profile.bp_history.split(";"):
         if not season:
             break
@@ -7834,9 +7838,10 @@ async def gen_stats(profile, star):
             continue
         levels_complete += season_lvl
         total_xp += season_progress
-        if season_lvl > 30:
+        season_max = len(config.battle["seasons"].get(str(season_num), [])) or 30
+        if season_lvl > season_max:
             seasons_complete += 1
-            total_xp += 1500 * (season_lvl - 31)
+            total_xp += 1500 * (season_lvl - (season_max + 1))
         if season_lvl > max_level:
             max_level = season_lvl
 
@@ -7848,9 +7853,10 @@ async def gen_stats(profile, star):
     if profile.season != 0:
         levels_complete += profile.battlepass
         total_xp += profile.progress
-        if profile.battlepass > 30:
+        season_max_curr = len(config.battle["seasons"].get(str(profile.season), [])) or 30
+        if profile.battlepass > season_max_curr:
             seasons_complete += 1
-            total_xp += 1500 * (profile.battlepass - 31)
+            total_xp += 1500 * (profile.battlepass - (season_max_curr + 1))
         if profile.battlepass > max_level:
             max_level = profile.battlepass
 
@@ -9231,7 +9237,8 @@ async def battlepass(message: discord.Interaction):
             description += get_emoji("staring_square") * colored + "⬛" * (10 - colored) + "\nReward: " + get_emoji("stonepack") + " Stone pack\n\n"
         else:
             level_data = config.battle["seasons"][str(user.season)][user.battlepass]
-            description += f"**Level {user.battlepass + 1}/30** [{user.progress}/{level_data['xp']} XP]\n"
+            season_max = len(config.battle["seasons"][str(user.season)])
+            description += f"**Level {user.battlepass + 1}/{season_max}** [{user.progress}/{level_data['xp']} XP]\n"
             colored = int(user.progress / level_data["xp"] * 10)
             description += f"**{user.battlepass}** " + get_emoji("staring_square") * colored + "⬛" * (10 - colored) + f" **{user.battlepass + 1}**\n"
 

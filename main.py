@@ -4020,6 +4020,122 @@ async def generate_quest(user: Profile, quest_type: str):
     await user.save()
 
 
+# ---------------------------------------------------------------------------
+# Season rollover wipes. These run once per season per profile (per server)
+# from inside refresh_quests when user.season != full_months_passed.
+#
+# The wipe scope is "active mafia/economy state, not lifetime stats". Cats,
+# prisms, stocks, discovered-cats, achievements, streaks, and the per-server
+# rain inventory are explicitly preserved (they represent player history, not
+# the active economy being reset). Packs are wiped per design intent — the
+# user wants seasons to start with empty pack inventories so battlepass
+# rewards re-introduce the climb. See docs/design/battlepass.md → Seasons.
+# ---------------------------------------------------------------------------
+
+
+def _wipe_catnip_state(user):
+    """Reset catnip session, perks, bounties, and mafia rank to a Season 1
+    Day 1 baseline. Lifetime counters (catnip_activations, catnip_bought,
+    highest_catnip_level, bounties_complete) are preserved as stats."""
+    user.catnip_level = 0
+    user.catnip_active = 0
+    user.catnip_total_cats = 0
+    user.catnip_amount = 0
+    user.catnip_price = "Fine"
+    # bounty state — four slots (one/two/three/bonus)
+    for slot in ("one", "two", "three", "bonus"):
+        user[f"bounty_id_{slot}"] = 0
+        user[f"bounty_type_{slot}"] = ""
+        user[f"bounty_total_{slot}"] = 0
+        user[f"bounty_progress_{slot}"] = 0
+    user.bounties = 0
+    # stored catnip perks
+    user.perks = []
+    user.perk_selected = True
+    user.perk1 = ""
+    user.perk2 = ""
+    user.perk3 = ""
+    user.reroll = False
+    user.reroll_level = 0
+
+
+def _wipe_jobs_state(user):
+    """Reset operational jobs state. Lifetime counters (jobs_completed,
+    jobs_failed, jobs_near_missed, cats_lost_to_jobs, job_coins_won,
+    biggest_score_value, big_score_wins, big_score_perk_unlocked,
+    perks_received, tutorial_errand_complete, jobs_send_screen_seen) are
+    preserved. In-flight JobInstance rows are left alone — with
+    catnip_level=0 the /jobs board early-returns, so they expire naturally."""
+    user.heat = 0
+    user.heat_last_decay = 0
+    user.respect = 50
+    user.respect_last_tick = 0
+    user.faction_rep = {}
+    user.jobs_pending_difficulty_mult = 1.0
+    user.jobs_pending_heat_bonus = 0
+    user.job_perks = []
+    user.perks_suspended_until = 0
+    user.big_score_season = -1
+    user.whiskers_favor_active = False
+    user.whiskers_favor_season = -1
+
+
+_NORMAL_PACK_TIERS = ("wooden", "stone", "bronze", "silver", "gold", "platinum", "diamond", "celestial")
+_SPECIAL_PACK_TIERS = ("christmas", "valentine", "chef", "birthday")
+
+
+def _wipe_packs(user):
+    """Reset every pack tier (normal + event) to zero. Cat inventory is NOT
+    touched — only the unopened pack queue."""
+    for tier in _NORMAL_PACK_TIERS + _SPECIAL_PACK_TIERS:
+        user[f"pack_{tier}"] = 0
+
+
+async def _maybe_show_season_reset_notice(interaction, user):
+    """If the player just rolled into a new season (refresh_quests set
+    season_reset_pending = True on the prior call), send them a one-shot
+    ephemeral embed summarizing what was wiped, then clear the flag.
+
+    Idempotent: subsequent calls in the same season are no-ops. Safe to
+    call from any slash-command path where the interaction has already
+    responded or been deferred (uses interaction.followup.send, which
+    requires the response slot to be filled). No-ops cleanly when the
+    season_reset_pending column doesn't exist yet (migration 019 unrun).
+
+    The notice is intentionally ephemeral so other players in the channel
+    don't see it — this is private 'your account just reset' info."""
+    try:
+        pending = bool(user.season_reset_pending)
+    except (KeyError, AttributeError):
+        return
+    if not pending:
+        return
+    user.season_reset_pending = False
+    try:
+        await user.save()
+    except Exception:
+        logging.exception("season_reset_pending clear failed")
+    try:
+        season_num = int(getattr(user, "season", 0) or 0)
+        embed = discord.Embed(
+            title=f"🆕 Cattlepass Season {season_num} just started",
+            description=(
+                "Your **coins**, **catnip level**, **packs**, and all active "
+                "**mafia/jobs state** have been reset to zero. Build them "
+                "back up this season.\n\n"
+                "Untouched: your **cats**, **prisms**, **stocks**, **streaks**, "
+                "**discovered cats**, and **achievements** stay with you.\n\n"
+                "Welcome to the new month."
+            ),
+            color=Colors.brown,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception:
+        # The user already had the wipe applied; missing the notice once is
+        # not a correctness issue. Log and move on.
+        logging.exception("season reset notice send failed")
+
+
 async def refresh_quests(user):
     await user.refresh_from_db()
     # season 1 = May 2026 (when this self-hosted instance went live).
@@ -4056,6 +4172,25 @@ async def refresh_quests(user):
         user.challenge_progress = 0
         user.challenge_cooldown = 1
         user.challenge_reward = 0
+
+        # 0.6.5 — per-season economy wipe. Coins go to zero, catnip and jobs
+        # state reset, pack queue empties. Cats / stocks / prisms / discovered
+        # / achievements / streaks are preserved (see helpers above). The
+        # season_reset_pending flag triggers a one-shot ephemeral notice on
+        # the player's next /battlepass, /catnip, /jobs, /catstore, /stats,
+        # or /inventory call (see _maybe_show_season_reset_notice).
+        user.coins = 0
+        _wipe_catnip_state(user)
+        _wipe_jobs_state(user)
+        _wipe_packs(user)
+        # Guard against the column not existing yet (migration 019 unrun).
+        # Probe-read first; catpg raises KeyError when a column isn't on the
+        # row, and setting/saving a missing column would error during save().
+        try:
+            _ = user.season_reset_pending
+            user.season_reset_pending = True
+        except (KeyError, AttributeError):
+            pass
 
         user.season = full_months_passed
         await user.save()
@@ -7921,6 +8056,16 @@ async def stats_command(message: discord.Interaction, person_id: Optional[discor
     if not person_id:
         person_id = message.user
     profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=person_id.id)
+    # Run the season-rollover wipe + ephemeral notice for the INVOKER's
+    # profile, regardless of whose stats are being viewed. If they're
+    # viewing their own stats, reuse `profile`; else fetch the invoker's
+    # profile separately so the notice fires for them.
+    if int(person_id.id) == int(message.user.id):
+        invoker_profile = profile
+    else:
+        invoker_profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+    await refresh_quests(invoker_profile)
+    await _maybe_show_season_reset_notice(message, invoker_profile)
     star = "*" if not profile.new_user else ""
 
     stats = await gen_stats(profile, star)
@@ -8098,6 +8243,14 @@ async def inventory(message: discord.Interaction, person_id: Optional[discord.Us
         person_id = message.user
     person = await Profile.get_or_create(guild_id=message.guild.id, user_id=person_id.id)
     user = await User.get_or_create(user_id=message.user.id)
+    # Season-rollover wipe + ephemeral notice for the INVOKER, regardless
+    # of whose inventory is being viewed.
+    if int(person_id.id) == int(message.user.id):
+        invoker_profile = person
+    else:
+        invoker_profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+    await refresh_quests(invoker_profile)
+    await _maybe_show_season_reset_notice(message, invoker_profile)
     stats = await gen_stats(person, "")
 
     async def edit_profile(interaction: discord.Interaction):
@@ -9129,6 +9282,7 @@ async def battlepass(message: discord.Interaction):
         current_mode = "Main"
 
         await refresh_quests(user)
+        await _maybe_show_season_reset_notice(interaction, user)
 
         await global_user.refresh_from_db()
         if global_user.vote_time_topgg + QUEST_COOLDOWN > time.time():
@@ -11045,6 +11199,11 @@ async def catstore(message: discord.Interaction):
 
     # ----- entry point -----
     await message.response.defer(ephemeral=True)
+    # Trigger pending season rollover + ephemeral reset notice before the
+    # landing renders. `profile` is the invoker's per-server profile
+    # (fetched at the top of /catstore).
+    await refresh_quests(profile)
+    await _maybe_show_season_reset_notice(message, profile)
     await gen_landing(message, use_followup=True)
 
 
@@ -12091,6 +12250,11 @@ async def jobs(message: discord.Interaction):
 
     # ----- entry point -----
     await message.response.defer(ephemeral=True)
+    # Trigger pending season rollover + ephemeral reset notice before the
+    # board renders. `profile` is the invoker's per-server profile (fetched
+    # at the top of /jobs).
+    await refresh_quests(profile)
+    await _maybe_show_season_reset_notice(message, profile)
     await show_board(message, use_followup=True)
 
 
@@ -15898,6 +16062,12 @@ async def catnip(message: discord.Interaction):
     await message.response.defer(ephemeral=True)
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     server = await Server.get_or_create(server_id=message.guild.id)
+
+    # Trigger any pending season rollover (and the wipe it applies) before
+    # rendering anything, then show the one-shot ephemeral reset notice if
+    # this is the first slash command after a rollover.
+    await refresh_quests(user)
+    await _maybe_show_season_reset_notice(message, user)
 
     if not server.do_catnip:
         await message.followup.send("catnip is disabled in this server.", ephemeral=True)

@@ -369,7 +369,8 @@ CREATE TABLE public.profile (
     store_purchased_pack_tiers jsonb DEFAULT '[]'::jsonb NOT NULL,
     respect integer DEFAULT 50 NOT NULL,
     respect_last_tick bigint DEFAULT 0 NOT NULL,
-    prisms_crafted integer DEFAULT 0 NOT NULL
+    prisms_crafted integer DEFAULT 0 NOT NULL,
+    season_reset_pending boolean DEFAULT false NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

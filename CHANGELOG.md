@@ -4,6 +4,17 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.5.073224052026]
+
+### Changed
+- **Battlepass season rollover now wipes coins, catnip, jobs state, and packs.** At the start of each season, every player's per-server profile resets: **coins → 0**, **catnip level → 0** (along with all bounties, stored catnip perks, the active session, and the mafia offer state), **all operational jobs state** (heat, respect, faction reputation, job perks, in-flight modifiers, the per-season Big Score season marker, Whiskers's Favor state), and **the entire pack inventory** (every tier including event packs). Cats, stocks, prisms, discovered-cats, achievements, daily catch streak, lifetime stats, and the per-server rain inventory are explicitly **preserved** — they represent player history, not active economy. The wipe is lazy per profile: it kicks in on the player's next interaction with the bot on each server. JobInstance rows (offered/accepted contracts) are left alone but become inert because `/jobs` early-returns at the level-2 gate.
+- **One-shot ephemeral "season reset" notice.** On the first `/battlepass`, `/catnip`, `/jobs`, `/catstore`, `/stats`, or `/inventory` call after the rollover, the bot sends an ephemeral (private) embed summarizing what was reset and what was preserved. The notice fires once per player per season — controlled by a new `profile.season_reset_pending` flag set during the wipe and cleared when the notice renders. Catch events don't trigger the notice (no interaction to attach an ephemeral to); the player sees it on whatever slash command they run next.
+
+### Internal
+- Migration `019_season_reset_notice.py` adds `profile.season_reset_pending BOOLEAN DEFAULT FALSE NOT NULL`. Mirrored in `schema.sql`. No backfill needed; the default of false is correct for every existing row.
+- New helpers next to `refresh_quests` in `main.py`: `_wipe_catnip_state`, `_wipe_jobs_state`, `_wipe_packs`, and `_maybe_show_season_reset_notice`. The season-rollover block in `refresh_quests` calls the three wipe helpers + zeroes `coins` + sets the pending flag. The notice helper is invoked from the six slash-command entry points.
+- The new wipe code is column-existence-guarded — if migration 019 isn't applied yet, the flag set/notice no-ops silently. The wipes themselves still take effect.
+
 ## [0.6.4.071424052026]
 
 ### Changed

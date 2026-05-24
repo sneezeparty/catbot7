@@ -8,9 +8,33 @@ The battlepass is Cat Bot's meta-progression layer: catch cats → do quests →
 - Rollover happens on the 1st of each calendar month, UTC (with a +4h offset to match the bot's day boundary).
 - Each season has its own level ladder defined in `config/battlepass.json` under `seasons["<n>"]`. **Season 1 has 30 levels (legacy onboarding shape). Seasons 2 and up have 40 levels.**
 
-When season rolls over, **all per-user quest state is wiped** (catch/misc/extra cooldowns reset; passive XP counters like `catnip_xp_awarded` reset to 0). The user's prior season is appended to `profile.bp_history` as a `"season,level,progress;"` string.
+When season rolls over (lazy, on the user's next interaction that calls `refresh_quests`), the wipe is broad. The user's prior season is appended to `profile.bp_history` as a `"season,level,progress;"` string, then the following state is reset on the profile:
 
-**Design intent:** monthly cadence is short enough to feel achievable but long enough that missing a few days isn't catastrophic. The reset is full — no "season pass" carry-over — because hoarding XP across seasons would invalidate the per-season balance.
+**Always wiped (existing behavior):**
+- Battlepass level + progress (`battlepass`, `progress`)
+- All four quest slots (catch / misc / extra / challenge): quest, progress, cooldown, reward
+- `casino_progress_temp`, `gift3_recipients`, `catnip_xp_awarded`
+
+**Wiped per the 0.6.5 economy-reset design:**
+- **Coins** (`coins → 0`)
+- **All catnip state**: `catnip_level`, `catnip_active`, `catnip_total_cats`, `catnip_amount`, `catnip_price`, all `bounty_*` slots, all stored catnip perks (`perks`, `perk1/2/3`, `reroll`, `reroll_level`)
+- **All operational jobs state**: `heat`, `respect`, `faction_rep`, `job_perks`, `perks_suspended_until`, `jobs_pending_*`, `big_score_season`, `whiskers_favor_active`, `whiskers_favor_season`
+- **All pack inventories**: every `pack_*` column (Wooden through Celestial + event packs)
+
+**Always preserved:**
+- All `cat_<Rarity>` inventories (player history)
+- Stocks (`stock_*`)
+- Prisms (separate table)
+- `discovered_cats`, `store_purchased_rarities`, `store_purchased_pack_tiers`
+- All achievement booleans + `unlocked_aches`
+- Lifetime stats (`jobs_completed`, `big_score_wins`, `catnip_activations`, `highest_catnip_level`, `bounties_complete`, etc.)
+- Daily catch streak (cross-server, on `user` not `profile`)
+- Rain minutes (`rain_minutes`, `rain_blocks_*`), `combo_stack`, `prisms_crafted`
+- Tutorial / first-time flags (`tutorial_errand_complete`, `jobs_send_screen_seen`, etc.)
+
+**Reset notice.** After the wipe, `profile.season_reset_pending` is set to true. The next time the player runs `/battlepass`, `/catnip`, `/jobs`, `/catstore`, `/stats`, or `/inventory`, a one-shot **ephemeral** embed renders ("Cattlepass Season N just started…") and the flag clears. The notice is intentionally private — other players in the channel don't see it.
+
+**Design intent:** monthly cadence is short enough to feel achievable but long enough that missing a few days isn't catastrophic. The reset is full on the active-economy axis (coins + catnip + jobs + packs) so every player starts the month on the same baseline; collection assets (cats, prisms, stocks, aches) accumulate forever because that's a separate dimension of progression that shouldn't be punished for playing long.
 
 ## Level rewards
 

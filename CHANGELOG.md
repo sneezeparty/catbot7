@@ -4,6 +4,11 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.2.062624052026]
+
+### Changed
+- **`/jobs` cadence aligned with `/battlepass` (12h windows, single timer).** The `/jobs` board used to have two independent timers — a 6h offer-refresh window and a 24h commit cap anchored at UTC midnight — that drifted apart and confused players. (A player who'd played late in their local night, which is "this morning" in UTC, would open the board at 7am local and see "Refreshes in 5h" alongside "Daily limit hit, resets in 11h" with no obvious connection between the two.) Both timers now collapse into a single 12h cadence, matching the `/battlepass` quest cooldown length. Windows are anchored at 00:00 and 12:00 UTC. The cap is **3 commits per 12h window** (configurable via `config/jobs.json → max_commits_per_window`), which works out to up to 6 commits per UTC day — slightly more generous than before, but you only see one number on the board: "Refreshes <t:N:R>". Internals: `JOBS_MAX_DAILY_COMMITS` → `JOBS_COMMITS_PER_WINDOW`, `_jobs_commits_today` → `_jobs_commits_this_window`, `_jobs_start_of_utc_day` removed (unused after the alignment). `max_commits_per_day` is kept in `jobs.json` as a deprecated alias the loader still reads if `max_commits_per_window` is missing.
+
 ## [0.6.1.180323052026]
 
 ### Changed

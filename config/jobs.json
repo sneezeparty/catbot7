@@ -30,7 +30,7 @@
     "near_miss_band": 0.1
   },
   "tuning": {
-    "offer_refresh_window_seconds": 21600,
+    "offer_refresh_window_seconds": 43200,
     "decline_cooldown_seconds": 3600,
     "max_concurrent_offers": 6,
     "cancel_grace_seconds": 30,
@@ -39,6 +39,7 @@
     "pinch_lockout_seconds": 43200,
     "pinch_reset_heat": 30,
     "diminishing_returns_alpha": 0.75,
+    "max_commits_per_window": 3,
     "max_commits_per_day": 3
   },
   "tiers": {

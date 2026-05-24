@@ -1343,7 +1343,7 @@ def _jobs_reward_summary(reward: dict) -> str:
 # ---------------------------------------------------------------------------
 
 JOBS_DIMINISHING_ALPHA = float(JOBS_TUNING.get("diminishing_returns_alpha", 0.75))
-JOBS_MAX_DAILY_COMMITS = int(JOBS_TUNING.get("max_commits_per_day", 3))
+JOBS_COMMITS_PER_WINDOW = int(JOBS_TUNING.get("max_commits_per_window", JOBS_TUNING.get("max_commits_per_day", 3)))
 
 
 def _jobs_coerce_dict(value) -> dict:
@@ -2178,20 +2178,16 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
             logging.exception("jobs: perk grant failed; continuing without")
 
 
-def _jobs_start_of_utc_day(now: int) -> int:
-    """Unix epoch for 00:00 UTC of the day containing `now`."""
-    dt = datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc)
-    midnight = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(midnight.timestamp())
-
-
-async def _jobs_commits_today(user_id: int, guild_id: int, now: int) -> int:
-    """Count commits-this-UTC-day (per-server). Cancelled commits zero out
-    `committed_at`, so they aren't counted — the daily cap doesn't punish misclicks."""
-    start = _jobs_start_of_utc_day(now)
+async def _jobs_commits_this_window(user_id: int, guild_id: int, now: int) -> int:
+    """Count commits inside the current offer-refresh window (per-server).
+    The window also gates the commit cap, so this is the same boundary used
+    by both the offer pool and the cap counter — one timer, one source of
+    truth. Cancelled commits zero out `committed_at`, so they aren't counted
+    (the cap doesn't punish misclicks)."""
+    win_start, _ = _jobs_window_bounds(_jobs_window_index(now))
     return int(await JobInstance.count(
         "user_id = $1 AND guild_id = $2 AND committed_at >= $3 AND state IN ('resolved', 'committed')",
-        int(user_id), int(guild_id), start,
+        int(user_id), int(guild_id), win_start,
     ) or 0)
 
 
@@ -11111,25 +11107,24 @@ async def jobs(message: discord.Interaction):
             respect_band = "🟢" if respect >= 67 else ("🟡" if respect >= 26 else "🔴")
         suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
         pinch_active = suspended_until > now
-        today_count = await _jobs_commits_today(int(profile.user_id), int(profile.guild_id), now)
-        day_end = _jobs_start_of_utc_day(now) + 86400
+        window_count = await _jobs_commits_this_window(int(profile.user_id), int(profile.guild_id), now)
 
         # daily_cap_extension: peek-only; charge consumed at commit time.
-        _eff_cap_board = _perks_effective_daily_cap(profile, JOBS_MAX_DAILY_COMMITS)
+        _eff_cap_board = _perks_effective_daily_cap(profile, JOBS_COMMITS_PER_WINDOW)
         view = LayoutView(timeout=VIEW_TIMEOUT)
         status_parts = [f"Mafia Lv {level} ({rank_name})", f"{heat_band} Heat: {heat}/100"]
         if has_respect:
             status_parts.append(f"{respect_band} Respect: {respect}/{respect_max}")
         status_parts.extend([
-            f"Jobs today: {today_count}/{_eff_cap_board}",
+            f"Jobs this window: {window_count}/{_eff_cap_board}",
             f"Refreshes <t:{win_end}:R>",
         ])
         items: list = [
             "## 📋 Jobs Board",
             "  ·  ".join(status_parts),
         ]
-        if today_count >= _eff_cap_board:
-            items.append(f"-# 🛑 **Daily limit hit.** Resets <t:{day_end}:R>.")
+        if window_count >= _eff_cap_board:
+            items.append(f"-# 🛑 **Window limit hit.** Comes back at the refresh above.")
         if pinch_active:
             items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
         if has_respect and respect == 0:
@@ -11175,9 +11170,9 @@ async def jobs(message: discord.Interaction):
                 + f"🚨 Heat cost: +{row.heat_cost}"
             )
 
-            at_cap = today_count >= _eff_cap_board
+            at_cap = window_count >= _eff_cap_board
             accept_btn = Button(
-                label="Daily limit hit" if at_cap else "Accept",
+                label="Window limit hit" if at_cap else "Accept",
                 style=ButtonStyle.gray if at_cap else ButtonStyle.green,
                 custom_id=f"jobs_accept_{row.id}",
             )
@@ -11562,15 +11557,15 @@ async def jobs(message: discord.Interaction):
             # Peek at the daily_cap_extension perk so over-cap players with the
             # perk active CAN accept; the charge is consumed at commit, not here.
             now_check = int(time.time())
-            today_count = await _jobs_commits_today(
+            window_count = await _jobs_commits_this_window(
                 int(message.user.id), int(message.guild.id), now_check
             )
-            _accept_eff_cap = _perks_effective_daily_cap(profile, JOBS_MAX_DAILY_COMMITS)
-            if today_count >= _accept_eff_cap:
-                day_end = _jobs_start_of_utc_day(now_check) + 86400
+            _accept_eff_cap = _perks_effective_daily_cap(profile, JOBS_COMMITS_PER_WINDOW)
+            if window_count >= _accept_eff_cap:
+                _, win_end = _jobs_window_bounds(_jobs_window_index(now_check))
                 await interaction.response.send_message(
-                    f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
-                    f"Resets <t:{day_end}:R>. Come back tomorrow.",
+                    f"You've hit your window limit of **{JOBS_COMMITS_PER_WINDOW}** jobs. "
+                    f"Comes back at the next refresh <t:{win_end}:R>.",
                     ephemeral=True,
                 )
                 return
@@ -11831,16 +11826,16 @@ async def jobs(message: discord.Interaction):
         # the charge is consumed inside the lock below, NOT here, so a player
         # who bails out of the modal doesn't burn their perk.
         now_check = int(time.time())
-        today_count = await _jobs_commits_today(int(message.user.id), int(message.guild.id), now_check)
+        window_count = await _jobs_commits_this_window(int(message.user.id), int(message.guild.id), now_check)
         # Peek-only effective cap for the early gate. The actual consume
         # happens at commit time inside the transaction.
         _peek_profile = await Profile.get_or_create(user_id=int(message.user.id), guild_id=int(message.guild.id))
-        _effective_cap_peek = _perks_effective_daily_cap(_peek_profile, JOBS_MAX_DAILY_COMMITS)
-        if today_count >= _effective_cap_peek:
-            day_end = _jobs_start_of_utc_day(now_check) + 86400
+        _effective_cap_peek = _perks_effective_daily_cap(_peek_profile, JOBS_COMMITS_PER_WINDOW)
+        if window_count >= _effective_cap_peek:
+            _, win_end = _jobs_window_bounds(_jobs_window_index(now_check))
             await interaction.response.send_message(
-                f"You've hit your daily limit of **{JOBS_MAX_DAILY_COMMITS}** jobs. "
-                f"Resets <t:{day_end}:R>. Come back tomorrow.",
+                f"You've hit your window limit of **{JOBS_COMMITS_PER_WINDOW}** jobs. "
+                f"Comes back at the next refresh <t:{win_end}:R>.",
                 ephemeral=True,
             )
             return
@@ -11868,14 +11863,14 @@ async def jobs(message: discord.Interaction):
                         await show_send(interaction)
                         return
 
-                # In-transaction daily cap re-check + perk consume. Two checks
+                # In-transaction window cap re-check + perk consume. Two checks
                 # are intentional: the peek above prevents the commit modal
                 # from spawning over-cap; this one is authoritative and
                 # consumes the daily_cap_extension charge atomically.
-                today_count_lock = await _jobs_commits_today(int(message.user.id), int(message.guild.id), int(time.time()))
-                allowed, dce_fired = _perks_check_and_consume_daily_cap(fresh, today_count_lock, JOBS_MAX_DAILY_COMMITS)
+                window_count_lock = await _jobs_commits_this_window(int(message.user.id), int(message.guild.id), int(time.time()))
+                allowed, dce_fired = _perks_check_and_consume_daily_cap(fresh, window_count_lock, JOBS_COMMITS_PER_WINDOW)
                 if not allowed:
-                    last_toast.append("⚠️ Daily cap reached between accept and commit.")
+                    last_toast.append("⚠️ Window cap reached between accept and commit.")
                     await show_send(interaction)
                     return
 

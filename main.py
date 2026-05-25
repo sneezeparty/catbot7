@@ -5900,7 +5900,7 @@ async def on_message(message: discord.Message):
                     elif _jobs_perks_suspended(user):
                         # Cat Police lockout — catnip's active but perks are
                         # suspended until perks_suspended_until.
-                        suffix_string += f"\n🚓 Your perks are suspended by the Cat Police until <t:{int(user.perks_suspended_until)}:R>."
+                        suffix_string += f"\n🚓 The Cat Police have your perks. They come back <t:{int(user.perks_suspended_until)}:R>."
                         perks = []
                     else:
                         perks = user.perks
@@ -11305,7 +11305,7 @@ async def jobs(message: discord.Interaction):
         if window_count >= _eff_cap_board:
             items.append(f"-# 🛑 **Window limit hit.** Comes back at the refresh above.")
         if pinch_active:
-            items.append(f"-# 🚓 **Pinched.** Catnip perks suspended until <t:{suspended_until}:R>.")
+            items.append(f"-# 🚓 **Pinched.** Catnip perks come back <t:{suspended_until}:R>.")
         if has_respect and respect == 0:
             floor_v = int(_respect_cfg().get("level_loss_floor", 4))
             if level > floor_v:
@@ -11649,7 +11649,7 @@ async def jobs(message: discord.Interaction):
             suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
             items.append(
                 f"\n🚓 **Pinched.** Your heat hit 100. The Cat Police caught up with your crew.\n"
-                f"Catnip perks are suspended until <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
+                f"Catnip perks come back <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
             )
 
         # Perks fired on this commit — surface them above the cat voice so the

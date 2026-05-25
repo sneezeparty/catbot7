@@ -4,6 +4,14 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [0.6.6.060025052026]
+
+### Changed
+- **Cat Police Pinch lockout cut in half: 12h → 6h.** When your Heat hits 100 from `/jobs` commits, the Pinch fires (catnip perks suspended, Heat reset to 30). The suspension now lasts **6 hours** instead of 12. `pinch_lockout_seconds` in `config/jobs.json` drops from 43,200 → 21,600. Threshold (100) and post-Pinch Heat reset (30) are unchanged.
+
+### Fixed
+- **"Suspended until in 12 hours" grammar bug.** Three places combined "until" with a Discord relative timestamp (`<t:N:R>` renders as "in N hours"), producing sentences like "suspended until in 12 hours." Rewritten to put the relative timestamp at the end: "🚓 The Cat Police have your perks. They come back in 6 hours." Same fix in the /jobs board Pinched status line and the /jobs result-screen Pinch follow-up.
+
 ## [0.6.5.073224052026]
 
 ### Changed

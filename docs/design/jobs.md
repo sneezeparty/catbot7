@@ -55,6 +55,12 @@ The insurance is **soft** — it does not zero out complications. A +100 Whisker
 
 Rep with anyone other than the offerer does not help. The "I'm Whiskers's guy" identity is preserved by making rep insurance non-fungible across NPCs.
 
+> **STALE:** the following mechanics from `main.py → show_board` are not represented in this section and should be documented here:
+>
+> 1. **Hiring refusal threshold.** `_jobs_eligible_npcs` refuses to include any NPC whose `faction_rep` value is below `refuse_threshold` (currently **−25**, from `config/jobs.json → rep.refuse_threshold`). A player whose rep with *all* NPCs falls below −25 will see no offers and cannot generate a board at all until rep recovers.
+>
+> 2. **Empty-board two-cause distinction.** When `show_board` finds no offers it now branches on the actual cause: (a) if at least one NPC is still eligible (rep ≥ −25), the board is empty because the player has accepted or declined all offers generated for this 12h window — the message tells them the next batch arrives at the window boundary; (b) if no NPC will hire them (all reps below −25), it is a genuine reputation problem and the message says so. Previously a single message always blamed reputation. Design intent for this branching is unrecorded.
+
 ## Recipe philosophy: NPCs as mechanical archetypes
 
 Pre-Phase-2 NPC differentiation came from a 5-enum `reward_bias` knob (`standard / coin_heavy / cat_heavy / coins_only / mid_rare_cats`) applied as a bulk transform. That made each NPC a knob position rather than a character — and the math drifted from the personality. Sofia "cat-heavy" was structurally similar to Lucian Sr "mid-rare cats" because both were just transforms on the same base table.
@@ -143,6 +149,61 @@ Phase 2 Whiskers's Favor (Whiskers ≥+100 rep → next pack-open upgrades one t
 - **Whiskers's Favor** (rep reward) is the rep capstone version — once-per-season, no per-pack-tier cap (any → Diamond), unlocked by sustained rep work rather than a single job drop.
 
 Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops constantly. Both can be active at the same time.
+
+### Pack-side perk behavior: single-open and Open All are identical
+
+The three pack-side job perks apply identically whether the player opens one pack at a time or uses the "Open All" batch path:
+
+- **`pack_bonus_cat` ("Padded Crate", timed):** active for the perk's full duration window, so it naturally fires on every pack opened during the batch — one extra random cat per open.
+- **`pack_tier_upgrade` ("Crate Polish", 1 charge):** spends its single charge on the **first eligible pack** in the batch (any pack whose tier hasn't already hit the cap). Remaining packs in the same Open All run are unaffected.
+- **`pack_floor` ("No Fines", 1 charge):** spends its single charge on the **first Fine result** encountered in the batch. If no pack in the batch rolls Fine, the charge is not consumed.
+
+This means an Open All batch with `pack_tier_upgrade` active gets at most one tier-bumped open, and a batch with `pack_floor` active gets at most one Fine-to-Nice lift. The charge semantics are the same as they would be if the player had opened one pack and then immediately opened a second.
+
+## Heat meter & Cat Police Pinch
+
+Heat is a per-profile integer (stored in `profile.heat`, capped below `pinch_threshold`) that rises with every job commit and certain `post_roll` complications. It is the primary brake on over-commitment: a player who chains high-heat jobs too aggressively will eventually get Pinched.
+
+### Threshold and lockout
+
+Both live in `config/jobs.json → tuning`:
+
+| Key | Current value | Notes |
+| --- | ------------- | ----- |
+| `pinch_threshold` | **150** | Heat at or above this value triggers a Pinch |
+| `pinch_lockout_seconds` | **7200** (2h) | Duration of the lockout after a Pinch |
+| `pinch_reset_heat` | 30 | Heat value heat is set to after lockout expires |
+
+When `new_heat >= pinch_threshold`, `profile.perks_suspended_until` is set to `now + pinch_lockout_seconds` and heat is pinned at `pinch_threshold − 1` until the lockout clears. The lockout suspends **catnip perks only** (see [Pinch immunity](#pinch-immunity-the-asymmetry-with-catnip)).
+
+### Heat bands (derived from threshold)
+
+The two color-coded bands shown on the `/jobs` board are **derived** from `pinch_threshold` at module load. The module-level constants are:
+
+```python
+JOBS_HEAT_WATCHING_FLOOR = int(JOBS_PINCH_THRESHOLD * 0.3)   # 45 at threshold 150
+JOBS_HEAT_SCRUTINY_FLOOR = int(JOBS_PINCH_THRESHOLD * 0.7)   # 105 at threshold 150
+```
+
+These feed `_jobs_heat_band`, `_jobs_heat_scrutiny_mult`, the heat-bar color emoji, and the `Heat: X/{threshold}` display on the board. Because the band floors are proportional to the threshold, a rebalance to `pinch_threshold` automatically rescales the bands — no additional constant needs updating.
+
+| Band | Range (at threshold 150) | Board color |
+| ---- | ------------------------ | ----------- |
+| Safe | 0 – 45 | 🟢 |
+| Watching | 46 – 105 | 🟡 |
+| Scrutiny | 106 – 149 | 🔴 |
+
+The `heat_modifier` dict in `config/jobs.json → complications` maps these band names to complication-chance multipliers.
+
+### Big Score coupling
+
+Big Score (`config/jobs.json → big_score`) sets `heat_cost: 150` — equal to `pinch_threshold`. This is intentional: accepting the Big Score auto-Pinches the player because the heat cost immediately hits the threshold. The capstone heist always ends in a lockout.
+
+> **Coupling note:** if `pinch_threshold` is retuned again, `big_score.heat_cost` and the tier-5 heat granted to `profile.heat` must be updated to match. The coupling is not enforced in code; it is a manual invariant.
+
+### Design intent
+
+Heat punishes *over-commitment* (too many high-risk jobs in a row); Respect (below) punishes *under-commitment* (going idle). Together they sandwich the player into a healthy middle. See the end of the Respect section for the combined framing.
 
 ## Respect — the decay meter
 

@@ -4,6 +4,41 @@ All notable user-facing changes to Cat Bot are tracked here. Format follows [Kee
 
 The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[Unreleased]` section whenever bot-surface files change. Curated wording lives here; the agent appends drafts and flags entries with `> _draft_` until a human approves and de-drafts them.
 
+## [Unreleased]
+
+### Added
+- **`/catprofile [user]` — compact at-a-glance profile card.** Shows mafia level + rank name, cattlepass level/XP/season, total cats held + collection value, prisms owned + boost %, coins, achievement progress (visible only), current and best catch streak (global, noted in footer), pig high score, and cookies clicked. Supports viewing another user's card. Honors supporter cosmetics (custom color, emoji prefix, image thumbnail).
+  > _draft_
+- **Season-end broadcast warning.** On the last calendar day of each month, Cat Bot posts an embed to every setupped channel reminding players that the Cattlepass season rolls over tomorrow and listing exactly what resets (coins, cattlepass level/XP, catnip/mafia level, jobs state, all packs) and what is kept (cats, prisms, stocks, discovered cats, achievements, streaks). A new `/settings` toggle **Season Announcements** (default ON) lets server admins opt their server out. Backed by a new hourly background task (`_season_announcement_loop`) with a once-per-season dedup marker (`season_warn.txt`) so the broadcast fires at most once per season even across restarts.
+  > _draft_
+- **Season Recap leaderboard.** On the 1st of each month, after the season rolls over, Cat Bot posts a per-server embed to every setupped channel crowning the just-ended season's winners. The embed shows **Top 5 players across 7 categories**: 🏆 Cattlepass champion (highest level reached), 🎩 Mafia level (highest catnip level), 🪙 Biggest coin earner, 🐱 Cats caught, 🔫 Heists pulled (jobs completed), 🎰 Gambling winnings (roulette net + catslots net), 📈 Stock profit (sell proceeds minus buy spend). The #1 Cattlepass climber is headlined as the season's champion. Standings are snapshotted on the season's last day (while lazy per-player resets are still outstanding) and broadcast on the 1st. Honors the existing per-server **Season Announcements** opt-out toggle. For the very first recap (Season 1), the gambling, stock, and coins-earned categories only cover the period since this feature launched; the embed footer flags this. They are complete from Season 2 onward.
+  > _draft_
+- **Three short-spin battlepass quests for `/catslots`** join the misc pool: `catslots1` "Spin the /catslots machine once" (150–250 XP), `catslots2` "Spin the /catslots machine twice" (200–280 XP), `catslots3` "Spin the /catslots machine 3 times" (250–330 XP). Previously the only `/catslots` spin quest required 10 spins; these give quicker XP for brief sessions.
+  > _draft_
+
+### Changed
+- **`/catslots` now counts as its own game for the "Play 3 different casino games" extra-slot quest.** Previously a `/catslots` spin was tracked under the same `slots` bit as `/slots`, so playing both games only registered as one. `/catslots` now has its own `CASINO_GAME_BITS` entry (bit 16). The quest title is updated to list `/catslots` alongside `/slots`, `/roulette`, `/pig`, and `/cookieclicker`. Players who have already completed this quest are unaffected; players still working toward it now get credit for each game independently.
+  > _draft_
+- **Cat Police Pinch rebalanced: lockout cut to 2h, threshold raised to 150.** The Pinch (catnip-perk suspension triggered when Heat tops out from `/jobs` commits) is now harder to reach and faster to recover from. `pinch_threshold` 100 → 150 — it now takes ~50% more Heat to get Pinched. `pinch_lockout_seconds` 21,600 → 7,200 — suspension lasts 2 hours instead of 6. Heat bar on the `/jobs` board now reads `/150`. Color bands and the "scrutiny" cost ramp scale proportionally (cutoffs are 30%/70% of the threshold = 45/105 instead of 30/70). The Big Score auto-Pinch and `heat_cost` are both bumped to 150 to match. Pinch messages say "hit 150" instead of "hit 100". Heat reset after Pinch (30) and complication heat bonuses are unchanged.
+  > _draft_
+- **`/jobs` "no offers" message now distinguishes between a cleared board and a reputation block.** Previously the empty-board response always said "the family doesn't want anything to do with you right now — lay low, fix your reputation, and check back later," which blamed reputation even when the player had simply worked through every job in the current 12h window. Two cases are now handled separately: if eligible NPCs exist (the common case), the message says the shift board is clear and shows a Discord relative timestamp for when the next batch of jobs arrives; if no NPC will hire the player because faction reputation is below the refuse threshold with everyone, the message explains their standing is the issue. Players who previously saw the generic blame message after a productive shift will now see the accurate, actionable one.
+  > _draft_
+
+### Fixed
+- **"Open All" packs now applies job perks consistently with single-pack opens.** `process_pack_opening` (the Open All handler in `/packs`) was silently skipping all three pack-side job perks; `open_pack` (the single-open button) already applied them. The three perks now work as expected during bulk opens: **Padded Crate** (`pack_bonus_cat`, timed) grants +1 random bonus cat on every pack opened in the batch; **Crate Polish** (`pack_tier_upgrade`, charge) spends its single charge to bump the first eligible pack up a tier; **No Fines** (`pack_floor`, charge) spends its single charge to lift the first Fine draw to Nice. The Open All result embed now shows a perk-activity footer when any of these fire, matching the existing single-open display.
+  > _draft_
+- **Cookie button no longer crashes with `KeyError` for users with an active casino quest.** The `/cookie` click handler was doing a partial DB fetch for `cookies` only, but `progress_casino_quest` reads `extra_quest`, `extra_cooldown`, and `casino_progress_temp` before its refetch. Any player with the casino extra-slot quest active would get a silent error instead of their click counting. The three columns are now included in the partial fetch.
+  > _draft_
+
+### Removed
+- **Time Manipulator catnip perk removed entirely.** The perk had already been inert for some time (no chance to ever roll it). It is now deleted from `config/catnip.json` rather than left frozen in place. No player loses an active perk — it could not be held under the old inert state.
+
+### Internal
+- Migration `020_remove_timer_add.py` deletes the `timer_add` perk and remaps stored perk indices: every reference ≥ 12 in `profile.perks`/`perk1`/`perk2`/`perk3` is decremented by one to track the array shift. **Not safe to re-run** (data mutation, guarded only by `020.done`).
+- Removed the orphaned `CATNIP_TIMER_EXTEND` constant (`main.py`) and the `catnip_timer_extend_seconds` tuning key (`config/tuning.json`, plus webui validators/labels). Both only ever fed the now-deleted perk.
+- Migration `022_season_recap.py` adds six columns to `profile`: `coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent` (all `BIGINT DEFAULT 0`) and `season_stat_baseline` (`JSONB DEFAULT '{}'`). No backfill needed — defaults are correct for all existing rows. New `_bump(profile, col, delta)` helper increments these counters at every money-in/out site in roulette, catslots, stocks, and jobs, guarded with try/except so an un-migrated DB is a silent no-op. `_recap_columns_present()` probes the schema once and caches the result on `config` for bulk-update paths that can't probe per-row. Season rollover captures the current lifetime totals into `season_stat_baseline` so the recap can diff "this season" = lifetime − baseline.
+  > _draft_
+
 ## [0.6.6.060025052026]
 
 ### Changed

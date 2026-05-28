@@ -28,11 +28,35 @@ When season rolls over (lazy, on the user's next interaction that calls `refresh
 - `discovered_cats`, `store_purchased_rarities`, `store_purchased_pack_tiers`
 - All achievement booleans + `unlocked_aches`
 - Lifetime stats (`jobs_completed`, `big_score_wins`, `catnip_activations`, `highest_catnip_level`, `bounties_complete`, etc.)
+- **Season-recap lifetime counters** (`coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent`, and the `catslots_coins_*` / `catslots_bonus_coins_won` columns) — these are never wiped; only the baseline snapshot is updated.
+- `season_stat_baseline` (JSONB) — re-captured at rollover to the current lifetime-counter values; this is the new season's "starting line" for "this season" diff queries.
 - Daily catch streak (cross-server, on `user` not `profile`)
 - Rain minutes (`rain_minutes`, `rain_blocks_*`), `combo_stack`, `prisms_crafted`
 - Tutorial / first-time flags (`tutorial_errand_complete`, `jobs_send_screen_seen`, etc.)
 
 **Reset notice.** After the wipe, `profile.season_reset_pending` is set to true. The next time the player runs `/battlepass`, `/catnip`, `/jobs`, `/catstore`, `/stats`, or `/inventory`, a one-shot **ephemeral** embed renders ("Cattlepass Season N just started…") and the flag clears. The notice is intentionally private — other players in the channel don't see it.
+
+**Pre-rollover warning.** On the last calendar day of the month (same UTC+4 clock as `refresh_quests`), a standalone background task (`_season_announcement_loop`, started in `setup()` and stored on `config.season_announce_task`) broadcasts a one-shot warning embed to every setupped channel. The embed lists what will be wiped (coins, battlepass, catnip/mafia, jobs, packs) and what will be kept (cats, prisms, stocks, discovered cats, achievements, streaks), and names the upcoming season's level count. The broadcast fires at most once per season — dedup is a `season_warn.txt` marker file that stores the last-warned season number and is re-read on `cat!restart`. Per-channel failures (missing permissions, deleted channel) are skipped silently.
+
+Servers can opt out via `/settings` → **season announcements** toggle, which maps to `server.season_announcements` (boolean, default `true`). The toggle is checked once per guild and cached for the duration of each broadcast. The task is reload-safe: `setup()` cancels the old task handle before creating a new one, so `cat!restart` does not spawn duplicate loops.
+
+**Season recap leaderboard.** On the 1st of each calendar month (season start), the bot broadcasts a per-server end-of-season recap embed to every setupped channel, honoring the same `season_announcements` opt-out as the warning. The recap lists the top 5 players in 7 categories:
+
+| Category | Metric |
+| --- | --- |
+| Cattlepass | battlepass level + progress (snapshot; lazy wipe means this is still queryable on the 1st) |
+| Mafia | `catnip_level` at end of season |
+| Biggest Earner | `coins_earned` this season |
+| Cats Caught | `total_catches` this season |
+| Heists | `jobs_completed` this season |
+| Gambling | net: (`roulette_coins_won` − `roulette_coins_bet`) + (`catslots_coins_won` + `catslots_bonus_coins_won` − `catslots_coins_bet`) |
+| Stock profit | `stock_coins_earned` − `stock_coins_spent` this season |
+
+**Why snapshot instead of live query.** The season wipe in `refresh_quests` is lazy — it runs on a player's first post-rollover interaction, not at midnight. A live query on the 1st would therefore zero out the most-active players (who triggered their wipe earliest) while retaining stale data for inactive players. The fix is a pre-rollover snapshot: during the season's last calendar day the `_season_announcement_loop` calls `_capture_season_recap_snapshot()` on every hourly tick, overwriting `season_recap.json` each time. The final tick before rollover wins. On the 1st, `_broadcast_season_recap()` reads the JSON and posts. A separate dedup cursor (`season_recap.txt`, mirrors `season_warn.txt`) ensures the broadcast fires at most once per season across restarts.
+
+**"This season" totals via baseline-diff.** The categories above that say "this season" are computed as `lifetime_counter − season_stat_baseline[counter]`. The new lifetime counter columns (`coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent`) are instrumented at every coin-gain, roulette, and stock path in `main.py` and accumulate forever. At each season rollover (in the `refresh_quests` wipe block) `season_stat_baseline` is set to the player's current lifetime-counter values; the next season's diff then reads `current − baseline`. For Season 1 the baseline is `{}` (treated as 0), so the value equals the full lifetime — correct, since this instance launched at Season 1 start. The `catslots_coins_*` and `catslots_bonus_coins_won` columns were added earlier (migration 013 / 016) and are included in the baseline.
+
+These counters and `season_stat_baseline` require migration 022. Code paths that write the counters use a `_bump()` guard (catches `KeyError` on missing columns) and snapshot/broadcast paths call `_recap_columns_present()` (a probe-read cached on `config`) to no-op cleanly on an un-migrated database.
 
 **Design intent:** monthly cadence is short enough to feel achievable but long enough that missing a few days isn't catastrophic. The reset is full on the active-economy axis (coins + catnip + jobs + packs) so every player starts the month on the same baseline; collection assets (cats, prisms, stocks, aches) accumulate forever because that's a separate dimension of progression that shouldn't be punished for playing long.
 
@@ -61,7 +85,7 @@ XP range: ~250–400.
 
 ### Misc slot
 
-Action-driven quests outside the catch loop. Examples: "/Gift someone", "Spin the slot machine 10 times", "Read a /news article", "/Define a word". Defined under `quests.misc`.
+Action-driven quests outside the catch loop. Examples: "/Gift someone", "Spin the slot machine 10 times", "Spin the /catslots machine once/twice/3 times/10 times", "Win at /catslots", "Read a /news article", "/Define a word". Defined under `quests.misc`.
 
 XP range: ~120–350.
 
@@ -74,7 +98,7 @@ Added in May 2026 to replace the retired vote quest. Defined under `quests.extra
 | Quest | Reward | Gating |
 | --- | --- | --- |
 | `catnip_session` | ~280–340 XP | requires catnip unlocked (level ≥ 1) |
-| `casino` | ~180–240 XP × 3 | 3 different games of {slots, roulette, pig, cookieclicker} |
+| `casino` | ~180–240 XP × 3 | 3 different games of {slots, catslots, roulette, pig, cookieclicker} |
 | `social` | ~220–290 XP | one /gift or /trade with another player |
 | `sacrifice` | **dynamic** (25–300, hidden) | gift the bot a cat; XP scales with cat rarity |
 | `gift3` | ~320–380 XP | /gift 3 *distinct* players in a single quest cycle |

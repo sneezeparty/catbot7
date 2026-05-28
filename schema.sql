@@ -370,7 +370,13 @@ CREATE TABLE public.profile (
     respect integer DEFAULT 50 NOT NULL,
     respect_last_tick bigint DEFAULT 0 NOT NULL,
     prisms_crafted integer DEFAULT 0 NOT NULL,
-    season_reset_pending boolean DEFAULT false NOT NULL
+    season_reset_pending boolean DEFAULT false NOT NULL,
+    coins_earned bigint DEFAULT 0 NOT NULL,
+    roulette_coins_won bigint DEFAULT 0 NOT NULL,
+    roulette_coins_bet bigint DEFAULT 0 NOT NULL,
+    stock_coins_earned bigint DEFAULT 0 NOT NULL,
+    stock_coins_spent bigint DEFAULT 0 NOT NULL,
+    season_stat_baseline jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -453,7 +459,8 @@ CREATE TABLE public.server (
     auto_delete_achievements boolean DEFAULT false,
     auto_delete_catches boolean DEFAULT false,
     mute_achievements boolean DEFAULT false,
-    anti_double_catch boolean DEFAULT false
+    anti_double_catch boolean DEFAULT false,
+    season_announcements boolean DEFAULT true
 );
 
 ALTER TABLE public.server OWNER TO cat_bot;

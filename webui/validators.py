@@ -24,7 +24,6 @@ TUNING_SCALAR_BOUNDS: dict[str, tuple[float | None, float | None]] = {
     "slow_catcher_threshold_seconds":      (1,     None),
     "rainboost_short_seconds":             (1,     None),
     "rainboost_long_seconds":              (1,     None),
-    "catnip_timer_extend_seconds":         (1,     None),
     "main_loop_interval_seconds":          (10,    None),
     "anti_double_catch_cooldown_seconds":  (0,     None),
     "view_timeout_seconds":                (1,     None),

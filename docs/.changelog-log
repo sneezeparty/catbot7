@@ -49,3 +49,16 @@
 2026-05-19 12:00  Added: "bp_xp_proc achievement — Cram Session (hidden), trigger Battlepass Booster perk, 200 XP" (re: config/aches.json)
 2026-05-19 12:00  Internal: "store_sell_pct helper added; store_sell_price signature updated to accept catnip_level" (re: main.py)
 2026-05-19 12:00  Changed: "/catstore Added bullet corrected — sell price claim 'always at face value' replaced with reference to new scaling" (re: main.py)
+2026-05-27 00:00  Added: "/catprofile [user] — at-a-glance profile card (mafia, cattlepass, cats, prisms, coins, aches, streak, pig, cookies)" (re: main.py)
+2026-05-27 00:00  Fixed: "Cookie button KeyError crash for users with active casino quest — extra columns added to partial fetch" (re: main.py)
+2026-05-27 00:00  Skipped: schema.sql — no diff against HEAD, nothing to log
+2026-05-27 00:00  Skipped: config/tuning.json — catnip_timer_extend_seconds removal already covered by existing human-curated Internal bullet
+2026-05-27 00:00  Skipped: config/catnip.json — timer_add entry deletion already covered by existing human-curated Removed bullet
+2026-05-27 00:00  Added: "Season-end broadcast warning + /settings Season Announcements toggle" (re: main.py, schema.sql)
+2026-05-27 00:00  Changed: "Cat Police Pinch rebalanced (lockout 6h→2h, threshold 100→150, heat bar /150, band cutoffs 45/105)" (re: main.py)
+2026-05-27 16:59  Fixed: "Open All packs now applies Padded Crate / Crate Polish / No Fines job perks (was silently skipped vs single-open)" (re: main.py)
+2026-05-28 00:00  Added: "Three short-spin battlepass quests for /catslots (catslots1/2/3, 150-330 XP)" (re: config/battlepass.json, main.py)
+2026-05-28 00:00  Changed: "/catslots now its own CASINO_GAME_BITS entry (bit 16) — counts separately from /slots for casino extra-quest" (re: config/battlepass.json, main.py)
+2026-05-28 00:00  Changed: "/jobs empty-board message split into two cases: cleared shift (shows next-batch timestamp) vs rep-blocked (faction standing too low)" (re: main.py)
+2026-05-28 00:00  Added: "Season Recap leaderboard — 7-category per-server embed posted on the 1st of each month" (re: main.py, schema.sql)
+2026-05-28 00:00  Internal: "Migration 022 adds lifetime stat counters + season_stat_baseline; _bump() helper wired at all money-in/out sites" (re: main.py, schema.sql, migrations/022_season_recap.py)

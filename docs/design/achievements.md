@@ -16,6 +16,8 @@ Categories (heuristic, not enforced):
 
 `Hidden` category aches don't count toward the "have 30 achs" misc quest threshold, on purpose — those should feel like secret discoveries.
 
+> **STALE:** the category names above no longer match `config/aches.json`. The actual categories in the file are `Cat Hunt`, `Commands`, `Hard`, `Random`, `Silly`, and `Hidden`. The list above (`Catching`, `Catnip`, `Casino`, `Social`, `Misc`) is from an older naming scheme. The `Hidden` exclusion from the 30-ach quest threshold still holds (backed by the `ach_list[k]["category"] != "Hidden"` check in `main.py`), but all the other category names and their descriptions should be rewritten to match the current config.
+
 ## Storage
 
 Two-layer, transitional:

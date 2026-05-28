@@ -86,6 +86,14 @@ INT_FIELDS = [
     "cats_lost_to_jobs",
     "job_coins_won",
     "biggest_score_value",
+    # Season recap stat counters (bigint accumulators for the Season Recap leaderboard;
+    # season_stat_baseline captures a snapshot at rollover so per-season deltas can be
+    # computed as lifetime - baseline; admin may inspect but rarely needs to edit these)
+    "coins_earned",
+    "roulette_coins_won",
+    "roulette_coins_bet",
+    "stock_coins_earned",
+    "stock_coins_spent",
     # Cat counters
     "cat_Fine",
     "cat_Nice",
@@ -153,6 +161,7 @@ JSONB_FIELDS = [
     "store_purchased_rarities", # JSONB list of rarity names ever bought from /catstore
     "faction_rep",              # JSONB dict[npc_key -> int]; per-NPC reputation (jobs system)
     "job_perks",                # JSONB list of active mafia-reward perks; writer is main._perks_grant
+    "season_stat_baseline",     # JSONB dict snapshot of bigint counters at season rollover; used to compute per-season deltas
 ]
 
 

@@ -141,20 +141,6 @@
       ]
     },
     {
-      "id": "timer_add",
-      "exclusive": false,
-      "name": "Time Manipulator",
-      "desc": "**percent%** chance of adding **5 minutes** to catnip timer on catch.",
-      "weight": 0,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
       "id": "loyalty_streak",
       "exclusive": true,
       "name": "Loyalty Streak",

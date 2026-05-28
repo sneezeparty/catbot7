@@ -31,7 +31,6 @@
   "prism_boost_global_coef": 0.06,
   "prism_boost_user_coef": 0.05,
   "prism_boost_floor": 0.15,
-  "catnip_timer_extend_seconds": 1800,
   "coin_per_pack": 100,
   "bakery_cost_cookies": 120,
   "bakery_cost_coffees": 140,

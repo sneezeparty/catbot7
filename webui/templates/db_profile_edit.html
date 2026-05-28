@@ -71,7 +71,9 @@
     These JSONB columns are shown for inspection only — freeform JSONB editing is not supported via this UI.
     Use <code>psql</code> for manual corrections. <code>unlocked_aches</code> is the canonical achievements store;
     <code>discovered_cats</code> tracks rarity names ever owned; <code>store_purchased_rarities</code> backs
-    the <em>Compulsive Shopper</em> achievement.
+    the <em>Compulsive Shopper</em> achievement. <code>season_stat_baseline</code> is a snapshot of the bigint
+    stat counters captured at each season rollover — per-season recap deltas are computed as
+    <code>lifetime_counter - baseline[key]</code>.
   {% endset %}
   {% include "partials/_help.html" %}
   <table class="editor-table">

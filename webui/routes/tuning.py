@@ -29,7 +29,6 @@ LABELS: dict[str, str] = {
     "prism_boost_global_coef": "Prism boost: global coefficient",
     "prism_boost_user_coef": "Prism boost: per-user coefficient",
     "prism_boost_floor": "Prism boost: minimum threshold for quest credit",
-    "catnip_timer_extend_seconds": "Catnip Time Manipulator extension",
     "coin_per_pack": "Coins per wooden pack",
     "bakery_cost_cookies": "Bakery cost: cookies",
     "bakery_cost_coffees": "Bakery cost: coffees",
@@ -39,6 +38,11 @@ LABELS: dict[str, str] = {
     "view_timeout_seconds": "Discord view (button) timeout",
     "pack_drop_chance_on_catch": "Pack drop chance per catch",
     "pack_tier_weights": "Pack tier spawn weights",
+    "spawn_revival_interval_seconds": "Spawn-revival background task tick interval",
+    "season_announce_interval_seconds": "Season-end warning broadcast re-check interval",
+    "respect": "Respect meter tuning block (max, default, decay, job rewards, level-loss rules)",
+    "catstore_tier_mult": "Cat Store price multipliers by rarity tier",
+    "prism_craft_coin_cost": "Prism crafting coin cost (base, growth exponent, cap)",
     # stock_market scalar sub-keys (namespaced, used in stock_market section)
     "stock_market.enabled": "Kill switch — off means MM tick is a no-op",
     "stock_market.spread": "Bid/ask offset from fair price (0.05 = ±5%)",
@@ -54,10 +58,11 @@ UNITS: dict[str, str] = {
     "slow_catcher_threshold_seconds": "s",
     "rainboost_short_seconds": "s",
     "rainboost_long_seconds": "s",
-    "catnip_timer_extend_seconds": "s",
     "main_loop_interval_seconds": "s",
     "anti_double_catch_cooldown_seconds": "s",
     "view_timeout_seconds": "s",
+    "spawn_revival_interval_seconds": "s",
+    "season_announce_interval_seconds": "s",
     "stock_market.spread": "fraction",
     "stock_market.price_floor": "coins",
     "stock_market.price_ceiling": "coins",
@@ -65,7 +70,10 @@ UNITS: dict[str, str] = {
 
 # Keys whose top-level value is a dict but whose entries are NOT simple
 # scalars — they are handled by dedicated routes rather than _dict_sections.
-_DEEP_DICT_KEYS: set[str] = {"stock_market"}
+# `respect` is excluded because it contains a nested sub-dict (job_reward)
+# that the flat _dict_sections renderer can't handle cleanly; it needs a
+# dedicated structured editor (flagged in .sync-log for future work).
+_DEEP_DICT_KEYS: set[str] = {"stock_market", "respect"}
 
 
 def _flatten_scalars(tuning: dict) -> list[dict]:

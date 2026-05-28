@@ -139,6 +139,9 @@ dmypy.json
 
 # Runtime artifacts
 cursor.txt
+season_warn.txt
+season_recap.txt
+season_recap.json
 temp_*
 
 # Claude Code local config (machine-specific paths and permissions)

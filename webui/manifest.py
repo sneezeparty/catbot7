@@ -90,7 +90,7 @@ SECTIONS: dict[str, dict] = {
     "catnip": {
         "source": ["config/catnip.json"],
         "schema": {
-            "perks": "list[{id, name, desc, weight, values, exclusive}]  — 17 entries (index 10 timer_add retired weight=0, MUST NOT be removed)",
+            "perks": "list[{id, name, desc, weight, values, exclusive}]  — 16 entries (timer_add removed); 1-based position is persisted on profile.perk1/2/3, so NEVER insert/remove/reorder without a remap migration (see migrations/020)",
             "levels": "list[{level, name, duration, cost, bounty_*, bonus, max_amount, weights, store_discount}]  — store_discount: int [-50,+50]; negative=tax on /catstore buys, positive=discount",
             "quotes": "list[{level, name, quotes:{first, normal, levelup, leveldown}}]",
             "bounties": "list[{id, desc}]",
@@ -117,9 +117,21 @@ SECTIONS: dict[str, dict] = {
     },
     "server_table": {
         "source": ["db:server"],
+        "schema": {
+            "TOGGLES": (
+                "only_setupped_channels, do_reactions, do_responses, do_rain, do_catnip, "
+                "auto_delete_achievements, auto_delete_catches, mute_achievements, "
+                "anti_double_catch, season_announcements"
+            ),
+        },
         "routes": ["GET /db/server", "POST /db/server/{id}/toggle/{field}"],
         "templates": ["db_server.html", "db_server_row.html"],
-        "references": [],
+        "references": [
+            # season_announcements: per-guild opt-out (DEFAULT true) for the
+            # "season ends tomorrow" broadcast fired by _season_announcement_loop().
+            # Toggle off to suppress the announcement in a guild.
+            ("server.season_announcements", "main._season_announcement_loop() — broadcast gated per guild; DEFAULT true"),
+        ],
     },
     "channel_table": {
         "source": ["db:channel"],
@@ -174,11 +186,32 @@ SECTIONS: dict[str, dict] = {
             # perks_suspended_until — unix ts; set 0 in INT_FIELDS to lift Pinch early
             ("profile.heat", "main._jobs_* helpers — written on every job submission; decays hourly"),
             ("profile.faction_rep", "main._jobs_faction_rep() — per-NPC rep dict; updated on job success/failure"),
-            ("profile.perks_suspended_until", "main._jobs_pinch() — catnip perks suspended for 12h after Pinch; set 0 to lift"),
+            ("profile.perks_suspended_until", "main._jobs_pinch() — catnip perks suspended for 2h after Pinch (pinch_lockout_seconds in jobs.json tuning); set 0 to lift"),
             # job_perks — JSONB list of active mafia-reward perks (third reward axis); writer is main._perks_grant.
             # Each entry: {id, granted_at, expires_at, npc, tier, charges}. Pruned lazily on read by _perks_prune.
             # NOT suspended by perks_suspended_until — that flag only gates catnip perks.
             ("profile.job_perks", "main._perks_grant() — active job perks; pruned lazily on read; NOT suspended by perks_suspended_until"),
+            # season_reset_pending — boolean flag set by season rollover on profile save; cleared after
+            # _maybe_show_season_reset_notice fires the ephemeral notice to the player. Transient UX
+            # state; NOT in edit whitelist (admin setting it true would just surface the notice on next
+            # interaction; setting it false mid-season has no effect). Flagged for review.
+            # --- season recap stat counters (added 2026-05-28, migration 022) ---
+            # coins_earned / roulette_coins_won / roulette_coins_bet / stock_coins_earned / stock_coins_spent —
+            # bigint lifetime accumulators; incremented by _bump() across coin-gain, roulette, and stock-trade
+            # paths. In INT_FIELDS for admin visibility. Per-season deltas computed as
+            # lifetime - season_stat_baseline[key] by _season_diff_sql() in main.py.
+            # season_stat_baseline — JSONB dict capturing a snapshot of the above counters at each season
+            # rollover (_capture_season_recap_snapshot). Powers the per-server Season Recap leaderboard
+            # broadcast on the 1st of each month. View-only in webui (JSONB_FIELDS).
+            # Runtime artefacts: season_recap.txt (last-recapped season cursor, analogous to season_warn.txt)
+            # and season_recap.json (per-guild snapshot written by _capture_season_recap_snapshot).
+            # Neither is surfaced in the webui — no webui section exists for runtime cursor files.
+            ("profile.coins_earned", "main._bump() — lifetime coins gained across all paths (jobs, stock, rain, casino); INT_FIELDS"),
+            ("profile.roulette_coins_won", "main._bump() in /roulette — cumulative roulette winnings (including refunds); INT_FIELDS"),
+            ("profile.roulette_coins_bet", "main._bump() in /roulette — cumulative amount wagered; INT_FIELDS"),
+            ("profile.stock_coins_earned", "main._bump() — cumulative proceeds from stock sells; INT_FIELDS"),
+            ("profile.stock_coins_spent", "main._bump() — cumulative spend on stock buys; INT_FIELDS"),
+            ("profile.season_stat_baseline", "main._capture_season_recap_snapshot() — JSONB snapshot at season rollover; JSONB_FIELDS (view-only)"),
         ],
     },
     "user_table": {

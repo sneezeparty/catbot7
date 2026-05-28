@@ -15,6 +15,7 @@ TOGGLES = [
     "auto_delete_catches",
     "mute_achievements",
     "anti_double_catch",
+    "season_announcements",
 ]
 
 

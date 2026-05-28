@@ -297,13 +297,13 @@ PRISM_BOOST_FLOOR = config.tuning["prism_boost_floor"]
 # a different player (self-boosts grant nothing). Sourced from tuning.json
 # with a literal default so existing tuning files keep working unchanged.
 PRISM_OWNER_XP_PER_BOOST = int(config.tuning.get("prism_owner_xp_per_boost", 20))
-CATNIP_TIMER_EXTEND = config.tuning["catnip_timer_extend_seconds"]
 COIN_PER_PACK = config.tuning["coin_per_pack"]
 BAKERY_COST_COOKIES = config.tuning["bakery_cost_cookies"]
 BAKERY_COST_COFFEES = config.tuning["bakery_cost_coffees"]
 BAKERY_COST_NICE = config.tuning["bakery_cost_nice_cats"]
 MAIN_LOOP_INTERVAL = config.tuning["main_loop_interval_seconds"]
 SPAWN_REVIVAL_INTERVAL = config.tuning.get("spawn_revival_interval_seconds", 60)
+SEASON_ANNOUNCE_INTERVAL = config.tuning.get("season_announce_interval_seconds", 3600)
 ANTI_DOUBLE_CATCH_COOLDOWN = config.tuning["anti_double_catch_cooldown_seconds"]
 FAST_CATCHER_THRESHOLD = config.tuning["fast_catcher_threshold_seconds"]
 SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
@@ -581,6 +581,25 @@ try:
 except FileNotFoundError:
     last_vote_cursor = None
 
+# Season-end warning dedup: the season number we last broadcast a "season
+# ends tomorrow" warning for. Persisted to disk so a restart on the last day
+# of the month doesn't re-spam every channel; re-read on each cat!restart
+# (module reimport) so it survives reloads.
+try:
+    with open("season_warn.txt", "r", encoding="utf-8") as f:
+        last_season_warned = int(f.read().strip())
+except (FileNotFoundError, ValueError):
+    last_season_warned = -1
+
+# Same idea for the season-recap leaderboard broadcast: records the just-ended
+# season we last posted a recap for, so the 1st-of-the-month broadcast fires at
+# most once per season even across restarts.
+try:
+    with open("season_recap.txt", "r", encoding="utf-8") as f:
+        last_season_recapped = int(f.read().strip())
+except (FileNotFoundError, ValueError):
+    last_season_recapped = -1
+
 # d.py doesnt cache app emojis so we do it on our own yippe
 emojis = {}
 
@@ -719,6 +738,24 @@ def cat_value(cat_type: str) -> int:
     if not weight:
         return 0
     return _TYPE_DICT_VALUE_SUM // weight
+
+
+def _battlepass_level_info(profile):
+    """Current battlepass level label, XP progress, and XP cap for a profile.
+
+    Mirrors the /battlepass + /inventory logic, including the "Extra Rewards"
+    fallback (1500 XP per level, no season cap) once a player passes the last
+    defined level of their season. Returns (label, progress, cap, season_max);
+    season_max is None in Extra Rewards mode or if the season data is missing."""
+    try:
+        season_levels = config.battle["seasons"][str(profile.season)]
+        if profile.battlepass >= len(season_levels):
+            return ("Extra Rewards", profile.progress, 1500, None)
+        season_max = len(season_levels)
+        cap = season_levels[profile.battlepass]["xp"]
+        return (f"Level {profile.battlepass + 1}/{season_max}", profile.progress, cap, season_max)
+    except Exception:
+        return (f"Level {profile.battlepass + 1}", profile.progress, 1500, None)
 
 
 # Catstore-scoped multiplier on top of cat_value(). Doubles every price the
@@ -927,7 +964,8 @@ JOBS_BOARD_PAGE_SIZE = 3
 
 
 def _jobs_window_index(now: int) -> int:
-    """Hard global window. All players share the same boundary every 6h —
+    """Hard global window. All players share the same boundary every 12h
+    (offer_refresh_window_seconds in jobs.json tuning) —
     deterministic-seed acceptance follows from this."""
     return now // JOBS_OFFER_REFRESH
 
@@ -1100,9 +1138,9 @@ def _jobs_resolve_reward(tier: int, npc_key: str, rng: random.Random) -> dict:
 
 
 def _jobs_heat_scrutiny_mult(heat: int) -> float:
-    if heat >= 71:
+    if heat > JOBS_HEAT_SCRUTINY_FLOOR:
         return 1.25
-    if heat >= 31:
+    if heat > JOBS_HEAT_WATCHING_FLOOR:
         return 1.10
     return 1.0
 
@@ -1487,9 +1525,9 @@ def _jobs_col(profile, name, default):
 
 
 def _jobs_heat_band(heat: int) -> str:
-    if heat >= 71:
+    if heat > JOBS_HEAT_SCRUTINY_FLOOR:
         return "scrutiny"
-    if heat >= 31:
+    if heat > JOBS_HEAT_WATCHING_FLOOR:
         return "watching"
     return "low"
 
@@ -1810,7 +1848,7 @@ async def _jobs_announce_outcome(channel, job, profile, player_mention: str) -> 
         # Pinch tag
         rep_changes = _jobs_coerce_dict(job.rep_changes)
         if rep_changes.get("pinched"):
-            embed.set_footer(text="🚓 Heat hit 100. The Cat Police picked them up.")
+            embed.set_footer(text=f"🚓 Heat hit {JOBS_PINCH_THRESHOLD}. The Cat Police picked them up.")
 
         await channel.send(embed=embed)
     except Exception:
@@ -2008,6 +2046,7 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         coin_reward = int(reward.get("coins", 0) or 0)
         if coin_reward:
             profile.coins = int(getattr(profile, "coins", 0) or 0) + coin_reward
+            _bump(profile, "coins_earned", coin_reward)
         for t, c in (reward.get("cats") or {}).items():
             _jobs_add_cat(profile, t, int(c or 0))
             await mark_discovered(profile, t)
@@ -2059,6 +2098,7 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
             if consolation:
                 profile.coins = int(getattr(profile, "coins", 0) or 0) + consolation
                 profile.job_coins_won = int(getattr(profile, "job_coins_won", 0) or 0) + consolation
+                _bump(profile, "coins_earned", consolation)
     else:
         profile.jobs_failed = int(getattr(profile, "jobs_failed", 0) or 0) + 1
 
@@ -2203,6 +2243,12 @@ JOBS_PINCH_THRESHOLD = JOBS_TUNING.get("pinch_threshold", 100)
 JOBS_PINCH_LOCKOUT = JOBS_TUNING.get("pinch_lockout_seconds", 43200)
 JOBS_PINCH_RESET = JOBS_TUNING.get("pinch_reset_heat", 30)
 JOBS_HEAT_DECAY_PER_HOUR = JOBS_TUNING.get("heat_decay_per_hour", 2)
+# Heat band cutoffs derived from the pinch threshold so the heat bar, color
+# bands, "scrutiny" cost ramp, and complication tiers all scale together when
+# the threshold is retuned. At the default 100 these are 30/70 — the original
+# hardcoded values — so behavior is unchanged except by the threshold itself.
+JOBS_HEAT_WATCHING_FLOOR = int(JOBS_PINCH_THRESHOLD * 0.3)
+JOBS_HEAT_SCRUTINY_FLOOR = int(JOBS_PINCH_THRESHOLD * 0.7)
 
 
 def _jobs_catnip_active(profile: Profile, now: int | None = None) -> bool:
@@ -3775,7 +3821,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
 # Casino quest bitmask. The "casino" extra-slot quest requires playing 3
 # different casino games out of the four. We track which games have been
 # played via casino_progress_temp; each bit set = that game contributed once.
-CASINO_GAME_BITS = {"slots": 1, "roulette": 2, "pig": 4, "cookieclicker": 8}
+CASINO_GAME_BITS = {"slots": 1, "roulette": 2, "pig": 4, "cookieclicker": 8, "catslots": 16}
 
 
 async def progress_casino_quest(message, user: Profile, game_id: str) -> None:
@@ -4091,6 +4137,57 @@ def _wipe_packs(user):
         user[f"pack_{tier}"] = 0
 
 
+# Lifetime counters that back the season-recap leaderboard (migration 022).
+# These accumulate forever; the recap turns them into "this season" totals by
+# diffing against season_stat_baseline (captured at each rollover, below).
+_SEASON_STAT_COUNTERS = (
+    "total_catches",
+    "jobs_completed",
+    "coins_earned",
+    "roulette_coins_won",
+    "roulette_coins_bet",
+    "catslots_coins_won",
+    "catslots_bonus_coins_won",
+    "catslots_coins_bet",
+    "stock_coins_earned",
+    "stock_coins_spent",
+)
+
+
+def _bump(profile, col, delta):
+    """Increment a lifetime counter column by `delta`, but only if the column
+    exists on this row (migration-safe). catpg raises KeyError for a column
+    that isn't on the fetched row / pre-migration DB; in that case this is a
+    silent no-op so callers in hot money paths never crash on an un-migrated
+    instance. `delta` may be negative (e.g. a cancelled buy-order refund)."""
+    try:
+        cur = profile[col]
+    except (KeyError, AttributeError):
+        return
+    profile[col] = int(cur or 0) + int(delta)
+
+
+async def _recap_columns_present() -> bool:
+    """True iff migration 022's recap columns exist. Probed once and cached on
+    the config module (survives cat!restart). The Python `_bump` paths self-
+    guard, but the raw-SQL dividend payout and the bulk_update sell-fill path
+    can't probe per-row — they consult this so they only reference the new
+    columns once the migration has actually added them."""
+    cached = getattr(config, "recap_columns_present", None)
+    if cached is not None:
+        return cached
+    try:
+        val = await pool.fetchval(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema='public' "
+            "AND table_name='profile' AND column_name='stock_coins_earned'"
+        )
+        present = val is not None
+    except Exception:
+        present = False
+    config.recap_columns_present = present
+    return present
+
+
 async def _maybe_show_season_reset_notice(interaction, user):
     """If the player just rolled into a new season (refresh_quests set
     season_reset_pending = True on the prior call), send them a one-shot
@@ -4189,6 +4286,20 @@ async def refresh_quests(user):
         try:
             _ = user.season_reset_pending
             user.season_reset_pending = True
+        except (KeyError, AttributeError):
+            pass
+
+        # Season-recap baseline (migration 022). Capture the lifetime counters
+        # as of this rollover — they become the NEW season's starting line, so
+        # that season's "this season" total = current_lifetime - baseline. The
+        # lifetime counters themselves are NOT wiped (they live across seasons);
+        # only this snapshot of them is stored. Guarded like the flag above so
+        # an un-migrated DB no-ops cleanly.
+        try:
+            _ = user.season_stat_baseline
+            user.season_stat_baseline = {
+                col: int(getattr(user, col, 0) or 0) for col in _SEASON_STAT_COUNTERS
+            }
         except (KeyError, AttributeError):
             pass
 
@@ -4663,6 +4774,333 @@ async def _spawn_revival_loop():
             logging.exception("spawn revival loop iteration failed")
 
 
+def _season_announcement_status():
+    """Returns (current_season, season_ends_tomorrow) using the same epoch and
+    clock as refresh_quests. season_ends_tomorrow is True on the last calendar
+    day of the month — the day before the 1st rolls a fresh season."""
+    start_date = datetime.datetime(2026, 4, 1)
+    now = discord.utils.utcnow() + datetime.timedelta(hours=4)
+    current_season = (now.year - start_date.year) * 12 + (now.month - start_date.month)
+    tomorrow = now + datetime.timedelta(days=1)
+    return current_season, (tomorrow.day == 1)
+
+
+def _season_announce_enabled(server) -> bool:
+    """server.season_announcements, defaulting to True if the column doesn't
+    exist yet (migration 021 unrun) — so a partially-migrated DB still warns."""
+    try:
+        val = server.season_announcements
+    except (KeyError, AttributeError):
+        return True
+    return True if val is None else bool(val)
+
+
+def _build_season_warning_embed(current_season: int) -> discord.Embed:
+    next_season = current_season + 1
+    try:
+        next_levels = len(config.battle["seasons"][str(next_season)])
+    except Exception:
+        next_levels = None
+    levels_line = f"\n\n🆕 **Season {next_season}** starts with **{next_levels} levels** to climb." if next_levels else ""
+    return discord.Embed(
+        title="⏳ Cattlepass season ends tomorrow!",
+        color=Colors.brown,
+        description=(
+            "When the new season begins on the 1st, **each player's per-server profile resets:**\n"
+            "• 🪙 **Coins** → 0\n"
+            "• ⬆️ **Cattlepass** level & XP → 0 (quests reset)\n"
+            "• 🎩 **Catnip / mafia** level, bounties & perks wiped\n"
+            "• 🔫 **Jobs** heat, respect, faction rep & job perks reset\n"
+            "• 📦 **All packs** cleared (event packs included)\n\n"
+            "**Kept:** your cats, prisms, stocks, discovered cats, achievements, and streaks.\n\n"
+            "⚠️ Spend your coins and **open your packs** before the reset!"
+            + levels_line
+        ),
+    )
+
+
+async def _broadcast_season_warning() -> int:
+    """Post the season-ending warning to every setupped channel whose server
+    hasn't opted out. The channel table is keyed by channel_id with no
+    guild_id, so we resolve each channel's guild from cache to check the
+    per-server toggle (cached per guild). Per-channel failures (missing perms,
+    deleted/uncached channel) are skipped silently, like cat!news / spawn_cat."""
+    current_season, _ = _season_announcement_status()
+    embed = _build_season_warning_embed(current_season)
+    server_optin: dict[int, bool] = {}  # guild_id -> enabled, one Server fetch per guild
+    sent = 0
+    try:
+        async for ch in Channel.all():
+            try:
+                ch_obj = bot.get_channel(int(ch.channel_id))
+                if ch_obj is None or ch_obj.guild is None:
+                    continue
+                gid = ch_obj.guild.id
+                if gid not in server_optin:
+                    server = await Server.get_or_create(server_id=gid)
+                    server_optin[gid] = _season_announce_enabled(server)
+                if not server_optin[gid]:
+                    continue
+                await ch_obj.send(embed=embed)
+                sent += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+    except Exception:
+        logging.exception("season warning broadcast failed")
+    return sent
+
+
+# ---- Season recap leaderboard (posts the just-ended season's winners) ----
+# The season wipe is lazy per-player, so a live query on the 1st would miss the
+# most-active players (they log in first and get reset). Instead we SNAPSHOT
+# per-guild top-5s during the last calendar day (overwriting each tick, so the
+# final pre-rollover tick wins) and BROADCAST from that snapshot on the 1st.
+_SEASON_RECAP_FILE = "season_recap.json"
+
+# Categories: 7 per-server top-5 boards. Cumulative metrics ("this season"
+# totals) are computed as lifetime_counter - season_stat_baseline[key] so they
+# reset cleanly each season; for Season 1 the baseline is '{}' (-> 0), so the
+# value is the full lifetime — correct, since this instance launched at S1 start.
+def _season_diff_sql(col: str) -> str:
+    """SQL fragment: a lifetime counter minus its captured season baseline."""
+    return f"({col} - COALESCE((season_stat_baseline->>'{col}')::bigint, 0))"
+
+
+async def _season_recap_for_guild(gid: int, season: int) -> dict | None:
+    """Run the 7 top-5 queries for one guild against the ending `season`.
+    Returns a dict of category -> [[user_id, *values], ...], or None if the
+    guild had no ranked players in any category."""
+    earner = _season_diff_sql("coins_earned")
+    cats = _season_diff_sql("total_catches")
+    heists = _season_diff_sql("jobs_completed")
+    gambling = (
+        f"{_season_diff_sql('roulette_coins_won')} - {_season_diff_sql('roulette_coins_bet')} "
+        f"+ {_season_diff_sql('catslots_coins_won')} + {_season_diff_sql('catslots_bonus_coins_won')} "
+        f"- {_season_diff_sql('catslots_coins_bet')}"
+    )
+    stocks = f"{_season_diff_sql('stock_coins_earned')} - {_season_diff_sql('stock_coins_spent')}"
+
+    bp = await Profile.collect_limit(
+        ["user_id", "battlepass", "progress"],
+        "guild_id = $1 AND season = $2 AND (battlepass > 0 OR progress > 0) "
+        "ORDER BY battlepass DESC, progress DESC LIMIT 5",
+        gid, season,
+    )
+    mafia = await Profile.collect_limit(
+        ["user_id", "catnip_level"],
+        "guild_id = $1 AND season = $2 AND catnip_level > 0 ORDER BY catnip_level DESC LIMIT 5",
+        gid, season,
+    )
+
+    async def _computed(expr: str):
+        return await Profile.collect_limit(
+            ["user_id", RawSQL(f"({expr}) AS season_val")],
+            f"guild_id = $1 AND season = $2 AND ({expr}) > 0 ORDER BY season_val DESC LIMIT 5",
+            gid, season,
+        )
+
+    earner_r = await _computed(earner)
+    cats_r = await _computed(cats)
+    heists_r = await _computed(heists)
+    gambling_r = await _computed(gambling)
+    stocks_r = await _computed(stocks)
+
+    data = {
+        "battlepass": [[int(r["user_id"]), int(r["battlepass"]), int(r["progress"])] for r in bp],
+        "mafia": [[int(r["user_id"]), int(r["catnip_level"])] for r in mafia],
+        "earner": [[int(r["user_id"]), int(r["season_val"])] for r in earner_r],
+        "cats": [[int(r["user_id"]), int(r["season_val"])] for r in cats_r],
+        "heists": [[int(r["user_id"]), int(r["season_val"])] for r in heists_r],
+        "gambling": [[int(r["user_id"]), int(r["season_val"])] for r in gambling_r],
+        "stocks": [[int(r["user_id"]), int(r["season_val"])] for r in stocks_r],
+    }
+    if not any(data.values()):
+        return None
+    return data
+
+
+async def _capture_season_recap_snapshot() -> None:
+    """Compute every setupped guild's top-5 boards for the (still-active) ending
+    season and persist them to season_recap.json. Overwrites on each call so the
+    last last-day tick before rollover is the one that gets broadcast. Requires
+    migration 022 (season_stat_baseline + counter columns); skips otherwise."""
+    if not await _recap_columns_present():
+        logging.info("season recap snapshot skipped: migration 022 columns absent")
+        return
+    snap_season, _ = _season_announcement_status()
+    guild_ids: set[int] = set()
+    try:
+        async for ch in Channel.all():
+            ch_obj = bot.get_channel(int(ch.channel_id))
+            if ch_obj is not None and ch_obj.guild is not None:
+                guild_ids.add(ch_obj.guild.id)
+    except Exception:
+        logging.exception("season recap snapshot: guild enumeration failed")
+        return
+    guilds_data: dict[str, dict] = {}
+    for gid in guild_ids:
+        try:
+            g = await _season_recap_for_guild(gid, snap_season)
+        except Exception:
+            logging.exception("season recap snapshot failed for guild %s", gid)
+            continue
+        if g:
+            guilds_data[str(gid)] = g
+    try:
+        with open(_SEASON_RECAP_FILE, "w", encoding="utf-8") as f:
+            json.dump({"season": snap_season, "guilds": guilds_data}, f)
+    except Exception:
+        logging.exception("failed to persist season recap snapshot")
+
+
+def _build_season_recap_embed(guild_name: str, season_num: int, gdata: dict) -> discord.Embed | None:
+    """Build one guild's recap embed from its snapshot dict. Returns None if
+    every category is empty (nothing to show)."""
+    medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+    def _board(entries, render) -> str:
+        lines = []
+        for i, e in enumerate(entries[:5]):
+            tag = medals.get(i, f"{i + 1}.")
+            lines.append(f"{tag} <@{e[0]}> — {render(e)}")
+        return "\n".join(lines)
+
+    # (snapshot key, field label, value renderer)
+    categories = [
+        ("battlepass", "🏆 Cattlepass", lambda e: f"Lv {e[1]:,}"),
+        ("mafia", "🎩 Mafia", lambda e: f"Lv {e[1]:,}"),
+        ("earner", "🪙 Biggest Earner", lambda e: f"{e[1]:,}"),
+        ("cats", "🐱 Cats Caught", lambda e: f"{e[1]:,}"),
+        ("heists", "🔫 Heists", lambda e: f"{e[1]:,}"),
+        ("gambling", "🎰 Gambling", lambda e: f"{e[1]:+,}"),
+        ("stocks", "📈 Stocks", lambda e: f"{e[1]:+,}"),
+    ]
+    if not any(gdata.get(k) for k, _, _ in categories):
+        return None
+
+    bp = gdata.get("battlepass") or []
+    champion = bp[0][0] if bp else None
+    desc = (
+        f"👑 **{guild_name}'s Season {season_num} champion:** <@{champion}>!\n\nHere's how the season shook out:"
+        if champion
+        else f"Here's how Season {season_num} shook out in **{guild_name}**:"
+    )
+    embed = discord.Embed(title=f"🏆 Season {season_num} Recap", description=desc, color=Colors.brown)
+    for key, label, render in categories:
+        entries = gdata.get(key) or []
+        if not entries:
+            continue
+        embed.add_field(name=label, value=_board(entries, render), inline=True)
+    if season_num == 1:
+        embed.set_footer(text="🆕 Gambling, stock & earnings totals cover the period since this feature launched.")
+    return embed
+
+
+async def _broadcast_season_recap() -> int:
+    """Post each guild's recap embed (from the persisted snapshot) to its
+    setupped channels, honoring the same season_announcements opt-out. Returns
+    the channel count posted to."""
+    try:
+        with open(_SEASON_RECAP_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (FileNotFoundError, ValueError):
+        logging.warning("season recap broadcast: no snapshot file to read")
+        return 0
+    just_ended = _season_announcement_status()[0] - 1
+    if int(payload.get("season", -999)) != just_ended:
+        logging.warning(
+            "season recap broadcast: snapshot season %s != just-ended %s; skipping",
+            payload.get("season"), just_ended,
+        )
+        return 0
+
+    embeds: dict[int, discord.Embed] = {}
+    for gid_str, gdata in (payload.get("guilds") or {}).items():
+        gid = int(gid_str)
+        guild = bot.get_guild(gid)
+        emb = _build_season_recap_embed(guild.name if guild else "the server", just_ended, gdata)
+        if emb is not None:
+            embeds[gid] = emb
+
+    server_optin: dict[int, bool] = {}
+    sent = 0
+    try:
+        async for ch in Channel.all():
+            try:
+                ch_obj = bot.get_channel(int(ch.channel_id))
+                if ch_obj is None or ch_obj.guild is None:
+                    continue
+                gid = ch_obj.guild.id
+                if gid not in embeds:
+                    continue
+                if gid not in server_optin:
+                    server = await Server.get_or_create(server_id=gid)
+                    server_optin[gid] = _season_announce_enabled(server)
+                if not server_optin[gid]:
+                    continue
+                await ch_obj.send(embed=embeds[gid])
+                sent += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+    except Exception:
+        logging.exception("season recap broadcast failed")
+    return sent
+
+
+async def _season_announcement_loop():
+    """Standalone ticker that broadcasts the "season ends tomorrow" warning
+    once on the last calendar day of the month. Fixed cadence (not
+    on_message-driven) so it fires even in quiet periods. Reload-safe via
+    config.season_announce_task; setup() cancels the prior task first.
+
+    Dedup: last_season_warned (persisted to season_warn.txt) records the
+    season we last warned about, so the broadcast happens at most once per
+    season even across restarts. We mark it AFTER the broadcast returns — the
+    broadcast swallows per-channel errors and won't raise, so a mid-broadcast
+    process death is the only double-send risk (rare, and a duplicate warning
+    beats no warning)."""
+    global last_season_warned, last_season_recapped
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(SEASON_ANNOUNCE_INTERVAL)
+            current_season, ends_tomorrow = _season_announcement_status()
+            if ends_tomorrow and current_season != last_season_warned:
+                count = await _broadcast_season_warning()
+                last_season_warned = current_season
+                try:
+                    with open("season_warn.txt", "w", encoding="utf-8") as f:
+                        f.write(str(current_season))
+                except Exception:
+                    logging.exception("failed to persist season_warn marker")
+                logging.info("season-end warning sent to %d channels (season %d ending)", count, current_season)
+
+            # Season recap: snapshot standings on every last-day tick (the final
+            # tick before midnight wins), then broadcast on the 1st once per
+            # just-ended season.
+            if ends_tomorrow:
+                try:
+                    await _capture_season_recap_snapshot()
+                except Exception:
+                    logging.exception("season recap snapshot failed")
+            now_local = discord.utils.utcnow() + datetime.timedelta(hours=4)
+            just_ended = current_season - 1
+            if now_local.day == 1 and just_ended != last_season_recapped:
+                count = await _broadcast_season_recap()
+                last_season_recapped = just_ended
+                try:
+                    with open("season_recap.txt", "w", encoding="utf-8") as f:
+                        f.write(str(just_ended))
+                except Exception:
+                    logging.exception("failed to persist season_recap marker")
+                logging.info("season recap broadcast to %d channels (season %d)", count, just_ended)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("season announcement loop iteration failed")
+
+
 async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     try:
         channel = await Channel.get_or_none(channel_id=int(ch_id))
@@ -4724,7 +5162,15 @@ async def wait_and_do_stock(stock):
             return
         stock_column = f'"stock_{stock.ticker.lower()}"'
 
-        # payout
+        # payout. The SET clause also bumps the season-recap counters
+        # (coins_earned + stock_coins_earned) when migration 022 is present; on
+        # an un-migrated DB it falls back to crediting coins only.
+        _div_set = "coins = coins + sh.quantity * $1"
+        if await _recap_columns_present():
+            _div_set += (
+                ", coins_earned = coins_earned + sh.quantity * $1"
+                ", stock_coins_earned = stock_coins_earned + sh.quantity * $1"
+            )
         await pool.execute(
             f"""WITH stock_holders_raw AS (
             SELECT id AS user_id, {stock_column} AS quantity
@@ -4742,7 +5188,7 @@ async def wait_and_do_stock(stock):
         ),
         "updated" AS (
             UPDATE profile p
-            SET coins = coins + sh.quantity * $1
+            SET {_div_set}
             FROM stock_holders sh
             WHERE p.id = sh.user_id
             RETURNING p.id AS profile_id, sh.quantity * $1 AS coin_change
@@ -4779,6 +5225,8 @@ async def wait_and_do_stock(stock):
                 if bonus == 0:
                     continue
                 fp.coins = int(getattr(fp, "coins", 0) or 0) + bonus
+                _bump(fp, "coins_earned", bonus)
+                _bump(fp, "stock_coins_earned", bonus)
                 await fp.save()
         except Exception:
             logging.exception("stock_dividend_boost per-holder bonus failed; bulk payout still applied")
@@ -4920,6 +5368,7 @@ async def background_loop():
         if profile:
             if order.type_buy:
                 profile.coins += order.quantity * order.price
+                _bump(profile, "stock_coins_spent", -(order.quantity * order.price))
                 await PortfolioHistory.create(user_id=profile.id, type="c", quantity=order.price * order.quantity, time=int(time.time()))
             else:
                 profile[f"stock_{order.ticker.lower()}"] += order.quantity
@@ -6366,6 +6815,7 @@ async def on_message(message: discord.Message):
                         _rain_yield = int(_perks_strength(user, "cat_rain_coin_yield", "coins_per_catch", 0) or 0)
                         if _rain_yield > 0:
                             user.coins = int(getattr(user, "coins", 0) or 0) + _rain_yield
+                            _bump(user, "coins_earned", _rain_yield)
                             suffix_string += f"\n💰 Cloudburst Wages: +🪙 {_rain_yield:,}."
 
                 await user.save()
@@ -7865,6 +8315,12 @@ async def settings(message: discord.Interaction):
                     "If enabled, users must wait 5 minutes after catching in one channel to catch in another",
                     make_button("anti_double_catch"),
                 ),
+                "===",
+                Section(
+                    "### Season Announcements",
+                    "If enabled, Cat Bot warns your setupped channels the day before a Cattlepass season ends and wipes coins/catnip/jobs/packs",
+                    make_button("season_announcements"),
+                ),
             )
         )
         return view
@@ -8369,6 +8825,98 @@ __Highlighted Stat__
 
     for ach in give_achs:
         await achemb(message, ach, "followup")
+
+
+@bot.tree.command(name="catprofile", description="View an at-a-glance profile card")
+@discord.app_commands.rename(person_id="user")
+@discord.app_commands.describe(person_id="Person to view the profile of!")
+async def catprofile(message: discord.Interaction, person_id: Optional[discord.User]):
+    await message.response.defer()
+    if not person_id:
+        person_id = message.user
+    person = await Profile.get_or_create(guild_id=message.guild.id, user_id=person_id.id)
+    user = await User.get_or_create(user_id=person_id.id)
+    # Season-rollover wipe + ephemeral notice for the INVOKER, regardless of
+    # whose profile is being viewed (matches /stats and /inventory).
+    if int(person_id.id) == int(message.user.id):
+        invoker_profile = person
+    else:
+        invoker_profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+    await refresh_quests(invoker_profile)
+    await _maybe_show_season_reset_notice(message, invoker_profile)
+
+    # --- gather data ---
+    # mafia (catnip) level + rank name
+    mafia_level = person.catnip_level
+    try:
+        rank = catnip_list["levels"][mafia_level]["name"]
+    except (IndexError, KeyError):
+        rank = "?"
+
+    # cattlepass level/progress (handles the Extra Rewards fallback)
+    bp_label, bp_progress, bp_cap, _bp_season_max = _battlepass_level_info(person)
+
+    # total cats + collection value (same scale as /inventory and /trade)
+    total_cats = 0
+    total_value = 0
+    for i in cattypes:
+        cat_num = person[f"cat_{i}"]
+        if cat_num:
+            total_cats += cat_num
+            total_value += cat_value(i) * cat_num
+
+    # prisms owned in this server, plus the boost % they grant (gen_inventory math)
+    prism_count = await Prism.count("guild_id = $1 AND user_id = $2", message.guild.id, person_id.id)
+    total_count = await Prism.count("guild_id = $1", message.guild.id)
+    global_boost = PRISM_BOOST_GLOBAL_COEF * math.log(2 * total_count + 1)
+    prism_boost = round((global_boost + PRISM_BOOST_USER_COEF * math.log(2 * prism_count + 1)) * 100, 1)
+
+    # achievements: visible only (Hidden ones are excluded from the total, like /inventory)
+    unlocked = 0
+    minus_achs_count = 0
+    for k in ach_names:
+        if ach_list[k]["category"] == "Hidden":
+            minus_achs_count += 1
+            continue
+        if person.has_ach(k):
+            unlocked += 1
+    total_achs = len(ach_list) - minus_achs_count
+
+    # per-server catch streak: consecutive catches in THIS server
+    # (profile.catch_streak, resets when a catch is missed/laughed at)
+    streak = person.catch_streak
+
+    # supporter cosmetics, consistent with /inventory
+    emoji_prefix = str(user.emoji) + " " if user.emoji else ""
+    color = discord.Colour.from_str(user.color) if user.color else Colors.brown
+
+    embedVar = discord.Embed(
+        title=f"{emoji_prefix}{person_id.name.replace('_', r'\_')}'s Profile",
+        color=color,
+    )
+    if user.image.startswith("https://cdn.discordapp.com/attachments/"):
+        embedVar.set_thumbnail(url=user.image)
+    else:
+        embedVar.set_thumbnail(url=person_id.display_avatar.url)
+
+    # fresh, zeroed profile = this person has never played in this server
+    if person_id.id != message.user.id and person.new_user:
+        embedVar.description = f"{person_id.mention} hasn't played in this server yet."
+
+    # Row 1 — progression
+    embedVar.add_field(name="🎩 Mafia", value=f"Level {mafia_level}\n{rank}", inline=True)
+    embedVar.add_field(name="⬆️ Cattlepass", value=f"{bp_label}\n{bp_progress:,}/{bp_cap:,} XP\nSeason {person.season}", inline=True)
+    embedVar.add_field(name=f"{get_emoji('ach')} Achievements", value=f"{unlocked}/{total_achs}", inline=True)
+    # Row 2 — wealth
+    embedVar.add_field(name=f"{get_emoji('staring_cat')} Cats", value=f"{total_cats:,}\nValue: {round(total_value):,}", inline=True)
+    embedVar.add_field(name="🪙 Coins", value=f"{person.coins:,}", inline=True)
+    embedVar.add_field(name=f"{get_emoji('prism')} Prisms", value=f"{prism_count}\nBoost: {prism_boost}%", inline=True)
+    # Row 3 — fun
+    embedVar.add_field(name="🔥 Streak", value=f"{streak:,}", inline=True)
+    embedVar.add_field(name="🎲 Pig", value=f"{person.best_pig_score:,}", inline=True)
+    embedVar.add_field(name="🍪 Cookies", value=f"{person.cookies:,}", inline=True)
+
+    await message.followup.send(embed=embedVar)
 
 
 async def rain_recovery_loop(channel):
@@ -8900,6 +9448,21 @@ async def packs(message: discord.Interaction):
         total_upgrades = 0
         opened_so_far = 0
 
+        # ---- Pack-side job perks (mirror the single-open path in open_pack) ----
+        # pack_bonus_cat (timed):     +1 random cat on EVERY open while active.
+        # pack_tier_upgrade (charge): spend one charge to bump one open a tier.
+        # pack_floor (charge):        spend one charge to lift one Fine to Nice.
+        # The two charge perks are "your next pack" — they fire on the first
+        # eligible open in the batch and then are exhausted, exactly as if the
+        # player had opened that one pack by hand.
+        active_perks = _perks_active_ids(user)
+        bonus_cat_active = "pack_bonus_cat" in active_perks
+        polish_pending = "pack_tier_upgrade" in active_perks
+        floor_pending = "pack_floor" in active_perks
+        cap_idx = next((i for i, p in enumerate(pack_data) if p["name"].lower() == "silver"), len(pack_data) - 1)
+        perk_msgs: list[str] = []
+        bonus_cat_total = 0
+
         for level, pack in enumerate(pack_names):
             if opened_so_far >= real_to_open:
                 break
@@ -8913,14 +9476,36 @@ async def packs(message: discord.Interaction):
 
             results_header.append(f"{opening_this:,}x {get_emoji(pack.lower() + 'pack')}")
             for _ in range(opening_this):
-                chosen_type, cat_amount, upgrades, rewards = get_pack_rewards(level, is_single=False)
+                use_level = level
+                if polish_pending and _perks_consume_charge(user, "pack_tier_upgrade"):
+                    if use_level < cap_idx:
+                        use_level += 1
+                        perk_msgs.append(f"🪜 Crate Polish bumped one open to **{pack_data[use_level]['name']}**.")
+                    else:
+                        perk_msgs.append(f"🪜 Crate Polish: already at cap ({pack_data[cap_idx]['name']}).")
+                    polish_pending = False
+
+                chosen_type, cat_amount, upgrades, rewards = get_pack_rewards(use_level, is_single=False)
+
+                if chosen_type == "Fine" and floor_pending and _perks_consume_charge(user, "pack_floor"):
+                    chosen_type = "Nice"
+                    perk_msgs.append("🚫 No Fines: floor lifted one open to Nice.")
+                    floor_pending = False
+
                 total_upgrades += upgrades
                 if not display_cats:
                     results_detail.append(rewards)
                 results_percat[chosen_type] += cat_amount
 
+                if bonus_cat_active:
+                    results_percat[random.choice(cattypes)] += 1
+                    bonus_cat_total += 1
+
             user[pack_id] -= opening_this
             opened_so_far += opening_this
+
+        if bonus_cat_total > 0:
+            perk_msgs.append(f"➕ Padded Crate: +{bonus_cat_total:,} bonus cats.")
 
         user.packs_opened += opened_so_far
         user.pack_upgrades += total_upgrades
@@ -8945,7 +9530,11 @@ async def packs(message: discord.Interaction):
         if len(final_result) > 0:
             final_result = "\n\n" + final_result
 
-        return discord.Embed(title=final_header, description=f"{pack_list}{final_result}", color=Colors.brown)
+        perk_footer = ""
+        if perk_msgs:
+            perk_footer = "\n\n" + "\n".join(perk_msgs)
+
+        return discord.Embed(title=final_header, description=f"{pack_list}{final_result}{perk_footer}", color=Colors.brown)
 
     async def confirm_open_all(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -9641,6 +10230,7 @@ async def the_order_canceller(interaction, choices):
             continue
         if order.type_buy:
             profile.coins += order.price * order.quantity
+            _bump(profile, "stock_coins_spent", -(order.price * order.quantity))
             await PortfolioHistory.create(user_id=profile.id, type="c", quantity=order.price * order.quantity, time=int(time.time()))
         else:
             profile[f"stock_{order.ticker.lower()}"] += order.quantity
@@ -9681,8 +10271,13 @@ async def resolve_orders(order: Order):
             for user_id, delta in seller_coin_deltas.items():
                 u = await Profile.get(id=user_id)
                 u.coins += delta
+                _bump(u, "coins_earned", delta)
+                _bump(u, "stock_coins_earned", delta)
                 updates.append(u)
-            await Profile.bulk_update(updates, "coins")
+            _recap_cols = ["coins"]
+            if await _recap_columns_present():
+                _recap_cols += ["coins_earned", "stock_coins_earned"]
+            await Profile.bulk_update(updates, *_recap_cols)
 
         profile = await Profile.get(id=order.user_id)
         profile[f"stock_{order.ticker.lower()}"] += order.quantity - remaining_quantity
@@ -9719,7 +10314,10 @@ async def resolve_orders(order: Order):
             await Profile.bulk_update(updates, f"stock_{order.ticker.lower()}")
 
         profile = await Profile.get(id=order.user_id)
-        profile.coins += (order.quantity - remaining_quantity) * order.price
+        _stock_proceeds = (order.quantity - remaining_quantity) * order.price
+        profile.coins += _stock_proceeds
+        _bump(profile, "coins_earned", _stock_proceeds)
+        _bump(profile, "stock_coins_earned", _stock_proceeds)
         await profile.save()
 
     if display_price:
@@ -9754,6 +10352,7 @@ async def stocks(message: discord.Interaction):
         for pack in pack_data:
             if pack["name"].lower() == pack_name.lower():
                 profile.coins += pack["totalvalue"]
+                _bump(profile, "coins_earned", pack["totalvalue"])
                 break
         await profile.save()
         embedVar = discord.Embed(title="📥 Deposit Packs", description=f"You currently have 🪙 **{profile.coins:,}** coins.", color=Colors.brown)
@@ -9916,6 +10515,7 @@ async def stocks(message: discord.Interaction):
 
             if self.type == "buy":
                 profile.coins -= quantity * price
+                _bump(profile, "stock_coins_spent", quantity * price)
             if self.type == "sell":
                 profile[f"stock_{self.ticker.lower()}"] -= quantity
             await profile.save()
@@ -10416,6 +11016,7 @@ async def catstore(message: discord.Interaction):
                 total = unit_price * qty
                 fresh[f"cat_{self.cat_type}"] -= qty
                 fresh.coins += total
+                _bump(fresh, "coins_earned", total)
                 await fresh.save()
                 nonlocal profile
                 profile = fresh
@@ -11268,15 +11869,31 @@ async def jobs(message: discord.Interaction):
 
         offers = await _jobs_refresh_offers_if_needed(profile, now)
         if not offers:
-            await _say("the family doesn't want anything to do with you right now. "
-                       "lay low, fix your reputation, and check back later.")
+            _, win_end = _jobs_window_bounds(_jobs_window_index(now))
+            if _jobs_eligible_npcs(level, _jobs_faction_rep(profile)):
+                # Board's empty because the player has worked through (accepted
+                # or declined) everything this window generated — NOT a rep
+                # problem. Offers only refill at the next window boundary.
+                await _say(
+                    "the family's got nothing left for you this shift — you've cleared "
+                    f"every job on the board. a fresh batch comes in <t:{win_end}:R>."
+                )
+            else:
+                # No NPC will hire: faction reputation sits below the refuse
+                # threshold with everyone. This one really is a rep problem,
+                # and rep doesn't recover on its own.
+                await _say(
+                    "word's gotten around — your standing with the family is in the gutter "
+                    "and nobody'll deal with you right now. you'll have to win back some "
+                    "reputation before the work starts coming again."
+                )
             return
 
         rank_name = catnip_list["levels"][level]["name"] if level < len(catnip_list["levels"]) else "?"
         window_idx = _jobs_window_index(now)
         _, win_end = _jobs_window_bounds(window_idx)
         heat = int(getattr(profile, "heat", 0) or 0)
-        heat_band = "🟢" if heat <= 30 else ("🟡" if heat <= 70 else "🔴")
+        heat_band = "🟢" if heat <= JOBS_HEAT_WATCHING_FLOOR else ("🟡" if heat <= JOBS_HEAT_SCRUTINY_FLOOR else "🔴")
         # Respect column may not exist yet if migration 018 hasn't been run.
         has_respect = _profile_has_respect_columns(profile)
         respect = int(profile.respect or 0) if has_respect else None
@@ -11291,7 +11908,7 @@ async def jobs(message: discord.Interaction):
         # daily_cap_extension: peek-only; charge consumed at commit time.
         _eff_cap_board = _perks_effective_daily_cap(profile, JOBS_COMMITS_PER_WINDOW)
         view = LayoutView(timeout=VIEW_TIMEOUT)
-        status_parts = [f"Mafia Lv {level} ({rank_name})", f"{heat_band} Heat: {heat}/100"]
+        status_parts = [f"Mafia Lv {level} ({rank_name})", f"{heat_band} Heat: {heat}/{JOBS_PINCH_THRESHOLD}"]
         if has_respect:
             status_parts.append(f"{respect_band} Respect: {respect}/{respect_max}")
         status_parts.extend([
@@ -11648,7 +12265,7 @@ async def jobs(message: discord.Interaction):
         if rep_changes.get("pinched"):
             suspended_until = int(getattr(profile, "perks_suspended_until", 0) or 0)
             items.append(
-                f"\n🚓 **Pinched.** Your heat hit 100. The Cat Police caught up with your crew.\n"
+                f"\n🚓 **Pinched.** Your heat hit {JOBS_PINCH_THRESHOLD}. The Cat Police caught up with your crew.\n"
                 f"Catnip perks come back <t:{suspended_until}:R>. Heat reset to {JOBS_PINCH_RESET}."
             )
 
@@ -12910,7 +13527,14 @@ async def cookie(message: discord.Interaction):
             await do_funny(interaction)
             return
         await interaction.response.defer()
-        user = await Profile.get(["cookies"], guild_id=message.guild.id, user_id=message.user.id)
+        # extra_quest/extra_cooldown/casino_progress_temp are read by
+        # progress_casino_quest's guard below before it refetches, so they must
+        # be in this partial fetch or attribute access KeyErrors.
+        user = await Profile.get(
+            ["cookies", "extra_quest", "extra_cooldown", "casino_progress_temp"],
+            guild_id=message.guild.id,
+            user_id=message.user.id,
+        )
         user.cookies += 1
         await user.save()
         view.children[0].label = f"{user.cookies:,}"
@@ -14241,7 +14865,10 @@ async def catslots(
             try:
                 await achemb(interaction, "catslots", "followup")
                 await progress(message, profile, "catslots")
-                await progress_casino_quest(message, profile, "slots")
+                await progress(message, profile, "catslots1", refetch=False)
+                await progress(message, profile, "catslots2", refetch=False)
+                await progress(message, profile, "catslots3", refetch=False)
+                await progress_casino_quest(message, profile, "catslots")
             except Exception:
                 pass
 
@@ -14335,6 +14962,7 @@ async def catslots(
             await profile.refresh_from_db()
             profile.coins += total_payout
             profile.catslots_coins_won += total_payout
+            _bump(profile, "coins_earned", total_payout)
             if total_payout > 0:
                 profile.catslots_wins += 1
             if big_win:
@@ -14653,6 +15281,7 @@ async def catslots(
                 # ---- credit bonus + persist counters ----
                 await profile.refresh_from_db()
                 profile.coins += bonus_total
+                _bump(profile, "coins_earned", bonus_total)
                 profile.catslots_bonus_triggers += 1
                 profile.catslots_bonus_coins_won += bonus_total
                 profile.catslots_bonus_spins_total += spins_played
@@ -14984,26 +15613,33 @@ async def roulette(
             final_choice = random.randint(0, 36)
 
         user.coins -= bet_amount
+        _bump(user, "roulette_coins_bet", bet_amount)
         user.roulette_spins += 1
         win = False
         funny_win = False
         if str(final_choice) == bet_value or colors[final_choice] == bet_value.lower():
             if bet_value in [str(i) for i in range(37)] or bet_value.lower() == "green":
                 user.coins += bet_amount * 36
+                _bump(user, "roulette_coins_won", bet_amount * 36)
+                _bump(user, "coins_earned", bet_amount * 36)
                 funny_win = True
             else:
                 user.coins += bet_amount * 2
+                _bump(user, "roulette_coins_won", bet_amount * 2)
+                _bump(user, "coins_earned", bet_amount * 2)
             user.roulette_wins += 1
             win = True
         # Loss-side perks: refund some/all of the bet.
         if not win:
             if free_spin_fired:
                 user.coins += bet_amount
+                _bump(user, "roulette_coins_won", bet_amount)
                 roulette_perks_msgs.append(f"🎟️ Free Spin: full {bet_amount:,} coin refund.")
             elif mercy_pct > 0:
                 refund = int(round(bet_amount * mercy_pct))
                 if refund > 0:
                     user.coins += refund
+                    _bump(user, "roulette_coins_won", refund)
                     roulette_perks_msgs.append(f"🤝 House Mercy: refunded 🪙 {refund:,}.")
         user.coins = int(round(user.coins))
         await user.save()
@@ -17685,6 +18321,12 @@ async def setup(bot2):
     if old_task and not old_task.done():
         old_task.cancel()
     config.spawn_revival_task = bot.loop.create_task(_spawn_revival_loop())
+
+    # Same restart-safe pattern for the season-end warning ticker.
+    old_season_task = getattr(config, "season_announce_task", None)
+    if old_season_task and not old_season_task.done():
+        old_season_task.cancel()
+    config.season_announce_task = bot.loop.create_task(_season_announcement_loop())
 
     app_commands = await bot.tree.sync()
     for i in app_commands:

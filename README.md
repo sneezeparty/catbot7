@@ -19,11 +19,13 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 | Prism crafting | One of every cat type, no coin cost | Cat recipe unchanged, plus a per-profile coin tax: **5k × 2^N** for your Nth prism on this server, capped at 320k. |
 | Slots | `/slots` 3-reel | `/slots` plus `/catslots` 5×3 Vegas-style with 20 paylines and a per-line cap |
 | Stock market | Static order book at the initial price | Bot-owned market maker ticks prices off in-game metrics (prism count, active catnip, average battlepass level, etc.) |
-| Catnip perks | Time Manipulator and the legacy lineup | Snowballer, Battlepass Booster, Bait & Switch added. Time Manipulator frozen in place to preserve stored-perk indices. Voting Booster renamed to Loyalty Streak |
+| Catnip perks | Time Manipulator and the legacy lineup | Snowballer, Battlepass Booster, Bait & Switch added. Time Manipulator removed entirely (migration 020 remaps stored perk indices). Voting Booster renamed to Loyalty Streak |
 | Catnip session length | Scales with level | Always 24h regardless of level |
 | Battlepass quest slots | 4 (vote, catch, misc, extra) | 5, with a new `challenge` slot for harder catch-condition quests |
 | Passive XP | None | XP drips on first catch of the UTC day, every 10-catch streak, every catnip level-up, and for prism owners when their prism boosts someone else's catch |
 | Sub-1 pack fail | Always 3 Fine cats | Cascades to a tier-lower pack first, with a 3-Fine-cat floor |
+| Profile card | None | `/catprofile [user]` shows a compact at-a-glance embed: mafia level/rank, cattlepass progress, cat count and collection value, prisms, coins, achievements, catch streak, pig high score, and cookies. Supports viewing other players. |
+| Season warning + recap | None | Bot posts a "season ends tomorrow" embed to every setupped channel on the last day of the month, listing what the reset wipes vs keeps. On the 1st it follows up with a per-server season recap leaderboard (top coins earned, roulette, stocks). Per-server opt-out via `/settings` (`server.season_announcements`). |
 
 Design docs for each system live in `docs/design/`.
 
@@ -101,8 +103,12 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 016 | `/catslots` eGirl bonus round counters and ach booleans |
 | 017 | Cat Bot Store, `user.entitlements` JSONB |
 | 018 | Respect meter (`profile.respect`, `respect_last_tick`) + prism craft counter (`profile.prisms_crafted`). Backfills the counter from existing prism rows. |
+| 019 | `profile.season_reset_pending` flag for the one-shot "your season just reset" notice. |
+| 020 | Removes the `timer_add` "Time Manipulator" catnip perk and remaps stored perk indices ≥ 12 down by one across `profile.perks`/`perk1`/`perk2`/`perk3`. |
+| 021 | Add `server.season_announcements BOOLEAN DEFAULT true` (per-server opt-out for the season-end warning). No backfill needed. Safe to re-run. |
+| 022 | Add six `profile` columns for the season-recap leaderboard: `coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent` (all `bigint DEFAULT 0`) and `season_stat_baseline` (`jsonb DEFAULT '{}'`). No backfill needed — defaults are correct for all existing rows. Safe to re-run. |
 
-Run in numeric order. Each script is safe to re-run.
+Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020`, which mutates data in place** and would double-remap if re-run; restore the pre-migration data before re-running it.
 
 ## License
 

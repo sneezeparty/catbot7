@@ -1,14 +1,15 @@
 """Catnip editor for config/catnip.json.
 
-Four top-level lists: perks (17), quotes (10 bosses), bounties (3 templates),
+Four top-level lists: perks (16), quotes (10 bosses), bounties (3 templates),
 levels (12 mafia tiers).
 
 Perk index notes (1-indexed positions stored in profile.perk1/perk2/perk3):
-  index 11 (0-based 10) = timer_add "Time Manipulator" — weight=0, retired in
-  place; must NOT be removed or every user's perk at indices 12+ silently shifts.
-  index 15 (0-based 14) = combo "Snowballer" — uses profile.combo_stack
-  index 16 (0-based 15) = bp_xp "Battlepass Booster"
-  index 17 (0-based 16) = respawn "Bait & Switch"
+  WARNING: these positions are persisted on profiles. Inserting or removing a
+  perk shifts every later index and silently corrupts stored perks — only ever
+  append, and do a remap migration if you must reorder (see migrations/020).
+  index 14 (0-based 13) = combo "Snowballer" — uses profile.combo_stack
+  index 15 (0-based 14) = bp_xp "Battlepass Booster"
+  index 16 (0-based 15) = respawn "Bait & Switch"
 """
 
 import aiohttp_jinja2

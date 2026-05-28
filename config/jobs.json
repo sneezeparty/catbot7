@@ -35,8 +35,8 @@
     "max_concurrent_offers": 6,
     "cancel_grace_seconds": 30,
     "heat_decay_per_hour": 2,
-    "pinch_threshold": 100,
-    "pinch_lockout_seconds": 21600,
+    "pinch_threshold": 150,
+    "pinch_lockout_seconds": 7200,
     "pinch_reset_heat": 30,
     "diminishing_returns_alpha": 0.75,
     "max_commits_per_window": 3,
@@ -105,7 +105,7 @@
         15000,
         15000
       ],
-      "heat": 100,
+      "heat": 150,
       "min_catnip_level": 10
     }
   },
@@ -813,7 +813,7 @@
       "perk": "big_score"
     },
     "near_miss_consolation_coins": 5000,
-    "heat_cost": 100,
+    "heat_cost": 150,
     "rep_changes": {
       "success": {
         "whiskers": 20,

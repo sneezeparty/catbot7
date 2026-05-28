@@ -3489,6 +3489,27 @@
         "xp_max": 350,
         "progress": 1
       },
+      "catslots1": {
+        "emoji": "\ud83c\udfb0",
+        "title": "Spin the /catslots machine once",
+        "xp_min": 150,
+        "xp_max": 250,
+        "progress": 1
+      },
+      "catslots2": {
+        "emoji": "\ud83c\udfb0",
+        "title": "Spin the /catslots machine twice",
+        "xp_min": 200,
+        "xp_max": 280,
+        "progress": 2
+      },
+      "catslots3": {
+        "emoji": "\ud83c\udfb0",
+        "title": "Spin the /catslots machine 3 times",
+        "xp_min": 250,
+        "xp_max": 330,
+        "progress": 3
+      },
       "achievement": {
         "emoji": "cat_throphy",
         "title": "Get an achievement",
@@ -3605,7 +3626,7 @@
       },
       "casino": {
         "emoji": "\ud83c\udfb0",
-        "title": "Play 3 different casino games (/slots, /roulette, /pig, /cookieclicker)",
+        "title": "Play 3 different casino games (/slots, /catslots, /roulette, /pig, /cookieclicker)",
         "xp_min": 180,
         "xp_max": 240,
         "progress": 3

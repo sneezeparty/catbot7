@@ -14,6 +14,57 @@ This matches the `quest_cooldown_seconds` (12h) used by `/battlepass`, so the tw
 
 History: before the 12h alignment, /jobs used a 6h offer refresh window AND a separate 24h commit cap anchored at UTC midnight. The board showed both timers and they drifted apart, so a player who'd played late in their local night (early UTC morning) would see "Refreshes in 5h" alongside "Daily limit hit, resets in 11h" on their next morning visit — two anchors, two countdowns, neither matching the player's wall clock.
 
+## Board reroll
+
+Players can replace the current window's offered jobs with a fresh set mid-window. Two paths share the same engine (`_jobs_do_reroll`): a free perk-based path and a paid coin path.
+
+### Free reroll: `reroll_board` perk
+
+The `reroll_board` job perk (charge-based, drops from Lucian Jr) lets the player blow away the current window's `offered` JobInstance rows and regenerate via `_jobs_generate_offers(..., extra_salt=now)`. The time-based salt guarantees the new board diverges from the deterministic baseline (so a reroll doesn't just hand you the same offers). The charge is consumed only after the reroll succeeds.
+
+### Paid reroll: coin cost
+
+A `🔄 Reroll (🪙 X)` button appears on the `/jobs` board alongside any free `reroll_board` perk button. A `🔄 Job Board Reroll` screen is also accessible under `/catstore → Extras`, gated to **Mafia Lv2+** and usable even when 0 offers remain (it acts as a mid-window refill).
+
+**Price formula** (`_jobs_reroll_price`):
+
+```
+base  = max(reroll_price_min, catnip_level × reroll_price_per_level)
+price = base × (rerolls_this_window + 1)
+```
+
+Defaults from `config/jobs.json → tuning`:
+
+| Key | Default |
+| --- | ------- |
+| `reroll_price_per_level` | 500 |
+| `reroll_price_min` | 1,000 |
+
+Base by level (before the per-window escalation multiplier):
+
+| Catnip level | Base price |
+| ------------ | ---------- |
+| Lv0–1        | 1,000 (floor) |
+| Lv2          | 1,000 (floor) |
+| Lv4          | 2,000 |
+| Lv8          | 4,000 |
+| Lv12         | 6,000 |
+
+The multiplier (`rerolls_this_window + 1`) means the 1st reroll costs base × 1, the 2nd costs base × 2, and so on within the same 12h window.
+
+**Per-window escalation counter** — two new `profile` columns (migration 023):
+
+- `job_rerolls_window` (int) — how many paid rerolls have been done in the current window.
+- `job_rerolls_window_idx` (bigint) — the 12h window index at which the counter was last written.
+
+`_jobs_reroll_count` lazily resets the count to 0 whenever the current window index differs from `job_rerolls_window_idx` — no background task, no scheduled wipe. The counter is KeyError/AttributeError-guarded so the feature works at flat base price pre-migration.
+
+The counter is **not** wiped at season rollover. It is window-keyed and self-resets every 12h regardless of season boundaries.
+
+**Shared engine, separate cost sources.** `_jobs_do_reroll` does the delete-and-regenerate. Only the cost path differs: the `reroll_board` perk consumes a charge; the paid path deducts coins via `_jobs_reroll_charge` and increments the escalation counter. The 3-commits-per-window cap is unchanged — rerolling does not grant extra commits.
+
+**Design intent:** the escalating price within a window is the primary limiter. A player cannot keep rerolling until they find an ideal board for free — each successive reroll this window costs more, and the base itself scales with mafia rank so the price is meaningful even for a coin-rich high-level player. The `/catstore` surface (`Extras → Job Board Reroll`) exists as a coin sink that lets a player who has no `reroll_board` perk and already viewed the board still spend coins to try again, without being a backdoor around the window cap.
+
 ## The two-die structure
 
 Every commit rolls **two independent dice**:

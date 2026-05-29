@@ -327,6 +327,8 @@ _TUNING_FIELD_TYPES = {
     "pinch_threshold": int,
     "pinch_lockout_seconds": int,
     "pinch_reset_heat": int,
+    "reroll_price_per_level": int,
+    "reroll_price_min": int,
 }
 
 

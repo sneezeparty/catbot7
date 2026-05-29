@@ -79,6 +79,9 @@ INT_FIELDS = [
     "big_score_season",       # season number of last Big Score attempt
     "big_score_wins",         # all-time Big Score successes
     "whiskers_favor_season",  # season number when Whiskers Favor was granted
+    # Job-board reroll window counters (per-12h escalating price)
+    "job_rerolls_window",      # number of paid rerolls used in the current window
+    "job_rerolls_window_idx",  # bigint window index (same epoch-bucketing as jobs timer)
     # Jobs stat counters — useful for admin review but not typical edit targets
     "jobs_completed",
     "jobs_failed",

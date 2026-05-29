@@ -187,6 +187,9 @@ SECTIONS: dict[str, dict] = {
             ("profile.heat", "main._jobs_* helpers — written on every job submission; decays hourly"),
             ("profile.faction_rep", "main._jobs_faction_rep() — per-NPC rep dict; updated on job success/failure"),
             ("profile.perks_suspended_until", "main._jobs_pinch() — catnip perks suspended for 2h after Pinch (pinch_lockout_seconds in jobs.json tuning); set 0 to lift"),
+            # job_rerolls_window — count of paid job-board rerolls used in the current 12h window; escalates price via reroll_price_per_level in jobs.json tuning
+            # job_rerolls_window_idx — bigint epoch-bucket index matching the 12h window (same bucketing as jobs timer); resets window counter when it advances
+            ("profile.job_rerolls_window", "main._jobs_reroll (paid reroll) — incremented each paid reroll; reset when job_rerolls_window_idx advances"),
             # job_perks — JSONB list of active mafia-reward perks (third reward axis); writer is main._perks_grant.
             # Each entry: {id, granted_at, expires_at, npc, tier, charges}. Pruned lazily on read by _perks_prune.
             # NOT suspended by perks_suspended_until — that flag only gates catnip perks.
@@ -234,7 +237,8 @@ SECTIONS: dict[str, dict] = {
             "tuning": (
                 "{offer_refresh_window_seconds, decline_cooldown_seconds, "
                 "max_concurrent_offers, cancel_grace_seconds, heat_decay_per_hour, "
-                "pinch_threshold, pinch_lockout_seconds, pinch_reset_heat}"
+                "pinch_threshold, pinch_lockout_seconds, pinch_reset_heat, "
+                "reroll_price_per_level, reroll_price_min}"
             ),
             "tiers": "dict['1'..'5', {name, difficulty_range[lo,hi], reward_coin_range[lo,hi], heat, min_catnip_level}]",
             "npcs": (

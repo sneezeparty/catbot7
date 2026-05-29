@@ -961,6 +961,10 @@ JOBS_MAX_SLOTS = JOBS_TUNING["max_concurrent_offers"]
 # offers the bot generates per window; this controls how many are shown per
 # page in the board view. Smaller-than-max → board paginates with Prev/Next.
 JOBS_BOARD_PAGE_SIZE = 3
+# Paid board reroll (coin-cost sibling of the reroll_board perk). Price =
+# max(min, catnip_level * per_level), escalating x N within a 12h window.
+JOBS_REROLL_PRICE_PER_LEVEL = JOBS_TUNING.get("reroll_price_per_level", 500)
+JOBS_REROLL_PRICE_MIN = JOBS_TUNING.get("reroll_price_min", 1000)
 
 
 def _jobs_window_index(now: int) -> int:
@@ -1358,6 +1362,96 @@ async def _jobs_refresh_offers_if_needed(profile: Profile, now: int) -> list:
             return 99
     all_rows.sort(key=_slot_key)
     return all_rows
+
+
+async def _jobs_do_reroll(profile: Profile, now: int) -> bool:
+    """Delete this window's `offered` rows and regenerate a fresh set with a
+    time-based salt (so the new board diverges from the deterministic baseline).
+    Shared by the free reroll_board perk and the paid /jobs + /catstore rerolls.
+
+    Does NOT charge anything or save the profile — the caller deducts coins /
+    consumes the perk charge and saves. Returns True on success. The
+    `len(existing) >= JOBS_MAX_SLOTS` guard in _jobs_refresh_offers_if_needed
+    makes the regenerated board "stick" for the rest of the window."""
+    window_idx = _jobs_window_index(now)
+    win_start, win_end = _jobs_window_bounds(window_idx)
+    try:
+        async with transaction() as conn:
+            # Offered rows are pre-acceptance; anything mid-send has state != 'offered'.
+            await conn.execute(
+                "DELETE FROM jobinstance WHERE user_id = $1 AND guild_id = $2 "
+                "AND state = 'offered' AND offered_at >= $3 AND offered_at < $4",
+                int(profile.user_id), int(profile.guild_id), win_start, win_end,
+            )
+            try:
+                season = int(profile.season or 0)
+            except KeyError:
+                season = 0
+            desired = _jobs_generate_offers(profile, window_idx, user_season=season, extra_salt=f"{now}")
+            for offer in desired:
+                await JobInstance.create(
+                    template_id=offer["_template_id"],
+                    user_id=int(profile.user_id),
+                    guild_id=int(profile.guild_id),
+                    category=offer["category"],
+                    tier=offer["tier"],
+                    offered_by=offer["offered_by"],
+                    target_faction=offer["target_faction"],
+                    difficulty=offer["difficulty"],
+                    send_snapshot={},
+                    send_total=0,
+                    success_chance=0.0,
+                    roll=0.0,
+                    outcome="",
+                    cats_destroyed={},
+                    state="offered",
+                    narrative=offer["narrative"],
+                    reward_snapshot=offer["reward_snapshot"],
+                    rep_changes={},
+                    heat_cost=offer["heat_cost"],
+                    offered_at=now,
+                    expires_at=win_end,
+                    resolved_at=0,
+                    committed_at=0,
+                    perk_drop=offer.get("perk_drop", ""),
+                )
+        return True
+    except Exception:
+        logging.exception("jobs reroll transaction failed")
+        return False
+
+
+def _jobs_reroll_count(profile: Profile, now: int) -> int:
+    """Paid rerolls already done in the current 12h window. Lazily resets to 0
+    once the window rolls over. Returns 0 (no escalation) if the counter columns
+    don't exist yet (migration 023 unrun)."""
+    widx = _jobs_window_index(now)
+    try:
+        stored_idx = int(profile.job_rerolls_window_idx or 0)
+        cnt = int(profile.job_rerolls_window or 0)
+    except (KeyError, AttributeError):
+        return 0
+    return cnt if stored_idx == widx else 0
+
+
+def _jobs_reroll_price(profile: Profile, now: int) -> int:
+    """Coin price of the player's NEXT paid board reroll: base * (rerolls_this_window + 1),
+    base = max(reroll_price_min, catnip_level * reroll_price_per_level)."""
+    base = max(JOBS_REROLL_PRICE_MIN, int(getattr(profile, "catnip_level", 0) or 0) * JOBS_REROLL_PRICE_PER_LEVEL)
+    return base * (_jobs_reroll_count(profile, now) + 1)
+
+
+def _jobs_reroll_charge(profile: Profile, now: int, price: int) -> None:
+    """Deduct the paid-reroll price and bump the per-window escalation counter.
+    Counter write is migration-guarded; coins always exist. Caller saves."""
+    profile.coins = int(profile.coins or 0) - price
+    widx = _jobs_window_index(now)
+    cnt = _jobs_reroll_count(profile, now)
+    try:
+        profile.job_rerolls_window = cnt + 1
+        profile.job_rerolls_window_idx = widx
+    except (KeyError, AttributeError):
+        pass
 
 
 def _jobs_reward_summary(reward: dict) -> str:
@@ -11067,7 +11161,7 @@ async def catstore(message: discord.Interaction):
             mode["screen"] = "cats"
             mode["cat_type"] = None
             await gen_cats_list(interaction, use_followup=False)
-        elif screen in ("rain", "packs"):
+        elif screen in ("rain", "packs", "jobs_reroll"):
             mode["screen"] = "extras"
             await gen_extras(interaction, use_followup=False)
         else:
@@ -11559,6 +11653,16 @@ async def catstore(message: discord.Interaction):
             )
         )
 
+        jobs_btn = Button(label="Browse →", style=ButtonStyle.blurple, custom_id="catstore_browse_jobs")
+        jobs_btn.callback = on_browse_jobs_reroll
+        items.append(
+            Section(
+                "### 🔄 Job Board Reroll",
+                "Pay to roll a fresh set of `/jobs` offers. Price scales with your mafia rank.",
+                jobs_btn,
+            )
+        )
+
         items.append(
             f"-# 🪙 Your balance: {profile.coins:,}  ·  Cat Mafia: Lv{profile.catnip_level} ({rank}) "
             f"{_signed_pct(discount)}"
@@ -11653,6 +11757,133 @@ async def catstore(message: discord.Interaction):
             await interaction.followup.send(view=view, ephemeral=True)
         else:
             await interaction.edit_original_response(view=view)
+
+    async def on_browse_jobs_reroll(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        nonlocal last_toast
+        last_toast = None
+        mode["screen"] = "jobs_reroll"
+        await interaction.response.defer()
+        await gen_jobs_reroll(interaction, use_followup=False)
+
+    async def gen_jobs_reroll(interaction: discord.Interaction, use_followup: bool):
+        """Catstore screen for the paid /jobs board reroll. Mirrors the jobs-board
+        reroll (same _jobs_do_reroll + level-scaled escalating price); here it just
+        rerolls the player's board in the DB and points them at /jobs."""
+        await profile.refresh_from_db()
+        _buy_bonus = _perks_catstore_buy_bonus(profile)
+        discount = store_discount_pct(profile.catnip_level, _buy_bonus)
+        level = int(profile.catnip_level or 0)
+        now = int(time.time())
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        items: list = [
+            "## 🔄 Cat Store — Job Board Reroll",
+            "Replace **all** of your current `/jobs` offers with a fresh set.",
+            "-# Doesn't change your 3-jobs-per-window commit cap — it just reshuffles what's on offer.",
+        ]
+
+        if level < 2:
+            items.append(Separator())
+            items.append("🔒 You're not in the family yet — reach **Mafia Lv2** (catch more cats) to run jobs.")
+            if last_toast:
+                items.append(last_toast)
+            back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_extras")
+            back_btn.callback = on_back
+            help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_jobs")
+            help_btn.callback = on_help
+            items.append(ActionRow(back_btn, help_btn))
+        else:
+            widx = _jobs_window_index(now)
+            win_start, win_end = _jobs_window_bounds(widx)
+            offer_count = await JobInstance.count(
+                "user_id = $1 AND guild_id = $2 AND state = 'offered' AND offered_at >= $3 AND offered_at < $4",
+                int(profile.user_id), int(profile.guild_id), win_start, win_end,
+            )
+            rerolls_done = _jobs_reroll_count(profile, now)
+            price = _jobs_reroll_price(profile, now)
+            items.extend([
+                Separator(),
+                f"Current offers on your board: **{offer_count}**",
+                f"Rerolls this window: **{rerolls_done}**  ·  next refresh <t:{win_end}:R>",
+                f"### Next reroll: 🪙 **{price:,}**",
+                "-# Price = mafia rank × 500 (min 1,000), and rises with each reroll this window.",
+            ])
+            if last_toast:
+                items.append(last_toast)
+
+            coins = int(profile.coins or 0)
+            buy_btn = Button(
+                label=f"🔄 Reroll — 🪙 {price:,}",
+                style=ButtonStyle.green,
+                custom_id="catstore_buy_jobs_reroll",
+            )
+            if coins < price:
+                buy_btn.disabled = True
+                buy_btn.label = f"Need 🪙 {price - coins:,} more"
+            buy_btn.callback = on_buy_jobs_reroll
+
+            back_btn = Button(label="← Back", style=ButtonStyle.gray, custom_id="catstore_back_extras")
+            back_btn.callback = on_back
+            help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="catstore_help_jobs")
+            help_btn.callback = on_help
+            items.append(ActionRow(buy_btn, back_btn, help_btn))
+
+        container = Container(*items)
+        try:
+            container.accent_color = _container_color(discount)
+        except Exception:
+            pass
+        view.add_item(container)
+        if use_followup:
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.edit_original_response(view=view)
+
+    async def on_buy_jobs_reroll(interaction: discord.Interaction):
+        """Pay coins to reroll the player's /jobs board. Same engine as the
+        board button; charges the level-scaled, per-window-escalating price."""
+        nonlocal last_toast
+
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+
+        await profile.refresh_from_db()
+        if int(profile.catnip_level or 0) < 2:
+            await interaction.response.send_message("you need to reach Mafia Lv2 to run jobs.", ephemeral=True)
+            return
+
+        now = int(time.time())
+        price = _jobs_reroll_price(profile, now)
+        if int(profile.coins or 0) < price:
+            await interaction.response.send_message(
+                f"not enough coins — need 🪙 {price:,}, have 🪙 {int(profile.coins or 0):,}.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+        # Re-check after defer (price can move if a window rolled or a prior reroll landed).
+        await profile.refresh_from_db()
+        now = int(time.time())
+        price = _jobs_reroll_price(profile, now)
+        if int(profile.coins or 0) < price:
+            await interaction.followup.send(
+                f"price moved while you clicked — now 🪙 {price:,}, you have 🪙 {int(profile.coins or 0):,}.",
+                ephemeral=True,
+            )
+            return
+
+        if await _jobs_do_reroll(profile, now):
+            _jobs_reroll_charge(profile, now, price)
+            await profile.save()
+            last_toast = f"🔄 Job board rerolled for 🪙 {price:,} — head to `/jobs` to see the new offers."
+        else:
+            last_toast = "⚠️ Reroll failed — try again. (No coins charged.)"
+        await gen_jobs_reroll(interaction, use_followup=False)
 
     async def gen_packs(interaction: discord.Interaction, use_followup: bool):
         """Pack catalog — Stone through Celestial. Wooden is intentionally
@@ -12017,6 +12248,19 @@ async def jobs(message: discord.Interaction):
             )
             reroll_btn.callback = on_reroll_board
             board_row_buttons.append(reroll_btn)
+        # Paid reroll (coins) — level-scaled, escalates within the window.
+        _rr_price = _jobs_reroll_price(profile, now)
+        _rr_coins = int(profile.coins or 0)
+        paid_reroll_btn = Button(
+            label=f"🔄 Reroll (🪙 {_rr_price:,})",
+            style=ButtonStyle.gray,
+            custom_id="jobs_reroll_paid",
+        )
+        if _rr_coins < _rr_price:
+            paid_reroll_btn.disabled = True
+            paid_reroll_btn.label = f"🔄 Reroll: need 🪙 {_rr_price - _rr_coins:,}"
+        paid_reroll_btn.callback = on_reroll_paid
+        board_row_buttons.append(paid_reroll_btn)
         items.append(ActionRow(*board_row_buttons))
 
         container = Container(*items)
@@ -12404,30 +12648,31 @@ async def jobs(message: discord.Interaction):
         await _jobs_send_help(interaction, profile, start_page=start)
 
     async def on_board_prev(interaction: discord.Interaction):
-        """Board pagination — previous page. Defers via edit_message so the
-        single ephemeral view swaps in place; show_board handles clamping."""
+        """Board pagination — previous page. Re-render in place via show_board's
+        interaction.response.edit_message path (same as Decline); show_board
+        handles clamping. Do NOT defer first: deferring routes show_board through
+        edit_original_response, which leaves the re-rendered components-v2 view
+        unregistered on the ephemeral message — its buttons then go dead and the
+        next click reads "interaction failed" with nothing logged."""
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
         mode["board_page"] = max(0, int(mode.get("board_page", 0) or 0) - 1)
-        await interaction.response.defer()
         await show_board(interaction)
 
     async def on_board_next(interaction: discord.Interaction):
-        """Board pagination — next page. Clamping happens in show_board so
-        we don't need to know total_pages here."""
+        """Board pagination — next page. Re-render in place (no defer) for the
+        same reason as on_board_prev; clamping happens in show_board."""
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
         mode["board_page"] = int(mode.get("board_page", 0) or 0) + 1
-        await interaction.response.defer()
         await show_board(interaction)
 
     async def on_reroll_board(interaction: discord.Interaction):
         """reroll_board (job perk, charge): blow away the current window's
-        offers and regenerate with an extra salt so the new set is fresh.
-        Charge is consumed only once we've successfully deleted + generated
-        the new offers — otherwise the player loses a charge to a DB hiccup."""
+        offers and regenerate. Charge is consumed only once the reroll
+        succeeds — otherwise the player loses a charge to a DB hiccup."""
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
@@ -12437,61 +12682,36 @@ async def jobs(message: discord.Interaction):
             last_toast.append("⚠️ Reroll Board is not active.")
             await show_board(interaction)
             return
-        now_rr = int(time.time())
-        window_idx = _jobs_window_index(now_rr)
-        win_start, win_end = _jobs_window_bounds(window_idx)
-        try:
-            async with transaction() as conn:
-                # Delete current offered rows for this window (no commit risk —
-                # offered rows are pre-acceptance; players who already started
-                # a send-screen would have state != 'offered').
-                await conn.execute(
-                    "DELETE FROM jobinstance WHERE user_id = $1 AND guild_id = $2 "
-                    "AND state = 'offered' AND offered_at >= $3 AND offered_at < $4",
-                    int(message.user.id), int(message.guild.id), win_start, win_end,
-                )
-                # Regenerate with a time-based salt so the new set diverges.
-                try:
-                    season = int(profile.season or 0)
-                except KeyError:
-                    season = 0
-                salt = f"{now_rr}"
-                desired = _jobs_generate_offers(profile, window_idx, user_season=season, extra_salt=salt)
-                for offer in desired:
-                    await JobInstance.create(
-                        template_id=offer["_template_id"],
-                        user_id=int(profile.user_id),
-                        guild_id=int(profile.guild_id),
-                        category=offer["category"],
-                        tier=offer["tier"],
-                        offered_by=offer["offered_by"],
-                        target_faction=offer["target_faction"],
-                        difficulty=offer["difficulty"],
-                        send_snapshot={},
-                        send_total=0,
-                        success_chance=0.0,
-                        roll=0.0,
-                        outcome="",
-                        cats_destroyed={},
-                        state="offered",
-                        narrative=offer["narrative"],
-                        reward_snapshot=offer["reward_snapshot"],
-                        rep_changes={},
-                        heat_cost=offer["heat_cost"],
-                        offered_at=now_rr,
-                        expires_at=win_end,
-                        resolved_at=0,
-                        committed_at=0,
-                        perk_drop=offer.get("perk_drop", ""),
-                    )
-                # Consume the charge only AFTER successful DB work.
-                _perks_consume_charge(profile, "reroll_board")
-                await profile.save()
+        if await _jobs_do_reroll(profile, int(time.time())):
+            _perks_consume_charge(profile, "reroll_board")
+            await profile.save()
             last_toast.append("🔄 Board rerolled.")
             mode["board_page"] = 0  # reset pagination so player sees the first new offer
-        except Exception:
-            logging.exception("perks.reroll_board: transaction failed")
+        else:
             last_toast.append("⚠️ Reroll failed — try again.")
+        await show_board(interaction)
+
+    async def on_reroll_paid(interaction: discord.Interaction):
+        """Paid board reroll (coins). Same delete+regenerate as the perk, but
+        charges a level-scaled, per-window-escalating coin price."""
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        await interaction.response.defer()
+        await profile.refresh_from_db()
+        now_rr = int(time.time())
+        price = _jobs_reroll_price(profile, now_rr)  # recomputed post-refresh (anti-stale)
+        if int(profile.coins or 0) < price:
+            last_toast.append(f"-# 🪙 Not enough coins to reroll — need {price:,}.")
+            await show_board(interaction)
+            return
+        if await _jobs_do_reroll(profile, now_rr):
+            _jobs_reroll_charge(profile, now_rr, price)
+            await profile.save()
+            last_toast.append(f"🔄 Board rerolled for 🪙 {price:,}.")
+            mode["board_page"] = 0
+        else:
+            last_toast.append("⚠️ Reroll failed — try again. (No coins charged.)")
         await show_board(interaction)
 
     # ----- send screen modals + callbacks -----

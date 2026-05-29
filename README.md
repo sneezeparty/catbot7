@@ -13,7 +13,7 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 | Voting | `/vote` earns rain minutes, drives streak counter | Voting retired (`voting_enabled=0`), streak renamed to `daily_catch_streak` and tracks per-day catches |
 | Wallet | Two silos, "cat dollars" for /roulette and "coins" for /stocks and /packs | One `coins` wallet shared across /stocks, /packs, /roulette, /catstore, /catslots |
 | Marketplace | None | `/catstore` sells discovered cat rarities, plus an Extras sub-tree for paid rain blocks and Stone-through-Celestial packs |
-| PvE | None | `/jobs` Mafia Killings, six NPCs, deterministic 6h contract windows, complications, job perks, daily commit cap, once-per-season Big Score |
+| PvE | None | `/jobs` Mafia Killings, six NPCs, deterministic 6h contract windows, complications, job perks, daily commit cap, once-per-season Big Score, paid board reroll (level-scaled coin cost, escalates within the 12h window; also available via `/catstore`) |
 | Mafia decay | None | **Respect** meter (0..100) ticks down 1/hr while idle, refills from job completions. At zero, catnip_level drops one per 6 zero-hours (floored at Lv4) along with its store discount. |
 | Top-tier prices | Pre-rebalance Celestial = 3k coins, eGirl = ~4k | Celestial 21k (7×), Diamond 9k (5×), Platinum 4.8k (4×), Gold 1.8k (3×), Silver 600 (2×). Cat tier multipliers: Mythic 1.5×, Divine 4×, Real 5×, Ultimate 6×, eGirl 7×. Low-tier prices unchanged. |
 | Prism crafting | One of every cat type, no coin cost | Cat recipe unchanged, plus a per-profile coin tax: **5k × 2^N** for your Nth prism on this server, capped at 320k. |
@@ -107,6 +107,7 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 020 | Removes the `timer_add` "Time Manipulator" catnip perk and remaps stored perk indices ≥ 12 down by one across `profile.perks`/`perk1`/`perk2`/`perk3`. |
 | 021 | Add `server.season_announcements BOOLEAN DEFAULT true` (per-server opt-out for the season-end warning). No backfill needed. Safe to re-run. |
 | 022 | Add six `profile` columns for the season-recap leaderboard: `coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent` (all `bigint DEFAULT 0`) and `season_stat_baseline` (`jsonb DEFAULT '{}'`). No backfill needed — defaults are correct for all existing rows. Safe to re-run. |
+| 023 | Add `profile.job_rerolls_window` (`integer DEFAULT 0`) and `profile.job_rerolls_window_idx` (`bigint DEFAULT 0`) for the paid `/jobs` board reroll price-escalation counter. No backfill needed. Idempotent (per-column gated). Bot must be stopped before running. |
 
 Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020`, which mutates data in place** and would double-remap if re-run; restore the pre-migration data before re-running it.
 

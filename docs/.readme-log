@@ -18,3 +18,7 @@
 2026-05-28 14:00  Updated: migrations-table: added row for migration 022 (six profile columns for season-recap leaderboard) (re: migrations/022_season_recap.py, schema.sql)
 2026-05-28 14:00  Skipped: schema.sql (column additions already covered by migration 022 row and gameplay-divergence update)
 2026-05-28 14:00  Skipped: env-vars (no new env vars — config.py not changed)
+2026-05-29 00:00  Updated: gameplay-divergence: extended PvE/jobs bullet to include paid board reroll with level-scaled escalating price (re: main.py)
+2026-05-29 00:00  Updated: migrations-table: added row for migration 023 (job_rerolls_window + job_rerolls_window_idx profile columns) (re: migrations/023_job_reroll_counter.py)
+2026-05-29 00:00  Skipped: schema.sql (column additions covered by migration 023 row)
+2026-05-29 00:00  Skipped: env-vars (no new env vars)

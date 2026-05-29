@@ -376,7 +376,9 @@ CREATE TABLE public.profile (
     roulette_coins_bet bigint DEFAULT 0 NOT NULL,
     stock_coins_earned bigint DEFAULT 0 NOT NULL,
     stock_coins_spent bigint DEFAULT 0 NOT NULL,
-    season_stat_baseline jsonb DEFAULT '{}'::jsonb NOT NULL
+    season_stat_baseline jsonb DEFAULT '{}'::jsonb NOT NULL,
+    job_rerolls_window integer DEFAULT 0 NOT NULL,
+    job_rerolls_window_idx bigint DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

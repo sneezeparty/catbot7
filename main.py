@@ -12186,12 +12186,20 @@ async def jobs(message: discord.Interaction):
         level = int(profile.catnip_level or 0)
 
         async def _say(text: str):
+            """Render a plain text "board empty / locked" message. The board is
+            a components-v2 LayoutView — `content` is rejected by Discord on
+            edit_message / edit_original_response for those messages ("'content'
+            field cannot be used when using MessageFlags.IS_COMPONENTS_V2"). So
+            wrap the text in a tiny LayoutView Container instead; the absence
+            of buttons does the same job that `view=None` used to."""
+            say_view = LayoutView(timeout=VIEW_TIMEOUT)
+            say_view.add_item(Container(text))
             if use_followup:
-                await interaction.followup.send(text, ephemeral=True)
+                await interaction.followup.send(view=say_view, ephemeral=True)
             elif interaction.response.is_done():
-                await interaction.edit_original_response(content=text, view=None)
+                await interaction.edit_original_response(view=say_view)
             else:
-                await interaction.response.edit_message(content=text, view=None)
+                await interaction.response.edit_message(view=say_view)
 
         if level < 2:
             await _say("You're not in the family yet. Catch more cats and climb the catnip ranks — "

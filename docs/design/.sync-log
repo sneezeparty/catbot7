@@ -47,3 +47,4 @@
 2026-05-30 00:00  economy.md      STALE marker added: old "no non-cat-currency packs" constraint superseded; new "Pack coin variant" subsection added (re: main.py + config/tuning.json)
 2026-05-30 00:00  economy.md      updated prism first-craft cost 5,000 -> 1,000; formula updated to show first= branch (re: main.py + config/tuning.json)
 2026-05-30 00:00  (all docs)      no change: /inventory embed coin display line is UX-only; all mechanics in diff (pack coin variant, paid board reroll) already documented (re: main.py)
+2026-05-30 00:00  (all docs)     no change — main.py edit was a LayoutView/content= rendering bug fix in jobs _say helper; no mechanic, schema, or design-doc-tracked concept changed (re: main.py)

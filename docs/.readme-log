@@ -24,3 +24,4 @@
 2026-05-29 00:00  Skipped: env-vars (no new env vars)
 2026-05-30 00:00  Skipped: main.py — pack coin-variant (reward-composition balance tweak, not divergence-level) and first-prism discount (balance change to existing prism coin-tax mechanic, README bullet covers the mechanic, not the specific number). No README edit needed.
 2026-05-30 00:00  Skipped: main.py (/inventory now shows coin balance in embed — display enhancement to existing command, not fork-level divergence. No env-var or migration changes.)
+2026-05-30 15:29  Skipped: main.py (bug fix — /jobs _say helper wrapped in LayoutView Container to avoid components-v2 content-field crash. Internal fix only; no feature divergence, no env-var or migration changes.)

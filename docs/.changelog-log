@@ -67,3 +67,4 @@
 2026-05-30 00:00  Added: "Pack coin crate variant — 50% chance per open, tier-scaled coin/cat split, tick-up animation, Open All aggregate line" (re: main.py, config/tuning.json)
 2026-05-30 00:00  Changed: "First-prism craft discounted to 1,000 coins (was 5,000); escalating schedule unchanged from 2nd prism onward" (re: main.py, config/tuning.json)
 2026-05-30 00:00  Added: "/inventory coin balance line — 🪙 Coins: N,NNN between Cats and Prisms in gen_inventory embed" (re: main.py)
+2026-05-30 00:00  Fixed: "/jobs board crash on empty/locked re-render — _say now uses LayoutView(Container(text)) instead of content=" (re: main.py)

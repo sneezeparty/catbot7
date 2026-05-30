@@ -144,6 +144,31 @@ pack_data = [
     {"name": "Celestial", "value": 3000, "upgrade": 0,  "totalvalue": 3000, "store_price": 21000, "special": False},  # is that a madeline celeste reference????
 ]
 
+# Indices of the non-special tiers in pack_data, in tier order
+# (Wooden ... Celestial). Used by _pack_coin_ratio to interpolate the
+# coin-variant ratio from Wooden (PACK_COIN_RATIO_WOODEN, most coin-heavy)
+# down to Celestial (PACK_COIN_RATIO_CELESTIAL, least coin-heavy).
+_NORMAL_PACK_INDICES = [i for i, p in enumerate(pack_data) if not p["special"]]
+
+
+def _pack_coin_ratio(level_idx: int) -> float:
+    """Linear interp of the coin half of a coin-variant pack open, by tier.
+    Wooden returns PACK_COIN_RATIO_WOODEN; Celestial returns
+    PACK_COIN_RATIO_CELESTIAL; intermediate tiers are linear between.
+    Returns 0 for special tiers (they're never eligible for the variant),
+    so a coin_variant flag rolled True will silently no-op if a cascade
+    somehow lands on one."""
+    try:
+        pos = _NORMAL_PACK_INDICES.index(level_idx)
+    except ValueError:
+        return 0.0
+    n = len(_NORMAL_PACK_INDICES)
+    if n <= 1:
+        return PACK_COIN_RATIO_WOODEN
+    t = pos / (n - 1)
+    return PACK_COIN_RATIO_WOODEN + (PACK_COIN_RATIO_CELESTIAL - PACK_COIN_RATIO_WOODEN) * t
+
+
 stock_data = [
     {"name": "Prisms", "ticker": "PRSM", "emoji": "prism", "amount": 10_000, "init_price": 40},
     {"name": "Catnip", "ticker": "CTNP", "emoji": "catnip", "amount": 10_000, "init_price": 40},
@@ -309,6 +334,12 @@ FAST_CATCHER_THRESHOLD = config.tuning["fast_catcher_threshold_seconds"]
 SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
 PACK_DROP_CHANCE_ON_CATCH = config.tuning["pack_drop_chance_on_catch"]
 PACK_TIER_WEIGHTS = config.tuning["pack_tier_weights"]
+# Pack "coin crate" variant — about half of opens (per coin flip) pay part
+# cats + part coins instead of all cats. Total worth stays equal; the
+# coin/cat split scales by tier (Wooden most coin-heavy, Celestial least).
+PACK_COIN_VARIANT_CHANCE = config.tuning.get("pack_coin_variant_chance", 0.5)
+PACK_COIN_RATIO_WOODEN = config.tuning.get("pack_coin_ratio_wooden", 0.5)
+PACK_COIN_RATIO_CELESTIAL = config.tuning.get("pack_coin_ratio_celestial", 0.2)
 STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
 
 # Jobs / Mafia Killings. Loaded from config/jobs.json above; re-read here on every
@@ -867,7 +898,13 @@ def prism_craft_coin_cost(prisms_crafted: int) -> int:
     base = int(cfg.get("base", 5000) or 5000)
     growth = float(cfg.get("growth", 2) or 2)
     cap = int(cfg.get("cap", 320000) or 320000)
+    first = int(cfg.get("first", 1000) or 1000)
     n = max(0, int(prisms_crafted or 0))
+    if n == 0:
+        # First-ever prism on this server is heavily discounted to lower the
+        # entry barrier; the escalating base×growth^n schedule kicks in from
+        # the second craft onward.
+        return first
     cost = base * (growth ** n)
     return min(cap, int(cost))
 
@@ -8749,7 +8786,8 @@ async def gen_inventory(message, person_id):
         cat_desc = f"u hav no cats {get_emoji('cat_cry')}"
 
     if embedVar.description:
-        embedVar.description += f"\n{get_emoji('staring_cat')} Cats: {total:,}, Value: {round(valuenum):,}\n{get_emoji('prism')} Prisms: {prism_list} ({prism_boost}%)\n\n{cat_desc}"
+        coins_now = int(person.coins or 0)
+        embedVar.description += f"\n{get_emoji('staring_cat')} Cats: {total:,}, Value: {round(valuenum):,}\n🪙 Coins: {coins_now:,}\n{get_emoji('prism')} Prisms: {prism_list} ({prism_boost}%)\n\n{cat_desc}"
 
     if user.image.startswith("https://cdn.discordapp.com/attachments/"):
         embedVar.set_thumbnail(url=user.image)
@@ -9556,6 +9594,7 @@ async def packs(message: discord.Interaction):
         cap_idx = next((i for i, p in enumerate(pack_data) if p["name"].lower() == "silver"), len(pack_data) - 1)
         perk_msgs: list[str] = []
         bonus_cat_total = 0
+        coin_total = 0   # aggregated coin-variant payout across the batch
 
         for level, pack in enumerate(pack_names):
             if opened_so_far >= real_to_open:
@@ -9579,7 +9618,13 @@ async def packs(message: discord.Interaction):
                         perk_msgs.append(f"🪜 Crate Polish: already at cap ({pack_data[cap_idx]['name']}).")
                     polish_pending = False
 
-                chosen_type, cat_amount, upgrades, rewards = get_pack_rewards(use_level, is_single=False)
+                # 50/50 coin-variant roll per pack (specials excluded — same
+                # rule as single-open). The helper inside get_pack_rewards
+                # silently no-ops on special final tiers.
+                coin_variant = (not pack_data[use_level]["special"]) and random.random() < PACK_COIN_VARIANT_CHANCE
+                chosen_type, cat_amount, upgrades, rewards, coin_amount = get_pack_rewards(
+                    use_level, is_single=False, coin_variant=coin_variant
+                )
 
                 if chosen_type == "Fine" and floor_pending and _perks_consume_charge(user, "pack_floor"):
                     chosen_type = "Nice"
@@ -9587,6 +9632,7 @@ async def packs(message: discord.Interaction):
                     floor_pending = False
 
                 total_upgrades += upgrades
+                coin_total += coin_amount
                 if not display_cats:
                     results_detail.append(rewards)
                 results_percat[chosen_type] += cat_amount
@@ -9605,6 +9651,9 @@ async def packs(message: discord.Interaction):
         user.pack_upgrades += total_upgrades
         for cat_type, cat_amount in results_percat.items():
             user[f"cat_{cat_type}"] += cat_amount
+        if coin_total > 0:
+            user.coins = int(user.coins or 0) + coin_total
+            _bump(user, "coins_earned", coin_total)
         await user.save()
         for cat_type, cat_amount in results_percat.items():
             if cat_amount > 0:
@@ -9624,11 +9673,13 @@ async def packs(message: discord.Interaction):
         if len(final_result) > 0:
             final_result = "\n\n" + final_result
 
+        coin_footer = f"\n\n💰 **+{coin_total:,}** coins" if coin_total > 0 else ""
+
         perk_footer = ""
         if perk_msgs:
             perk_footer = "\n\n" + "\n".join(perk_msgs)
 
-        return discord.Embed(title=final_header, description=f"{pack_list}{final_result}{perk_footer}", color=Colors.brown)
+        return discord.Embed(title=final_header, description=f"{pack_list}{final_result}{coin_footer}{perk_footer}", color=Colors.brown)
 
     async def confirm_open_all(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -9676,13 +9727,20 @@ async def packs(message: discord.Interaction):
             view.add_item(button)
         return view, has_special
 
-    def get_pack_rewards(level: int, is_single=True, _cascade_depth=0):
-        # returns cat_type, cat_amount, upgrades, verbal_output
+    def get_pack_rewards(level: int, is_single=True, _cascade_depth=0, coin_variant: bool = False):
+        # returns cat_type, cat_amount, upgrades, verbal_output, coin_amount
         #
         # _cascade_depth tracks how many fail-cascades have already happened.
         # 0 = original open. 1 = post-cascade (or post-Wooden-re-roll). At
         # depth >= 1, a sub-1 fail goes straight to "3 Fine cats" consolation
         # with no further retry (per "fails more than once → 3 Fine cats").
+        #
+        # coin_variant=True turns this into a "coin crate" open: the cat side
+        # is rolled at goal_value * (1 - coin_ratio) and the caller is
+        # returned coin_amount = final tier's totalvalue * coin_ratio, where
+        # coin_ratio is tier-scaled (Wooden most, Celestial least; specials
+        # silently fall back to 0 / regular open). Cascade re-opens pass the
+        # flag through and the cascade's coin amount wins (consolation tier).
         reward_texts = []
         build_string = ""
         upgrades = 0
@@ -9713,6 +9771,15 @@ async def packs(message: discord.Interaction):
 
         # select cat type
         goal_value = final_level["value"]
+        coin_amount = 0
+        if coin_variant:
+            coin_ratio = _pack_coin_ratio(level)
+            if coin_ratio > 0:
+                cat_ratio = 1.0 - coin_ratio
+                goal_value = max(1, int(goal_value * cat_ratio))
+                coin_amount = int(final_level["totalvalue"] * coin_ratio)
+            # else: variant rolled but final tier is special — silently
+            # behave as a regular open (coin_amount stays 0, goal_value full).
         chosen_type = random.choice(cattypes)
         cat_emoji = get_emoji(chosen_type.lower() + "cat")
         pre_cat_amount = goal_value / (sum(type_dict.values()) / type_dict[chosen_type])
@@ -9796,12 +9863,13 @@ async def packs(message: discord.Interaction):
                         )
                     else:
                         build_string += f" -> 📦 {pack_data[cascade_level]['name']}"
-                    cascade_type, cascade_amount, cascade_upgrades, cascade_text = get_pack_rewards(
-                        cascade_level, is_single, _cascade_depth + 1
+                    cascade_type, cascade_amount, cascade_upgrades, cascade_text, cascade_coin = get_pack_rewards(
+                        cascade_level, is_single, _cascade_depth + 1, coin_variant=coin_variant
                     )
                     chosen_type = cascade_type
                     cat_amount = cascade_amount
                     upgrades += cascade_upgrades
+                    coin_amount = cascade_coin  # consolation tier sets the coin reward
                     if is_single:
                         # cascade_text entries are cumulative snapshots of the
                         # cascade pack's animation — append them as-is so the
@@ -9817,8 +9885,8 @@ async def packs(message: discord.Interaction):
         if is_single:
             if not skip_final_line:
                 reward_texts.append(reward_texts[-1] + f"\nYou got {get_emoji(chosen_type.lower() + 'cat')} {cat_amount:,} {chosen_type} cats!")
-            return chosen_type, cat_amount, upgrades, reward_texts
-        return chosen_type, cat_amount, upgrades, build_string
+            return chosen_type, cat_amount, upgrades, reward_texts, coin_amount
+        return chosen_type, cat_amount, upgrades, build_string, coin_amount
 
     async def open_pack(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -9845,7 +9913,16 @@ async def packs(message: discord.Interaction):
             else:
                 perk_msgs.append(f"🪜 Crate Polish: already at cap ({pack_data[cap_idx]['name']}).")
 
-        chosen_type, cat_amount, upgrades, reward_texts = get_pack_rewards(level)
+        # Coin-variant coin flip — roll AFTER pack_tier_upgrade has settled
+        # `level`, so the tier used for the variant matches the one actually
+        # opened. Specials never get the variant (they always open as
+        # regular cat packs); the helper inside get_pack_rewards also
+        # gracefully returns 0 if a cascade somehow lands on a special.
+        coin_variant = (not pack_data[level]["special"]) and random.random() < PACK_COIN_VARIANT_CHANCE
+        chosen_type, cat_amount, upgrades, reward_texts, coin_amount = get_pack_rewards(level, coin_variant=coin_variant)
+        if coin_amount > 0 and reward_texts:
+            # Subtle "this one's a coin crate" tag on the open animation.
+            reward_texts[0] = "💰 " + reward_texts[0]
 
         if chosen_type == "Fine" and "pack_floor" in _perks_active_ids(user) and _perks_consume_charge(user, "pack_floor"):
             chosen_type = "Nice"
@@ -9861,6 +9938,9 @@ async def packs(message: discord.Interaction):
         user[f"cat_{chosen_type}"] += cat_amount
         if bonus_type:
             user[f"cat_{bonus_type}"] += bonus_amount
+        if coin_amount > 0:
+            user.coins = int(user.coins or 0) + coin_amount
+            _bump(user, "coins_earned", coin_amount)
         user.pack_upgrades += upgrades
         user.packs_opened += 1
         user[f"pack_{pack.lower()}"] -= 1
@@ -9886,6 +9966,26 @@ async def packs(message: discord.Interaction):
             things = final_text.split("\n", 1)
             embed = discord.Embed(title=things[0], description=things[1], color=Colors.brown)
             await interaction.edit_original_response(embed=embed)
+        # Coin reveal: tick-up animation mirroring the catslots bonus payout
+        # (5/15/35/60/85/100% over ~2s). Runs after the perk toasts, before
+        # the final view restore. Skipped on bulk Open All (handled there
+        # with a static aggregated summary).
+        if coin_amount > 0:
+            final_text = (reward_texts[-1] + "\n\n" + "\n".join(perk_msgs)) if perk_msgs else reward_texts[-1]
+            parts = final_text.split("\n", 1)
+            anim_title = parts[0]
+            anim_body = parts[1] if len(parts) > 1 else ""
+            for frac in (0.05, 0.15, 0.35, 0.60, 0.85, 1.0):
+                tick = coin_amount if frac == 1.0 else int(coin_amount * frac)
+                try:
+                    await interaction.edit_original_response(embed=discord.Embed(
+                        title=anim_title,
+                        description=f"{anim_body}\n\n💰 **{tick:,}** coins!",
+                        color=Colors.brown,
+                    ))
+                except Exception:
+                    pass
+                await asyncio.sleep(0.3)
         await asyncio.sleep(1)
         view, _ = gen_view(user)
         await interaction.edit_original_response(view=view)

@@ -64,3 +64,6 @@
 2026-05-28 00:00  Internal: "Migration 022 adds lifetime stat counters + season_stat_baseline; _bump() helper wired at all money-in/out sites" (re: main.py, schema.sql, migrations/022_season_recap.py)
 2026-05-29 00:00  Added: "Paid /jobs board reroll — coin-cost button on /jobs board + /catstore Extras screen; level-scaled escalating price" (re: main.py, schema.sql, config/jobs.json, migrations/023_job_reroll_counter.py)
 2026-05-29 00:00  Internal: "Migration 023_job_reroll_counter.py adds profile.job_rerolls_window + job_rerolls_window_idx; _jobs_do_reroll() extracted as shared helper" (re: main.py, schema.sql)
+2026-05-30 00:00  Added: "Pack coin crate variant — 50% chance per open, tier-scaled coin/cat split, tick-up animation, Open All aggregate line" (re: main.py, config/tuning.json)
+2026-05-30 00:00  Changed: "First-prism craft discounted to 1,000 coins (was 5,000); escalating schedule unchanged from 2nd prism onward" (re: main.py, config/tuning.json)
+2026-05-30 00:00  Added: "/inventory coin balance line — 🪙 Coins: N,NNN between Cats and Prisms in gen_inventory embed" (re: main.py)

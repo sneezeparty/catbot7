@@ -44,3 +44,6 @@
 2026-05-28 00:30  battlepass.md   added "Season recap leaderboard" subsection: 7 categories top-5, snapshot rationale, baseline-diff mechanic, migration 022 guard (re: schema.sql + main.py)
 2026-05-29 00:00  jobs.md         added "Board reroll" section: free reroll_board perk + paid coin reroll, price formula, escalation counter, /catstore Extras surface (re: main.py + schema.sql + config/jobs.json)
 2026-05-29 00:00  economy.md      no change (paid reroll is coin-sink but fully covered in jobs.md; no economy.md claim is stale) (re: main.py)
+2026-05-30 00:00  economy.md      STALE marker added: old "no non-cat-currency packs" constraint superseded; new "Pack coin variant" subsection added (re: main.py + config/tuning.json)
+2026-05-30 00:00  economy.md      updated prism first-craft cost 5,000 -> 1,000; formula updated to show first= branch (re: main.py + config/tuning.json)
+2026-05-30 00:00  (all docs)      no change: /inventory embed coin display line is UX-only; all mechanics in diff (pack coin variant, paid board reroll) already documented (re: main.py)

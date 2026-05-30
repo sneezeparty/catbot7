@@ -84,6 +84,10 @@
   "prism_craft_coin_cost": {
     "base": 5000,
     "growth": 2,
-    "cap": 320000
-  }
+    "cap": 320000,
+    "first": 1000
+  },
+  "pack_coin_variant_chance": 0.5,
+  "pack_coin_ratio_wooden": 0.5,
+  "pack_coin_ratio_celestial": 0.2
 }

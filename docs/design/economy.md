@@ -22,7 +22,15 @@ Packs are the gacha layer. Each pack has:
 
 Pack tiers form their own ladder: Wooden → Stone → Bronze → Silver → Gold → Platinum → Diamond → Celestial. Celestial has `upgrade: 0` (the cap).
 
-**Design intent:** packs exist to compress the long-tail catching grind. The expected value of a tier-N pack is calibrated so that a player who is many catches behind can "catch up" via packs without trivializing the grind for everyone else. **Don't add packs that pay out in non-cat currency** — that erodes the cat-as-currency design.
+**Design intent:** packs exist to compress the long-tail catching grind. The expected value of a tier-N pack is calibrated so that a player who is many catches behind can "catch up" via packs without trivializing the grind for everyone else.
+
+> **STALE:** the following design constraint was superseded by the pack coin variant mechanic (see below): "Don't add packs that pay out in non-cat currency — that erodes the cat-as-currency design." The constraint should be rewritten to reflect the new intent.
+
+### Pack coin variant
+
+Each pack open has a **50% chance** (tunable `pack_coin_variant_chance`) of becoming a **"coin crate"**: the pack's `goal_value` is split so the cat side rolls at `goal_value * (1 - coin_ratio)` and the remaining `totalvalue * coin_ratio` is paid out directly as coins. The coin ratio is **tier-scaled** via `_pack_coin_ratio(level_idx)`: linear interpolation from `PACK_COIN_RATIO_WOODEN` (0.5) at Wooden down to `PACK_COIN_RATIO_CELESTIAL` (0.2) at Celestial. **Special packs** (Christmas, Valentine, Chef, Birthday) always open as regular cat packs — `_pack_coin_ratio` returns 0 for them, coin variant is a no-op.
+
+`get_pack_rewards` returns a 5-tuple `(chosen_type, cat_amount, upgrades, verbal, coin_amount)`. Both callers (`open_pack`, `process_pack_opening`) handle the coin side. Job perks (Crate Polish, No Fines, Padded Crate) apply to the cat side only; the coin side is independent. Cascade re-opens pass the `coin_variant` flag through; the consolation tier's coin amount is what gets credited. Coins credited via coin variants count toward the season-recap `coins_earned` counter.
 
 ### Sub-1 fail handling
 
@@ -380,14 +388,15 @@ Pre-rebalance, prisms cost only cats — one of every rarity — and nothing els
 **Cost formula (`main.py:prism_craft_coin_cost`)**:
 
 ```
-cost = min(cap, base * growth^prisms_crafted)
+cost = first                        (if prisms_crafted == 0)
+cost = min(cap, base * growth^n)    (if prisms_crafted > 0, n = prisms_crafted)
 ```
 
-with defaults `base = 5,000`, `growth = 2`, `cap = 320,000` (in `config/tuning.json → prism_craft_coin_cost`). `prisms_crafted` is per-profile (per user, per server), counted from the `prism` table's `creator` column at migration time. The ramp:
+with defaults `first = 1,000`, `base = 5,000`, `growth = 2`, `cap = 320,000` (in `config/tuning.json → prism_craft_coin_cost`). `prisms_crafted` is per-profile (per user, per server), counted from the `prism` table's `creator` column at migration time. The ramp:
 
 | Craft # | Cost      |
 | ------- | --------- |
-| 1st     | 5,000     |
+| 1st     | 1,000     |
 | 2nd     | 10,000    |
 | 3rd     | 20,000    |
 | 4th     | 40,000    |

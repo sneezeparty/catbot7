@@ -33,6 +33,9 @@ TUNING_SCALAR_BOUNDS: dict[str, tuple[float | None, float | None]] = {
     "prism_boost_global_coef":             (0.0,   1.0),
     "prism_boost_user_coef":               (0.0,   1.0),
     "prism_boost_floor":                   (0.0,   1.0),
+    "pack_coin_variant_chance":            (0.0,   1.0),
+    "pack_coin_ratio_wooden":              (0.0,   1.0),
+    "pack_coin_ratio_celestial":           (0.0,   1.0),
 
     # counts / quantities — non-negative
     "coin_per_pack":                       (0,     None),

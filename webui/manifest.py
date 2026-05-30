@@ -28,6 +28,10 @@ SECTIONS: dict[str, dict] = {
             "<key>": "scalar or dict",
             "pack_tier_weights": "dict[str, float]",
             "pack_drop_chance_on_catch": "float",
+            "pack_coin_variant_chance": "float [0,1] — per-open coin-flip chance for the coin variant",
+            "pack_coin_ratio_wooden": "float [0,1] — coin share at Wooden tier",
+            "pack_coin_ratio_celestial": "float [0,1] — coin share at Celestial tier",
+            "prism_craft_coin_cost": "dict{first, base, growth, cap} — first=discount on first craft",
             "stock_market": (
                 "dict — deeply nested, handled by dedicated routes; "
                 "top-level scalars: enabled(bool), spread(float), mm_order_quantity(int), "

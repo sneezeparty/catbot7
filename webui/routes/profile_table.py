@@ -118,6 +118,8 @@ INT_FIELDS = [
     "cat_Professor",
     "cat_Divine",
     "cat_Real",
+    "cat_Shadow",
+    "cat_Terminator",
     "cat_Ultimate",
     "cat_eGirl",
 ]

@@ -26,6 +26,7 @@ SECTIONS: dict[str, dict] = {
         "source": ["config/tuning.json"],
         "schema": {
             "<key>": "scalar or dict",
+            "rarity_min_season": "dict[rarity_name, int] — minimum season number for a rarity to be spawn-eligible; auto-rendered as a dict section",
             "pack_tier_weights": "dict[str, float]",
             "pack_drop_chance_on_catch": "float",
             "pack_coin_variant_chance": "float [0,1] — per-open coin-flip chance for the coin variant",
@@ -63,7 +64,11 @@ SECTIONS: dict[str, dict] = {
         "references": [
             # When type_dict changes, cattypes/cattype_lc_dict/allowedemojis
             # in main.py are derived at import time. Edits require a reload.
+            # type_dict now includes Shadow (weight 221) and Terminator (weight 5).
+            # Both are gated by rarity_min_season (season >= 2) via RARITY_MIN_SEASON alias in main.py.
             ("type_dict", "main.cattypes/cattype_lc_dict/allowedemojis (regen on reload)"),
+            # rarity_min_season gates spawn eligibility per season — new entries here are effective on reload.
+            ("rarity_min_season", "main.RARITY_MIN_SEASON (re-read on cat!restart) — spawn_cat skips rarities below their min season"),
             # stock_market.enabled gates _run_stock_market_maker() in background_loop.
             # stock_market.tickers keys must match stock_data ticker list in main.py.
             ("stock_market.enabled", "main.STOCK_MARKET — gates _run_stock_market_maker() in background_loop"),

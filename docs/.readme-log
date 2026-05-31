@@ -29,3 +29,8 @@
 2026-05-30 00:00  Updated: migrations-table: added row for migration 024 (re: migrations/024_season_trophies.py)
 2026-05-30 00:00  Skipped: schema.sql (column addition already captured by migration 024 row)
 2026-05-30 00:00  Skipped: main.py (season trophy implementation; season recap divergence already captured in existing "Season warning + recap" bullet)
+2026-05-31 00:00  Updated: migrations-table: added row for migration 025 (cat_Shadow + cat_Terminator profile columns) (re: migrations/025_add_shadow_terminator.py)
+2026-05-31 00:00  Skipped: gameplay-divergence: Shadow/Terminator are new rarities but this is content/tuning, not a structural fork differentiator. Season-gate mechanism (_spawn_eligible_type_dict / RARITY_MIN_SEASON) is internal and operator-invisible. No bullet warranted.
+2026-05-31 00:00  Skipped: schema.sql (column additions covered by migration 025 row)
+2026-05-31 00:00  Skipped: env-vars (no new env vars)
+2026-05-31 00:00  Skipped: main.py (_season_eligible_cattypes refactor — extends rarity_min_season season-gate to pack opens and catnip pricing. Internal consistency fix; no new fork divergence, no env-var or migration changes.)

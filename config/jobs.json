@@ -6,6 +6,7 @@
     "Rare": 5,
     "Wild": 7,
     "Baby": 9,
+    "Shadow": 10,
     "Epic": 12,
     "Sus": 15,
     "Brave": 18,
@@ -20,6 +21,7 @@
     "Professor": 83,
     "Divine": 97,
     "Real": 115,
+    "Terminator": 128,
     "Ultimate": 140,
     "eGirl": 180
   },

@@ -66,6 +66,7 @@ type_dict = {
     "Rare": 350,
     "Wild": 275,
     "Baby": 230,
+    "Shadow": 221,
     "Epic": 200,
     "Sus": 175,
     "Brave": 150,
@@ -80,6 +81,7 @@ type_dict = {
     "Professor": 10,
     "Divine": 8,
     "Real": 5,
+    "Terminator": 5,
     "Ultimate": 3,
     "eGirl": 2,
 }
@@ -104,6 +106,7 @@ SACRIFICE_XP = {
     "Rare": 55,
     "Wild": 65,
     "Baby": 75,
+    "Shadow": 80,
     "Epic": 85,
     "Sus": 95,
     "Brave": 105,
@@ -118,6 +121,7 @@ SACRIFICE_XP = {
     "Professor": 230,
     "Divine": 250,
     "Real": 270,
+    "Terminator": 278,
     "Ultimate": 285,
     "eGirl": 300,
 }
@@ -341,6 +345,11 @@ PACK_COIN_VARIANT_CHANCE = config.tuning.get("pack_coin_variant_chance", 0.5)
 PACK_COIN_RATIO_WOODEN = config.tuning.get("pack_coin_ratio_wooden", 0.5)
 PACK_COIN_RATIO_CELESTIAL = config.tuning.get("pack_coin_ratio_celestial", 0.2)
 STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
+
+# Per-rarity season gate: rarities listed here only spawn when the current
+# season is >= the value. Used to defer a new rarity's debut to a specific
+# season without code changes. Rarities not listed are unrestricted.
+RARITY_MIN_SEASON: dict[str, int] = config.tuning.get("rarity_min_season", {})
 
 # Jobs / Mafia Killings. Loaded from config/jobs.json above; re-read here on every
 # module reload so cat!restart picks up edits to send power, tiers, NPCs, etc.
@@ -5351,6 +5360,39 @@ async def _season_announcement_loop():
             logging.exception("season announcement loop iteration failed")
 
 
+# Snapshot which spawn images exist at module load. A rarity whose image is
+# missing is never picked by spawn_cat (avoids FileNotFoundError if a rarity is
+# added to type_dict before its art is in place). cat!restart re-snapshots.
+_SPAWN_IMAGE_PRESENT: set[str] = {
+    k for k in type_dict if os.path.exists(f"images/spawn/{k.lower()}_cat.png")
+}
+
+
+def _spawn_eligible_type_dict() -> dict[str, int]:
+    """type_dict filtered to rarities eligible to spawn right now. Drops any
+    rarity gated by a future season (`rarity_min_season` in tuning.json) AND
+    any rarity whose spawn image is missing on disk."""
+    if not RARITY_MIN_SEASON and len(_SPAWN_IMAGE_PRESENT) == len(type_dict):
+        return type_dict
+    current_season = _season_announcement_status()[0]
+    return {
+        k: v for k, v in type_dict.items()
+        if k in _SPAWN_IMAGE_PRESENT
+        and RARITY_MIN_SEASON.get(k, 0) <= current_season
+    }
+
+
+def _season_eligible_cattypes() -> list[str]:
+    """cattypes filtered by the season gate only (no image check). Used by
+    pack-open rarity rolls, perk drops, and catnip price selection — none of
+    those send a spawn image, so missing art doesn't matter. Returns the full
+    list if no rarity_min_season config is set."""
+    if not RARITY_MIN_SEASON:
+        return cattypes
+    current_season = _season_announcement_status()[0]
+    return [k for k in cattypes if RARITY_MIN_SEASON.get(k, 0) <= current_season]
+
+
 async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     try:
         channel = await Channel.get_or_none(channel_id=int(ch_id))
@@ -5362,7 +5404,8 @@ async def spawn_cat(ch_id, localcat=None, force_spawn=None):
         return False
 
     if not localcat:
-        localcat = random.choices(cattypes, weights=type_dict.values())[0]
+        eligible = _spawn_eligible_type_dict()
+        localcat = random.choices(list(eligible.keys()), weights=list(eligible.values()))[0]
     icon = get_emoji(localcat.lower() + "cat")
     file = discord.File(
         f"images/spawn/{localcat.lower()}_cat.png",
@@ -9763,7 +9806,7 @@ async def packs(message: discord.Interaction):
                 results_percat[chosen_type] += cat_amount
 
                 if bonus_cat_active:
-                    results_percat[random.choice(cattypes)] += 1
+                    results_percat[random.choice(_season_eligible_cattypes())] += 1
                     bonus_cat_total += 1
 
             user[pack_id] -= opening_this
@@ -9905,7 +9948,7 @@ async def packs(message: discord.Interaction):
                 coin_amount = int(final_level["totalvalue"] * coin_ratio)
             # else: variant rolled but final tier is special — silently
             # behave as a regular open (coin_amount stays 0, goal_value full).
-        chosen_type = random.choice(cattypes)
+        chosen_type = random.choice(_season_eligible_cattypes())
         cat_emoji = get_emoji(chosen_type.lower() + "cat")
         pre_cat_amount = goal_value / (sum(type_dict.values()) / type_dict[chosen_type])
         if pre_cat_amount % 1 > random.random():
@@ -9951,7 +9994,7 @@ async def packs(message: discord.Interaction):
                     # re-roll the cat type once, run the lottery again.
                     if is_single:
                         reward_texts.append(reward_texts[-1] + "\n🎲 Re-rolling cat type...")
-                    new_type = random.choice(cattypes)
+                    new_type = random.choice(_season_eligible_cattypes())
                     new_pre = goal_value / (sum(type_dict.values()) / type_dict[new_type])
                     if new_pre % 1 > random.random():
                         new_amount = math.ceil(new_pre)
@@ -10056,7 +10099,7 @@ async def packs(message: discord.Interaction):
         bonus_type = None
         bonus_amount = 0
         if "pack_bonus_cat" in _perks_active_ids(user):
-            bonus_type = random.choice(cattypes)
+            bonus_type = random.choice(_season_eligible_cattypes())
             bonus_amount = 1
             perk_msgs.append(f"➕ Padded Crate: +1 {bonus_type} cat.")
 
@@ -16750,8 +16793,9 @@ async def set_mafia_offer(level, user):
     level_data = catnip_list["levels"][level]
     vt = level_data["cost"]
     cattype = "Fine"
+    eligible_cattypes = _season_eligible_cattypes()
     for _ in range(100):
-        cattype = random.choice(cattypes)
+        cattype = random.choice(eligible_cattypes)
         value = sum(type_dict.values()) / type_dict[cattype]
         if value <= vt:
             break

@@ -21,6 +21,7 @@ TUNING_PATH = "config/tuning.json"
 # falls back to the raw key. The sync agent appends to this map.
 LABELS: dict[str, str] = {
     "type_dict": "Cat rarity spawn weights",
+    "rarity_min_season": "Minimum season number for a rarity to be spawn-eligible (dict: rarity → season int)",
     "quest_cooldown_seconds": "Quest cooldown",
     "fast_catcher_threshold_seconds": "\"Fast catcher\" achievement threshold",
     "slow_catcher_threshold_seconds": "\"Slow catcher\" achievement threshold",

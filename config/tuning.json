@@ -6,6 +6,7 @@
     "Rare": 350,
     "Wild": 275,
     "Baby": 230,
+    "Shadow": 221,
     "Epic": 200,
     "Sus": 175,
     "Brave": 150,
@@ -20,8 +21,13 @@
     "Professor": 10,
     "Divine": 8,
     "Real": 5,
+    "Terminator": 5,
     "Ultimate": 3,
     "eGirl": 2
+  },
+  "rarity_min_season": {
+    "Shadow": 2,
+    "Terminator": 2
   },
   "quest_cooldown_seconds": 43200,
   "fast_catcher_threshold_seconds": 5,

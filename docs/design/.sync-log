@@ -62,3 +62,5 @@
 2026-05-31 00:00  achievements.md no change: no rarity-count claims affected (re: main.py + schema.sql)
 2026-05-31 00:00  jobs.md         no change: send_power values for Shadow/Terminator not cited in doc (re: main.py)
 2026-05-31 00:01  economy.md      updated existing STALE marker: rarity_min_season gate now documented as covering pack-open rarity rolls (4 sites) and catnip price selection (set_mafia_offer) via _season_eligible_cattypes(), in addition to spawning via _spawn_eligible_type_dict() (re: main.py)
+2026-05-31 12:00  battlepass.md   updated "coins → 0" -> "coins → SEASON_STARTING_COINS (default 100, tunable via config.tuning)" in Always Wiped list (re: main.py + config/tuning.json)
+2026-05-31 12:00  economy.md      updated Currency coins paragraph: noted season-rollover coins reset to SEASON_STARTING_COINS (default 100, tunable) rather than 0; new-profile-starts-at-0 fact preserved (re: main.py + config/tuning.json)

@@ -47,6 +47,7 @@ LABELS: dict[str, str] = {
     "pack_coin_variant_chance": "Pack coin variant: chance per-open of the coin variant dropping",
     "pack_coin_ratio_wooden": "Pack coin variant: coin share at Wooden tier",
     "pack_coin_ratio_celestial": "Pack coin variant: coin share at Celestial tier",
+    "season_starting_coins": "Season starting allowance (coins granted to each player on season wipe)",
     # stock_market scalar sub-keys (namespaced, used in stock_market section)
     "stock_market.enabled": "Kill switch — off means MM tick is a no-op",
     "stock_market.spread": "Bid/ask offset from fair price (0.05 = ±5%)",
@@ -70,6 +71,7 @@ UNITS: dict[str, str] = {
     "pack_coin_variant_chance": "fraction",
     "pack_coin_ratio_wooden": "fraction",
     "pack_coin_ratio_celestial": "fraction",
+    "season_starting_coins": "coins",
     "stock_market.spread": "fraction",
     "stock_market.price_floor": "coins",
     "stock_market.price_ceiling": "coins",

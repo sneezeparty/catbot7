@@ -351,6 +351,12 @@ STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
 # season without code changes. Rarities not listed are unrestricted.
 RARITY_MIN_SEASON: dict[str, int] = config.tuning.get("rarity_min_season", {})
 
+# Starting coin allowance granted at every season rollover. Replaces the
+# old "wipe to 0" behavior so players begin each season with a small
+# stipend. Players who had earned more than this in the brief window
+# between the wipe and the next interaction keep the higher balance.
+SEASON_STARTING_COINS = int(config.tuning.get("season_starting_coins", 100))
+
 # Jobs / Mafia Killings. Loaded from config/jobs.json above; re-read here on every
 # module reload so cat!restart picks up edits to send power, tiers, NPCs, etc.
 JOBS_SEND_POWER = config.jobs["send_power"]
@@ -4357,8 +4363,9 @@ async def _maybe_show_season_reset_notice(interaction, user):
         embed = discord.Embed(
             title=f"🆕 Cattlepass Season {season_num} just started",
             description=(
-                "Your **coins**, **catnip level**, **packs**, and all active "
-                "**mafia/jobs state** have been reset to zero. Build them "
+                f"Your **coins** have been reset to **🪙 {SEASON_STARTING_COINS:,}** "
+                "(season starting allowance). Your **catnip level**, **packs**, "
+                "and all active **mafia/jobs state** have been wiped — build them "
                 "back up this season.\n\n"
                 "Untouched: your **cats**, **prisms**, **stocks**, **streaks**, "
                 "**discovered cats**, and **achievements** stay with you.\n\n"
@@ -4410,13 +4417,14 @@ async def refresh_quests(user):
         user.challenge_cooldown = 1
         user.challenge_reward = 0
 
-        # 0.6.5 — per-season economy wipe. Coins go to zero, catnip and jobs
-        # state reset, pack queue empties. Cats / stocks / prisms / discovered
-        # / achievements / streaks are preserved (see helpers above). The
-        # season_reset_pending flag triggers a one-shot ephemeral notice on
-        # the player's next /battlepass, /catnip, /jobs, /catstore, /stats,
-        # or /inventory call (see _maybe_show_season_reset_notice).
-        user.coins = 0
+        # 0.6.5 — per-season economy wipe. Coins reset to the season starting
+        # allowance (SEASON_STARTING_COINS), catnip and jobs state reset, pack
+        # queue empties. Cats / stocks / prisms / discovered / achievements /
+        # streaks are preserved (see helpers above). The season_reset_pending
+        # flag triggers a one-shot ephemeral notice on the player's next
+        # /battlepass, /catnip, /jobs, /catstore, /stats, or /inventory call
+        # (see _maybe_show_season_reset_notice).
+        user.coins = SEASON_STARTING_COINS
         _wipe_catnip_state(user)
         _wipe_jobs_state(user)
         _wipe_packs(user)
@@ -4947,7 +4955,7 @@ def _build_season_warning_embed(current_season: int) -> discord.Embed:
         color=Colors.brown,
         description=(
             "When the new season begins on the 1st, **each player's per-server profile resets:**\n"
-            "• 🪙 **Coins** → 0\n"
+            f"• 🪙 **Coins** → reset to **{SEASON_STARTING_COINS:,}** (season starting allowance)\n"
             "• ⬆️ **Cattlepass** level & XP → 0 (quests reset)\n"
             "• 🎩 **Catnip / mafia** level, bounties & perks wiped\n"
             "• 🔫 **Jobs** heat, respect, faction rep & job perks reset\n"

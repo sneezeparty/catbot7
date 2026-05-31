@@ -34,3 +34,4 @@
 2026-05-31 00:00  Skipped: schema.sql (column additions covered by migration 025 row)
 2026-05-31 00:00  Skipped: env-vars (no new env vars)
 2026-05-31 00:00  Skipped: main.py (_season_eligible_cattypes refactor — extends rarity_min_season season-gate to pack opens and catnip pricing. Internal consistency fix; no new fork divergence, no env-var or migration changes.)
+2026-05-31 20:53  Skipped: main.py (season_starting_coins — coins reset to 100 instead of 0 at rollover. Balance/gameplay detail; tuning knob is in tuning.json, not an env var. "Season warning + recap" bullet covers the announcement mechanics, not the economy reset values. changelog-sync territory.)

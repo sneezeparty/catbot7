@@ -32,6 +32,7 @@ SECTIONS: dict[str, dict] = {
             "pack_coin_variant_chance": "float [0,1] — per-open coin-flip chance for the coin variant",
             "pack_coin_ratio_wooden": "float [0,1] — coin share at Wooden tier",
             "pack_coin_ratio_celestial": "float [0,1] — coin share at Celestial tier",
+            "season_starting_coins": "int (coins) — coins granted to each player wallet on season wipe; read as SEASON_STARTING_COINS alias in main.py",
             "prism_craft_coin_cost": "dict{first, base, growth, cap} — first=discount on first craft",
             "stock_market": (
                 "dict — deeply nested, handled by dedicated routes; "

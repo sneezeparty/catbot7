@@ -16,7 +16,7 @@ When season rolls over (lazy, on the user's next interaction that calls `refresh
 - `casino_progress_temp`, `gift3_recipients`, `catnip_xp_awarded`
 
 **Wiped per the 0.6.5 economy-reset design:**
-- **Coins** (`coins → 0`)
+- **Coins** (`coins → SEASON_STARTING_COINS`, default **100** — a starting allowance, not a full reset to 0; value is `config.tuning["season_starting_coins"]`)
 - **All catnip state**: `catnip_level`, `catnip_active`, `catnip_total_cats`, `catnip_amount`, `catnip_price`, all `bounty_*` slots, all stored catnip perks (`perks`, `perk1/2/3`, `reroll`, `reroll_level`)
 - **All operational jobs state**: `heat`, `respect`, `faction_rep`, `job_perks`, `perks_suspended_until`, `jobs_pending_*`, `big_score_season`, `whiskers_favor_active`, `whiskers_favor_season`
 - **All pack inventories**: every `pack_*` column (Wooden through Celestial + event packs)

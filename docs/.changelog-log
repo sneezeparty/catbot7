@@ -75,3 +75,4 @@
 2026-05-31 00:00  Internal: "Migration 025 adds cat_Shadow and cat_Terminator integer columns on profile" (re: schema.sql, database.py)
 2026-05-31 00:00  Skipped: config/jobs.json — send_power additions for Shadow/Terminator are supporting data for the Added bullet above; no separate entry needed
 2026-05-31 00:00  Changed: Extended "Two new cat rarities" bullet — rarity_min_season gate now noted across pack opens and catnip pricing, not just spawns (re: main.py)
+2026-05-31 00:00  Changed: "Season rollover grants 100-coin starting allowance instead of wiping to 0" (re: main.py, config/tuning.json)

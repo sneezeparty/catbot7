@@ -95,5 +95,6 @@
   },
   "pack_coin_variant_chance": 0.5,
   "pack_coin_ratio_wooden": 0.5,
-  "pack_coin_ratio_celestial": 0.2
+  "pack_coin_ratio_celestial": 0.2,
+  "season_starting_coins": 100
 }

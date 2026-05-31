@@ -13,9 +13,7 @@ A catnip "session" is a temporary buff window:
 - Failing the bounty window before the session expires drops the user one level and revokes their last perk.
 - Level 10 is repeatable but caps out — extra runs just add 24h to `catnip_active`.
 
-**Design intent:** catnip is the **active-engagement reward**. The buff window is short enough that a player can't just hoard catnip and afk through it. The level-up loop creates a "feed the slot machine" tension — keep catching to keep the buff alive.
-
-> **STALE:** all catnip levels 1–10 now have `"duration": 24` in `config/catnip.json`, meaning each session lasts a full 24 hours. The "short enough to prevent AFKing" framing above no longer reflects the current config. The design intent around session length should be revisited and rewritten to match the 24h cadence.
+**Design intent:** catnip is the **active-engagement reward**, paced on a **daily cadence**. All current levels have `"duration": 24` in `config/catnip.json`, so each session covers a full 24-hour window aligned with the bot's daily rhythm (daily catch streak, UTC+4 day boundary). The cadence is "log in once a day, activate, work the bounty list, come back tomorrow." AFKing across the window is fine — the pressure comes from the **bounties**, not the duration ceiling: fail to complete them before expiry and the level + last perk are stripped. The 24h window deliberately gives a player a full day's catching to clear their bounties, so a busy schedule doesn't punish them; the "feed the slot machine" tension lives in the level-up loop, not in a hourglass.
 
 ## Level structure
 

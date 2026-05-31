@@ -5128,6 +5128,104 @@ def _build_season_recap_embed(guild_name: str, season_num: int, gdata: dict) -> 
     return embed
 
 
+# Season-trophy categories: the 3 recap categories that promote their top-3 to
+# permanent trophies on profile.season_trophies. Snapshot keys match
+# _season_recap_for_guild() exactly.
+TROPHY_CATEGORIES: list[tuple[str, str, str]] = [
+    ("earner", "🪙 Most Coins Earned", "Coins"),
+    ("cats", "🐱 Most Cats Caught", "Cats"),
+    ("heists", "🔫 Most Heists Completed", "Heists"),
+]
+TROPHY_MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+def _build_trophy_embed(guild_name: str, season_num: int, gdata: dict) -> discord.Embed | None:
+    """Build the "Season N Champions" ceremony embed — top 3 per trophy category
+    with medal emojis and totals. Returns None if every trophy category is
+    empty (no one earned anything that season)."""
+    sections: list[tuple[str, str]] = []
+    for key, label, _abbr in TROPHY_CATEGORIES:
+        entries = (gdata.get(key) or [])[:3]
+        if not entries:
+            continue
+        lines = []
+        for i, e in enumerate(entries):
+            medal = TROPHY_MEDALS[i + 1]
+            lines.append(f"{medal} <@{e[0]}> — {e[1]:,}")
+        sections.append((label, "\n".join(lines)))
+    if not sections:
+        return None
+    embed = discord.Embed(
+        title=f"🏆 Season {season_num} Champions",
+        description=(
+            f"Trophies awarded to **{guild_name}**'s top players. "
+            f"These show up on `/catprofile` forever — wear them proudly!"
+        ),
+        color=Colors.brown,
+    )
+    for label, value in sections:
+        embed.add_field(name=label, value=value, inline=False)
+    return embed
+
+
+async def _award_season_trophies(season: int, gid: int, gdata: dict) -> None:
+    """Persist top-3 trophies for one guild to the winning profiles. Idempotent:
+    skips entries already present in profile.season_trophies (handles re-broadcast
+    after a crash mid-loop). No-ops cleanly if migration 024 hasn't run."""
+    for category, _label, _abbr in TROPHY_CATEGORIES:
+        entries = (gdata.get(category) or [])[:3]
+        for i, e in enumerate(entries):
+            user_id = int(e[0])
+            rank = i + 1
+            try:
+                profile = await Profile.get_or_create(guild_id=gid, user_id=user_id)
+                existing = list(getattr(profile, "season_trophies", None) or [])
+                if any(
+                    isinstance(t, dict)
+                    and int(t.get("season", -1)) == season
+                    and t.get("category") == category
+                    and int(t.get("rank", -1)) == rank
+                    for t in existing
+                ):
+                    continue
+                existing.append({"season": season, "category": category, "rank": rank})
+                profile.season_trophies = existing
+                await profile.save()
+            except Exception:
+                logging.exception(
+                    "season trophy award failed: gid=%s user=%s cat=%s rank=%s",
+                    gid, user_id, category, rank,
+                )
+
+
+def _format_season_trophies(trophies) -> str:
+    """Render profile.season_trophies as a compact medal list, newest season
+    first then by rank within season. Returns '' if empty. Caps at 12 entries
+    with an overflow suffix to stay well under Discord's 1024-char field limit."""
+    if not trophies:
+        return ""
+    cat_labels = {key: abbr for key, _label, abbr in TROPHY_CATEGORIES}
+    items: list[tuple[int, int, str]] = []
+    for t in trophies:
+        try:
+            s = int(t["season"])
+            r = int(t["rank"])
+            c = t["category"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if r not in TROPHY_MEDALS or c not in cat_labels:
+            continue
+        items.append((s, r, c))
+    if not items:
+        return ""
+    items.sort(key=lambda x: (-x[0], x[1]))
+    rendered = [f"{TROPHY_MEDALS[r]} S{s} {cat_labels[c]}" for s, r, c in items]
+    if len(rendered) > 12:
+        extra = len(rendered) - 12
+        rendered = rendered[:12] + [f"_(+{extra} more)_"]
+    return " • ".join(rendered)
+
+
 async def _broadcast_season_recap() -> int:
     """Post each guild's recap embed (from the persisted snapshot) to its
     setupped channels, honoring the same season_announcements opt-out. Returns
@@ -5147,14 +5245,22 @@ async def _broadcast_season_recap() -> int:
         return 0
 
     embeds: dict[int, discord.Embed] = {}
+    trophy_embeds: dict[int, discord.Embed] = {}
+    guild_data: dict[int, dict] = {}
     for gid_str, gdata in (payload.get("guilds") or {}).items():
         gid = int(gid_str)
         guild = bot.get_guild(gid)
-        emb = _build_season_recap_embed(guild.name if guild else "the server", just_ended, gdata)
+        guild_name = guild.name if guild else "the server"
+        emb = _build_season_recap_embed(guild_name, just_ended, gdata)
         if emb is not None:
             embeds[gid] = emb
+        trophy_emb = _build_trophy_embed(guild_name, just_ended, gdata)
+        if trophy_emb is not None:
+            trophy_embeds[gid] = trophy_emb
+            guild_data[gid] = gdata
 
     server_optin: dict[int, bool] = {}
+    awarded_guilds: set[int] = set()
     sent = 0
     try:
         async for ch in Channel.all():
@@ -5170,7 +5276,20 @@ async def _broadcast_season_recap() -> int:
                     server_optin[gid] = _season_announce_enabled(server)
                 if not server_optin[gid]:
                     continue
+                # Award trophies once per guild, gated on opt-in so opted-out
+                # servers neither announce nor award.
+                if gid in trophy_embeds and gid not in awarded_guilds:
+                    try:
+                        await _award_season_trophies(just_ended, gid, guild_data[gid])
+                    except Exception:
+                        logging.exception("season trophy award failed for guild %s", gid)
+                    awarded_guilds.add(gid)
                 await ch_obj.send(embed=embeds[gid])
+                if gid in trophy_embeds:
+                    try:
+                        await ch_obj.send(embed=trophy_embeds[gid])
+                    except Exception:
+                        logging.exception("trophy embed send failed for channel %s", ch.channel_id)
                 sent += 1
                 await asyncio.sleep(0.1)
             except Exception:
@@ -9047,6 +9166,12 @@ async def catprofile(message: discord.Interaction, person_id: Optional[discord.U
     embedVar.add_field(name="🔥 Streak", value=f"{streak:,}", inline=True)
     embedVar.add_field(name="🎲 Pig", value=f"{person.best_pig_score:,}", inline=True)
     embedVar.add_field(name="🍪 Cookies", value=f"{person.cookies:,}", inline=True)
+
+    # Row 4 — season trophies (only shown if the player has any; full-width row
+    # so the 3x3 grid above stays clean)
+    trophies_text = _format_season_trophies(getattr(person, "season_trophies", None))
+    if trophies_text:
+        embedVar.add_field(name="🏆 Season Trophies", value=trophies_text, inline=False)
 
     await message.followup.send(embed=embedVar)
 

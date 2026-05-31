@@ -58,6 +58,10 @@ Servers can opt out via `/settings` → **season announcements** toggle, which m
 
 These counters and `season_stat_baseline` require migration 022. Code paths that write the counters use a `_bump()` guard (catches `KeyError` on missing columns) and snapshot/broadcast paths call `_recap_columns_present()` (a probe-read cached on `config`) to no-op cleanly on an un-migrated database.
 
+**Season trophies.** Three of the recap categories — `earner` (most coins earned), `cats` (most cats caught), `heists` (most heists completed) — also award **permanent trophies** to their top 3 finishers per server. When `_broadcast_season_recap()` posts a guild's recap embed, it also (a) writes a record `{"season": N, "category": ..., "rank": 1|2|3}` to each winner's `profile.season_trophies` (JSONB, migration 024), and (b) posts a second "🏆 Season N Champions" embed naming the winners with 🥇🥈🥉 medals. Trophies are append-only and never expire; they render on `/catprofile` as a compact medal list sorted newest-season-first (with overflow at 12 entries). The award and the ceremony embed both gate on the guild's `season_announcements` opt-in, so an opted-out server gets neither — keeping the silent-trophy case from ever existing. Idempotency: before appending to `season_trophies`, the writer checks for an existing `(season, category, rank)` match, so a crash-and-replay mid-broadcast doesn't duplicate trophies. Servers with fewer than 3 active players in a category award fewer medals (top 1 or 2, or none if no one earned anything).
+
+**Design intent:** the recap leaderboard is a snapshot — interesting for a minute, then forgotten. Trophies are the *receipt*: a player who finishes top 3 in their server walks away with something they can show off on their profile card forever. The three categories are deliberately drawn from the three core gameplay axes (economy, catching, mafia jobs) so different play styles can each chase a different medal. The medal collection becomes the long-term motivator that the monthly wipe otherwise erases.
+
 **Design intent:** monthly cadence is short enough to feel achievable but long enough that missing a few days isn't catastrophic. The reset is full on the active-economy axis (coins + catnip + jobs + packs) so every player starts the month on the same baseline; collection assets (cats, prisms, stocks, aches) accumulate forever because that's a separate dimension of progression that shouldn't be punished for playing long.
 
 ## Level rewards
@@ -95,23 +99,27 @@ XP range: ~120–350.
 
 Added in May 2026 to replace the retired vote quest. Defined under `quests.extra`. Current options:
 
-| Quest | Reward | Gating |
+| Quest | Reward | Description / Gating |
 | --- | --- | --- |
-| `catnip_session` | ~280–340 XP | requires catnip unlocked (level ≥ 1) |
-| `casino` | ~180–240 XP × 3 | 3 different games of {slots, catslots, roulette, pig, cookieclicker} |
+| `catnip_session` | ~280–340 XP | activate `/catnip` once; requires catnip unlocked (skipped in `generate_quest` if `catnip_level == 0`) |
+| `casino` | ~180–240 XP × 3 | 3 different games of {slots, catslots, roulette, pig, cookieclicker} (progress=3, tracked via `casino_progress_temp` bitmask) |
 | `social` | ~220–290 XP | one /gift or /trade with another player |
-| `sacrifice` | **dynamic** (25–300, hidden) | gift the bot a cat; XP scales with cat rarity |
+| `sacrifice` | **dynamic** (25–300, hidden) | /gift the bot a cat; XP scales with cat rarity |
 | `gift3` | ~320–380 XP | /gift 3 *distinct* players in a single quest cycle |
+| `job_easy` | ~200–280 XP | complete any mafia job (Tier 1+); implicitly gated on catnip ≥ 2 (T1 job requirement) |
+| `job_hard` | ~360–420 XP | complete a Tier 4+ mafia job; implicitly gated on catnip ≥ 8 (T4 job requirement) |
+| `store_buy` | ~240–300 XP | buy any cat from `/catstore` |
+| `store_sell` | ~220–280 XP | sell any cat to `/catstore` |
+| `store_spree` | ~320–400 XP | spend ≥ 5,000 coins on a single `/catstore` purchase |
+| `perk_user` | ~220–280 XP | have a job perk active when the trigger fires; implicitly gated on having received at least one job perk drop |
 
-**Design intent:** the extra slot is the *novel-mechanic* slot — quests here probe parts of the bot that catch/misc don't cover (catnip, social, casino variety). The `sacrifice` quest is intentionally opaque: users see "reward depends on the cat" and don't see the per-cat table. This creates a small thrill of "which cat is worth sacrificing" without turning into a spreadsheet exercise.
+**Design intent:** the extra slot is the *novel-mechanic* slot — quests here probe parts of the bot that catch/misc don't cover (catnip, social, casino variety, jobs, the Cat Store). The `sacrifice` quest is intentionally opaque: users see "reward depends on the cat" and don't see the per-cat table. This creates a small thrill of "which cat is worth sacrificing" without turning into a spreadsheet exercise.
 
 The sacrifice XP table caps at **300 even when multiplied by amount**, so gifting 100 Fine cats is the same 300 XP as gifting one eGirl. This prevents farm-spamming.
 
 The `gift3` quest tracks distinct recipients in `profile.gift3_recipients` (comma-separated IDs). The field is cleared on quest completion and on season rollover, mirroring `casino_progress_temp`. Gifting the bot itself does not count.
 
-> **RESOLVED:** `extra` now has 5 candidate quests. The eligibility-gating concern from the original TODO is still worth monitoring: `catnip_session` remains the only quest gated on catnip access, so users without catnip will draw from the other 4. No weighting has been added yet; flag if the rotation distribution becomes a complaint.
->
-> (Original TODO: if `extra` adds a 5th candidate quest, watch the rotation distribution — with 4 candidates, eligibility-gated quests (catnip_session) effectively become the only choice for non-catnip-unlocked users. Consider weighting.)
+> **TODO(design):** `job_easy`, `job_hard`, and `perk_user` have no eligibility skips in `generate_quest` even though they have implicit prerequisites (catnip ≥ 2, catnip ≥ 8, and "has ever received a job perk" respectively). A player who rolls one of these without the prereq can't progress until they hit the gate — the quest just sits in the slot. This may be intentional (a soft nudge toward those systems) or an oversight; decide whether to add skip rules (mirroring the `catnip_session` skip) or document this as the intended "the bot tells you what to try next" behavior.
 
 ### Challenge slot
 

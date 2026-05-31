@@ -7,7 +7,7 @@ Cat Bot's economy is built around **per-server cat inventories**, **packs as the
 Cats are weighted by `type_dict` in `main.py`. The weight is *inverse rarity* — higher weight = more common.
 
 - The current rarity ladder spans **Fine (most common, weight 1000)** to **eGirl (rarest, weight 2)**.
-- "Value" of a cat type is `sum(type_dict.values()) / type_dict[type]`. This is what trade/gift/inventory valuations use.
+- "Value" of a cat type is `sum(type_dict.values()) // type_dict[type]` (integer division). This is what trade/gift/inventory valuations use.
 - Catches are per-server, not per-user. A user who plays in 10 servers has 10 independent inventories — this is core to the social loop.
 
 **Design intent:** the ladder is roughly logarithmic. Rarer-than-Mythic is "trophy tier" — the bot is in 200k+ servers and Ultimates / eGirls should remain genuinely scarce. Don't introduce a new mid-rarity that compresses the gap; introduce it at the tails.

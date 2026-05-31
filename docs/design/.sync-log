@@ -48,3 +48,7 @@
 2026-05-30 00:00  economy.md      updated prism first-craft cost 5,000 -> 1,000; formula updated to show first= branch (re: main.py + config/tuning.json)
 2026-05-30 00:00  (all docs)      no change: /inventory embed coin display line is UX-only; all mechanics in diff (pack coin variant, paid board reroll) already documented (re: main.py)
 2026-05-30 00:00  (all docs)     no change — main.py edit was a LayoutView/content= rendering bug fix in jobs _say helper; no mechanic, schema, or design-doc-tracked concept changed (re: main.py)
+2026-05-30 12:00  economy.md      fixed cat_value formula: / -> // (integer division, matches main.py cat_value() impl) (re: full audit)
+2026-05-30 12:00  battlepass.md   STALE marker added: extra slot table lists 5 quests; config/battlepass.json has 11 (job_easy, job_hard, store_buy, store_sell, store_spree, perk_user undocumented; gating gaps noted) (re: full audit)
+2026-05-30 14:00  battlepass.md   verified accurate: "Season trophies" subsection (human-authored) matches TROPHY_CATEGORIES, _award_season_trophies, _build_trophy_embed, _format_season_trophies, _broadcast_season_recap; schema.sql season_trophies JSONB column present (migration 024); no edits required (re: main.py + schema.sql)
+2026-05-30 14:00  (all other docs) no change: season trophies feature does not affect catnip/economy/achievements/jobs design claims (re: main.py + schema.sql)

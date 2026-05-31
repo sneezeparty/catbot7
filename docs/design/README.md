@@ -15,6 +15,7 @@ Read these when:
 | [battlepass.md](battlepass.md) | Seasons, five quest slots, level rewards, XP curves |
 | [catnip.md](catnip.md) | Catnip levels, bounties, perks, hibernation, decay |
 | [achievements.md](achievements.md) | Trigger engine vs hardcoded grants, unlock storage, balance |
+| [jobs.md](jobs.md) | Mafia jobs, NPCs, heat & pinch, respect, board reroll, perks |
 
 ## Conventions
 

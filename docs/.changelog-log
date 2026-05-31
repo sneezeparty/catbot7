@@ -68,3 +68,6 @@
 2026-05-30 00:00  Changed: "First-prism craft discounted to 1,000 coins (was 5,000); escalating schedule unchanged from 2nd prism onward" (re: main.py, config/tuning.json)
 2026-05-30 00:00  Added: "/inventory coin balance line — 🪙 Coins: N,NNN between Cats and Prisms in gen_inventory embed" (re: main.py)
 2026-05-30 00:00  Fixed: "/jobs board crash on empty/locked re-render — _say now uses LayoutView(Container(text)) instead of content=" (re: main.py)
+2026-05-30 00:00  Fixed: "/jobs board Prev/Next pagination buttons mis-routed through defer(); removed to use edit_message path" (re: main.py — audit catch, 0.6.8 gap)
+2026-05-30 00:00  Internal: "Migration 021_season_announcements.py — server.season_announcements column backing /settings Season Announcements toggle" (re: migrations/021_season_announcements.py — audit catch, 0.6.7 gap)
+2026-05-30 00:00  Added: "Season Trophies — permanent top-3 trophies per server at rollover, shown on /catprofile + Champions embed in-channel" (re: main.py, schema.sql)

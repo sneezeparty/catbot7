@@ -6,17 +6,15 @@ Achievements are persistent per-(user, server) unlockables. They're the bot's di
 
 Defined in `config/aches.json`. Each ach has a category, title, description, and (optionally) an `xp` field for battlepass XP on unlock.
 
-Categories (heuristic, not enforced):
-- **Catching** — catch counts, specific rarities, time-based.
-- **Catnip** — mafia-loop unlocks.
-- **Casino** — slots/roulette/pig milestones.
-- **Hidden** — Easter eggs and weird message triggers.
-- **Social** — gifting, trading, blessing.
-- **Misc** — everything else.
+Categories (heuristic, not enforced; counts as of writing):
+- **Cat Hunt** (~23) — catch milestones, rarity firsts, donator/gifter recognition. The on-ramp set every player accumulates just by playing.
+- **Commands** (~34) — "you used `/randomizer`", "you brewed coffee", "you read /news". Rewards command discovery; the biggest single bucket.
+- **Hard** (~33) — feats that take effort or luck: gambling streaks, max-party Catstore monsoons, prism crafting milestones, etc. The "I went out of my way" tier.
+- **Random** (~18) — situational triggers nobody plans for: pineapple-react, getting DMed, being the only catcher in a server, etc.
+- **Silly** (~24) — meme/joke triggers ("nice", "that's rude", "nerd"). Personality, not progress.
+- **Hidden** (~26) — Easter eggs and weird message triggers that should feel like secret discoveries.
 
-`Hidden` category aches don't count toward the "have 30 achs" misc quest threshold, on purpose — those should feel like secret discoveries.
-
-> **STALE:** the category names above no longer match `config/aches.json`. The actual categories in the file are `Cat Hunt`, `Commands`, `Hard`, `Random`, `Silly`, and `Hidden`. The list above (`Catching`, `Catnip`, `Casino`, `Social`, `Misc`) is from an older naming scheme. The `Hidden` exclusion from the 30-ach quest threshold still holds (backed by the `ach_list[k]["category"] != "Hidden"` check in `main.py`), but all the other category names and their descriptions should be rewritten to match the current config.
+`Hidden` category aches don't count toward the "have 30 achs" misc-quest threshold (`unlocked > 30` skip in `generate_quest`), and the `/achievements` browser hides their entries until unlocked. Both checks live behind the same `ach_list[k]["category"] == "Hidden"` predicate; renaming the `Hidden` category would silently break them.
 
 ## Storage
 

@@ -165,6 +165,7 @@ JSONB_FIELDS = [
     "faction_rep",              # JSONB dict[npc_key -> int]; per-NPC reputation (jobs system)
     "job_perks",                # JSONB list of active mafia-reward perks; writer is main._perks_grant
     "season_stat_baseline",     # JSONB dict snapshot of bigint counters at season rollover; used to compute per-season deltas
+    "season_trophies",          # JSONB list of {season, category, rank} trophy records; append-only, written by _award_season_trophies at rollover
 ]
 
 

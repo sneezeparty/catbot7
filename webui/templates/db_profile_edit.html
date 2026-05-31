@@ -73,7 +73,8 @@
     <code>discovered_cats</code> tracks rarity names ever owned; <code>store_purchased_rarities</code> backs
     the <em>Compulsive Shopper</em> achievement. <code>season_stat_baseline</code> is a snapshot of the bigint
     stat counters captured at each season rollover — per-season recap deltas are computed as
-    <code>lifetime_counter - baseline[key]</code>.
+    <code>lifetime_counter - baseline[key]</code>. <code>season_trophies</code> is an append-only list of
+    <code>{season, category, rank}</code> records awarded at season rollover by <code>_award_season_trophies</code>.
   {% endset %}
   {% include "partials/_help.html" %}
   <table class="editor-table">

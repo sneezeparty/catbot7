@@ -219,6 +219,10 @@ SECTIONS: dict[str, dict] = {
             ("profile.stock_coins_earned", "main._bump() — cumulative proceeds from stock sells; INT_FIELDS"),
             ("profile.stock_coins_spent", "main._bump() — cumulative spend on stock buys; INT_FIELDS"),
             ("profile.season_stat_baseline", "main._capture_season_recap_snapshot() — JSONB snapshot at season rollover; JSONB_FIELDS (view-only)"),
+            # season_trophies — append-only JSONB list of {season:int, category:"earner"|"cats"|"heists", rank:1|2|3}
+            # records. Written by _award_season_trophies() at season rollover. Shown view-only in JSONB_FIELDS.
+            # Admin should not edit; mismatches between list entries would silently corrupt a player's trophy shelf.
+            ("profile.season_trophies", "main._award_season_trophies() — append-only trophy list; JSONB_FIELDS (view-only)"),
         ],
     },
     "user_table": {

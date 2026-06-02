@@ -130,3 +130,5 @@ Cat Bot is licensed under the GNU Affero General Public License v3.0. See `LICEN
 `catpg.py`, the custom `asyncpg` wrapper, is licensed under MIT. License text is at the top of that file.
 
 Fork modifications are Copyright © 2026 sneezeparty, released under the same AGPL v3. The original upstream copyright notices are preserved in the source file headers as the license requires.
+
+This codebase is a fork of [milenakos/cat-bot](https://github.com/milenakos/cat-bot) by Lia Milenakos — the original, public Cat Bot. Huge thanks to Lia and the Cat Bot contributors for building and open-sourcing it.

@@ -8,7 +8,7 @@ background loop every ~5 min if deleted.
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 # The bot's own profile row uses guild_id=0 / user_id=bot.user.id.
 # We surface the bot's profile id in the template so admins can see which
@@ -43,6 +43,7 @@ async def index(request):
             )
             if mm_row:
                 mm_user_id = mm_row["id"]
+    unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
     return aiohttp_jinja2.render_template(
         "db_order.html",
         request,
@@ -54,6 +55,7 @@ async def index(request):
             "by_ticker": by_ticker,
             "mm_user_id": mm_user_id,
             "MM_TIME": _MM_TIME_SENTINEL,
+            "unames": unames,
         },
     )
 

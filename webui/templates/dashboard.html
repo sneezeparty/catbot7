@@ -3,7 +3,7 @@
 <section class="dashboard">
   {% set eyebrow = "overview" %}
   {% set heading = "Dashboard" %}
-  {% set lede    = "Live state, pending edits, and activity across the bot." %}
+  {% set lede    = "Live state and activity across the bot." %}
   {% include "partials/_section_header.html" %}
 
   {# ============================ system cards (existing) ============================ #}
@@ -38,19 +38,13 @@
     </article>
 
     <article class="card">
-      <h2>Unsaved edits</h2>
-      {% if dirty_total %}
-        <p class="metric danger">{{ dirty_total }}</p>
-        <ul class="kv">
-          {% for k, v in dirty.items() %}
-            <li><span>{{ k }}</span><strong>{{ v }}</strong></li>
-          {% endfor %}
-        </ul>
-        <p class="muted">Click <em>Reload Bot</em> in the header to apply.</p>
-      {% else %}
-        <p class="metric">0</p>
-        <p class="muted">Nothing pending.</p>
-      {% endif %}
+      <h2>Live ops</h2>
+      <ul class="kv">
+        <li><span>Cats spawned now</span><strong>{{ counts.get('live_spawns', 0) }}</strong></li>
+        <li><span>Active rains</span><strong>{{ counts.get('active_rains', 0) }}</strong></li>
+        <li><span>Pending job offers</span><strong>{{ counts.get('pending_jobs', 0) }}</strong></li>
+      </ul>
+      <p class="muted"><a href="/activity">live activity →</a></p>
     </article>
   </div>
 
@@ -138,7 +132,7 @@
       {% for u in leaderboard %}
         <tr>
           <td class="numeric">{{ loop.index }}</td>
-          <td><span class="name">{{ u.user_id }}</span></td>
+          <td><span class="name">{{ unames.get(u.user_id, u.user_id) }}</span><span class="id-sub">{{ u.user_id }}</span></td>
           <td class="numeric">{{ "{:,}".format(u.catches) }}</td>
           <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (u.catches / top_catches * 100)|round(1) }}%"></div></div></td>
         </tr>
@@ -165,8 +159,8 @@
 <script>
 (function () {
   const palette = [
-    "#e6ad55", "#d06650", "#7dba6e", "#c98c64", "#8ba668",
-    "#b07a3a", "#bb8e5a", "#a08454", "#97784e", "#73895a", "#604f33"
+    "#ffc94d", "#34d6c0", "#ff6fae", "#6fe06f", "#a78bfa",
+    "#ff9d4d", "#56b8ff", "#ff7a6b", "#ffd866", "#7ee0c0", "#c9a7ff"
   ];
   function readData() {
     try { return JSON.parse(document.getElementById("dash-data").textContent); }
@@ -183,7 +177,7 @@
         datasets: [{
           data,
           backgroundColor: labels.map((_, i) => palette[i % palette.length]),
-          borderColor: "#14100b",
+          borderColor: "#14121c",
           borderWidth: 2,
           hoverOffset: 8
         }]
@@ -196,7 +190,7 @@
           legend: {
             position: "right",
             labels: {
-              color: "#c9b791",
+              color: "#c4bce0",
               font: { family: "'IBM Plex Sans', sans-serif", size: 12 },
               boxWidth: 12,
               boxHeight: 12,
@@ -204,10 +198,10 @@
             }
           },
           tooltip: {
-            backgroundColor: "#1d1812",
-            titleColor: "#f4ead0",
-            bodyColor: "#f4ead0",
-            borderColor: "#3d2e1c",
+            backgroundColor: "#1c1928",
+            titleColor: "#f4f1ff",
+            bodyColor: "#f4f1ff",
+            borderColor: "#3d3658",
             borderWidth: 1,
             titleFont: { family: "'IBM Plex Sans', sans-serif", weight: "600" },
             bodyFont:  { family: "'IBM Plex Mono', monospace" },
@@ -229,11 +223,11 @@
         datasets: [{
           label: "prisms created",
           data: entries.map(([, n]) => n),
-          backgroundColor: "rgba(230, 173, 85, 0.55)",
-          borderColor: "#e6ad55",
+          backgroundColor: "rgba(255, 201, 77, 0.55)",
+          borderColor: "#ffc94d",
           borderWidth: 1,
           borderRadius: 4,
-          hoverBackgroundColor: "#e6ad55"
+          hoverBackgroundColor: "#ffc94d"
         }]
       },
       options: {
@@ -242,10 +236,10 @@
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: "#1d1812",
-            titleColor: "#f4ead0",
-            bodyColor: "#f4ead0",
-            borderColor: "#3d2e1c",
+            backgroundColor: "#1c1928",
+            titleColor: "#f4f1ff",
+            bodyColor: "#f4f1ff",
+            borderColor: "#3d3658",
             borderWidth: 1,
             padding: 10,
             titleFont: { family: "'IBM Plex Mono', monospace", weight: "500" },
@@ -254,13 +248,13 @@
         },
         scales: {
           x: {
-            ticks: { color: "#8a7553", font: { family: "'IBM Plex Mono', monospace", size: 11 } },
-            grid:  { color: "rgba(244, 234, 208, 0.04)" }
+            ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } },
+            grid:  { color: "rgba(244, 241, 255, 0.05)" }
           },
           y: {
             beginAtZero: true,
-            ticks: { color: "#8a7553", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 },
-            grid:  { color: "rgba(244, 234, 208, 0.04)" }
+            ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 },
+            grid:  { color: "rgba(244, 241, 255, 0.05)" }
           }
         }
       }

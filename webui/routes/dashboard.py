@@ -6,7 +6,7 @@ import datetime
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 
 # Rarity columns on profile (preserves quoted-identifier capitalization).
@@ -77,6 +77,12 @@ async def index(request):
             counts["active_rains"] = await conn.fetchval(
                 "SELECT COUNT(*) FROM channel WHERE rain_should_end > $1", now
             )
+            counts["live_spawns"] = await conn.fetchval(
+                "SELECT COUNT(*) FROM channel WHERE cat <> 0"
+            )
+            counts["pending_jobs"] = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobinstance WHERE state = 'offered'"
+            )
 
             row = await conn.fetchrow(
                 """
@@ -137,6 +143,7 @@ async def index(request):
             leaderboard = [{"user_id": r["user_id"], "catches": int(r["catches"] or 0)} for r in top]
 
     bot = state.get_bot()
+    unames = await names.resolve_users(bot, [u["user_id"] for u in leaderboard])
 
     # Trim distributions for legibility
     rarities_trimmed = _topN_with_other(rarities, n=10)
@@ -155,13 +162,12 @@ async def index(request):
             "packs": packs_trimmed,
             "prism_history": prism_history,
             "leaderboard": leaderboard,
+            "unames": unames,
             "guild_count": len(bot.guilds) if bot else 0,
             "shard_count": getattr(bot, "shard_count", None) if bot else None,
             "hard_restart": state.get_hard_restart_time(),
             "soft_restart": state.get_soft_restart_time(),
             "uptime": state.uptime_seconds(),
-            "dirty": state.get_dirty(),
-            "dirty_total": state.get_dirty_total(),
         },
     )
 

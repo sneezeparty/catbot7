@@ -33,9 +33,11 @@ case "$rel" in
   webui/*|.claude/*) exit 0;;
 esac
 
-# Trigger list.
+# Trigger list. (Config JSON files are intentionally NOT here: the webui is
+# read-only now and no longer edits them — only code/schema changes can break a
+# dashboard query.)
 case "$rel" in
-  main.py|bot.py|config.py|catpg.py|database.py|schema.sql|config/aches.json|config/battlepass.json|config/catnip.json|config/tuning.json)
+  main.py|bot.py|config.py|catpg.py|database.py|schema.sql)
     mkdir -p "$ROOT/webui"
     # Append unique entry.
     if ! grep -Fxq "$rel" "$PENDING" 2>/dev/null; then

@@ -1,15 +1,14 @@
-"""Profile table — per user-per-guild state.
+"""Profile table (read-only) — per user-per-guild state.
 
-Massive table (~315 columns). UI surfaces a curated edit set for the
-gameplay-relevant fields and a read-only view of everything else.
-
-Edits acquire FOR UPDATE because gameplay writes to profiles every catch.
+Massive table (~315 columns). The detail view groups the gameplay-relevant
+fields into readable sections and dumps the rest in an "all columns" details
+block. Nothing here mutates the row.
 """
 
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 INT_FIELDS = [
     # Progression
@@ -192,6 +191,7 @@ async def index(request):
         )
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
+    unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
     return aiohttp_jinja2.render_template(
         "db_profile_search.html",
         request,
@@ -201,6 +201,7 @@ async def index(request):
             "rows": rows,
             "q_user": q_user,
             "q_guild": q_guild,
+            "unames": unames,
         },
     )
 
@@ -230,8 +231,9 @@ async def detail(request):
                 row_dict[jf] = []
         elif raw is None:
             row_dict[jf] = []
+    unames = await names.resolve_users(state.get_bot(), [user_id])
     return aiohttp_jinja2.render_template(
-        "db_profile_edit.html",
+        "db_profile_detail.html",
         request,
         {
             "title": f"Profile {user_id}@{guild_id}",
@@ -241,44 +243,11 @@ async def detail(request):
             "str_fields": STR_FIELDS,
             "bool_fields": BOOL_FIELDS,
             "jsonb_fields": JSONB_FIELDS,
+            "unames": unames,
         },
     )
-
-
-async def update(request):
-    user_id = int(request.match_info["user_id"])
-    guild_id = int(request.match_info["guild_id"])
-    field = request.match_info["field"]
-    if field not in INT_FIELDS + STR_FIELDS + BOOL_FIELDS:
-        return web.Response(status=400, text="field not editable")
-    form = await request.post()
-    raw = form.get("value", "")
-    pool = state.get_pool()
-    if pool is None:
-        return web.Response(status=503)
-    try:
-        if field in INT_FIELDS:
-            new_value = int(raw)
-        elif field in BOOL_FIELDS:
-            new_value = raw.lower() in ("1", "true", "on", "yes")
-        else:
-            new_value = raw
-    except ValueError:
-        return web.Response(status=400, text="invalid value")
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute(
-                "SELECT 1 FROM profile WHERE user_id = $1 AND guild_id = $2 FOR UPDATE",
-                user_id, guild_id,
-            )
-            await conn.execute(
-                f'UPDATE profile SET "{field}" = $1 WHERE user_id = $2 AND guild_id = $3',
-                new_value, user_id, guild_id,
-            )
-    return web.Response(text=f"saved {field}")
 
 
 def register(app: web.Application) -> None:
     app.router.add_get("/db/profile", index)
     app.router.add_get(r"/db/profile/{user_id:\d+}/{guild_id:\d+}", detail)
-    app.router.add_post(r"/db/profile/{user_id:\d+}/{guild_id:\d+}/{field:[A-Za-z0-9_]+}", update)

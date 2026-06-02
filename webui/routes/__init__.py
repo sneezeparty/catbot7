@@ -1,37 +1,33 @@
-"""Route registration. Add new sections here."""
+"""Route registration. Read-only dashboard + DB browsers — no mutations."""
 
 from aiohttp import web
 
 from webui.routes import (
-    actions,
-    battlepass,
-    catnip,
+    activity,
     channel_table,
     commands,
     dashboard,
-    jobs,
-    jobs_help,
+    economy,
+    leaderboards,
     order_table,
     prism_table,
     profile_table,
     server_table,
-    tuning,
     user_table,
 )
 
 
 def register(app: web.Application) -> None:
+    # Insights
     dashboard.register(app)
-    tuning.register(app)
-    battlepass.register(app)
-    catnip.register(app)
-    jobs.register(app)
-    jobs_help.register(app)
+    activity.register(app)
+    economy.register(app)
+    leaderboards.register(app)
     commands.register(app)
+    # Database (read-only browsers)
     server_table.register(app)
     channel_table.register(app)
     profile_table.register(app)
     user_table.register(app)
     prism_table.register(app)
     order_table.register(app)
-    actions.register(app)

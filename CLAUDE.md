@@ -100,17 +100,19 @@ Aches *without* a `trigger` field are still awarded by hand-written `achemb(...)
 
 ### Admin webui (`webui/`)
 
-A second aiohttp server bound to **`127.0.0.1:9445`** (distinct from the public top.gg webhook server on `0.0.0.0:8069`). Localhost-only and **unauthenticated** — never change the bind to `0.0.0.0`; the UI edits live game state and JSON configs. Mounted from `bot.py` setup_hook so it survives `cat!restart`.
+A second aiohttp server bound to **`127.0.0.1:9445`** (distinct from the public top.gg webhook server on `0.0.0.0:8069`). Localhost-only and **unauthenticated** — never change the bind to `0.0.0.0`. It is a **read-only activity dashboard**: every route is a GET, and nothing in `webui/` mutates game state or configs. (It used to be a full editor; the editing surface — config-editor sections, DB toggles/field edits, `validators.py`, `io_locks.py`, the Reload Bot action — was removed.) Mounted from `bot.py` setup_hook so it survives `cat!restart`.
 
-Reload-safety pattern: webui modules **must not** do `from main import X` at import time, because `main` is unloaded/reimported on `cat!restart`. Instead, `webui/state.py` exposes lazy accessors (`get_main()`, `get_pool()`, `get_catnip()`, `get_tuning()`, …) that resolve to the live module on each call. `webui.state.init(bot)` is called once from `build_app`.
+Sections are two groups: **Insights** (Overview `/`, Activity `/activity`, Economy `/economy`, Leaderboards `/leaderboards`, Commands `/commands`) and **Database** read-only browsers (Servers, Channels, Profiles, Users, Prisms, Orders under `/db/*`). Charts are client-side Chart.js (loaded in `base.html`); the visual system lives in `webui/static/app.css`.
 
-Section layout is declared in `webui/manifest.py` — a dict mapping section name → `{source, routes, templates, references}`. The `references` list encodes cross-section invariants (e.g. "deleting a battlepass quest is blocked if any `profile.catch_quest` still points to it"); save handlers consult these to refuse breaking edits.
+Reload-safety pattern: webui modules **must not** do `from main import X` at import time, because `main` is unloaded/reimported on `cat!restart`. Instead, `webui/state.py` exposes lazy accessors (`get_main()`, `get_bot()`, `get_pool()`, `get_hard_restart_time()`, `uptime_seconds()`, …) that resolve to the live module on each call. `webui.state.init(bot)` is called once from `build_app`.
+
+Section layout is declared in `webui/manifest.py` — a dict mapping section name → `{source, routes, templates, data_sources}`. The `data_sources` list records the tables, columns, and helper functions each page's read queries depend on, so the `webui-sync` agent can detect when a schema/model change would break a dashboard query.
 
 ### `webui-sync` subagent and edit hook
 
-`.claude/hooks/webui-sync-on-edit.sh` is a `PostToolUse` hook that records edits to bot-surface files (the list in `webui/manifest.py:TRIGGER_PATHS`: `main.py`, `bot.py`, `config.py`, `catpg.py`, `database.py`, `schema.sql`, the four `config/*.json` files) by appending them to `webui/.sync-pending`. On the next turn, the `webui-sync` subagent reads that file, diffs the current state against `webui/manifest.py`, and updates templates/routes/manifest to keep the admin panel in sync — then clears `.sync-pending` and appends a one-line entry to `webui/.sync-log`.
+`.claude/hooks/webui-sync-on-edit.sh` is a `PostToolUse` hook that records edits to bot-surface files (the list in `webui/manifest.py:TRIGGER_PATHS`: `main.py`, `bot.py`, `config.py`, `catpg.py`, `database.py`, `schema.sql` — **no longer the `config/*.json` files**, since the read-only dashboard doesn't edit them) by appending them to `webui/.sync-pending`. On the next turn, the `webui-sync` subagent reads that file, diffs the current state against `webui/manifest.py`, and keeps the dashboard's read queries + read-only DB browsers aligned with schema/model/command changes — fixing broken aggregates, surfacing new columns, scaffolding a read-only viewer for a new `Model`, mirroring new stock tickers / job states — then clears `.sync-pending` and appends a one-line entry to `webui/.sync-log`.
 
-Hard rules for the subagent: it only writes inside `webui/`, never touches bot code, never restarts the bot, never deletes a section without confirmation. If you're editing bot-surface files and `.sync-pending` is non-empty, expect the agent to run on the next turn (or invoke it explicitly with `/sync-webui`).
+Hard rules for the subagent: it only writes inside `webui/`, never touches bot code, never restarts the bot, never deletes a section without confirmation, and **never adds a mutation route or edit form** (the dashboard is read-only). If you're editing bot-surface files and `.sync-pending` is non-empty, expect the agent to run on the next turn (or invoke it explicitly with `/sync-webui`).
 
 ### Other sync subagents
 

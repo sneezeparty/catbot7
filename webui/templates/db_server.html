@@ -3,11 +3,11 @@
 <section>
   {% set eyebrow = "db / server" %}
   {% set heading = "Server settings" %}
-  {% set lede    = "Per-guild feature toggles. Edits go straight to the table — no reload needed." %}
+  {% set lede    = "Per-guild feature toggles, read-only." %}
   {% include "partials/_section_header.html" %}
 
   {% set body %}
-    Toggles flip directly against the live <code>server</code> table. Showing up to 200 rows.
+    A read-only view of per-guild feature flags on the <code>server</code> table. Showing up to 200 rows.
   {% endset %}
   {% include "partials/_help.html" %}
 
@@ -26,7 +26,15 @@
       </thead>
       <tbody>
         {% for row in rows %}
-          {% include "db_server_row.html" %}
+          <tr>
+            <td><span class="name">{{ guild_name(row.server_id) }}</span><span class="id-sub">{{ row.server_id }}</span></td>
+            {% for t in toggles %}
+              <td>
+                {% if row[t] %}<span class="flag flag-on">on</span>
+                {% else %}<span class="flag flag-off">off</span>{% endif %}
+              </td>
+            {% endfor %}
+          </tr>
         {% endfor %}
       </tbody>
     </table>

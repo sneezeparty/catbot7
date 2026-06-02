@@ -23,8 +23,8 @@
       <tbody>
         {% for r in rows %}
           <tr>
-            <td><span class="name">{{ r.user_id }}</span></td>
-            <td><span class="name">{{ r.guild_id }}</span></td>
+            <td><span class="name">{{ unames.get(r.user_id, r.user_id) }}</span><span class="id-sub">{{ r.user_id }}</span></td>
+            <td><span class="name">{{ guild_name(r.guild_id) }}</span><span class="id-sub">{{ r.guild_id }}</span></td>
             <td class="numeric">{{ r.battlepass }}</td>
             <td class="numeric">{{ r.progress }}</td>
             <td class="numeric">{{ r.season }}</td>

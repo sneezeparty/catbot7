@@ -1,4 +1,4 @@
-"""Server table viewer/editor — per-guild feature toggles."""
+"""Server table viewer (read-only) — per-guild feature toggles."""
 
 import aiohttp_jinja2
 from aiohttp import web
@@ -45,28 +45,5 @@ async def index(request):
     )
 
 
-async def toggle(request):
-    server_id = int(request.match_info["id"])
-    field = request.match_info["field"]
-    if field not in TOGGLES:
-        return web.Response(status=400, text="unknown field")
-    pool = state.get_pool()
-    if pool is None:
-        return web.Response(status=503)
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM server WHERE server_id = $1", server_id)
-        if row is None:
-            return web.Response(status=404)
-        new_value = not bool(row[field])
-        await conn.execute(f'UPDATE server SET {field} = $1 WHERE server_id = $2', new_value, server_id)
-        row = await conn.fetchrow("SELECT * FROM server WHERE server_id = $1", server_id)
-    return aiohttp_jinja2.render_template(
-        "db_server_row.html",
-        request,
-        {"row": row, "toggles": TOGGLES},
-    )
-
-
 def register(app: web.Application) -> None:
     app.router.add_get("/db/server", index)
-    app.router.add_post(r"/db/server/{id:\d+}/toggle/{field:[a-z_]+}", toggle)

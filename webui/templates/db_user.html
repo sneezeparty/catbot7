@@ -3,7 +3,7 @@
 <section>
   {% set eyebrow = "db / user" %}
   {% set heading = "Users" %}
-  {% set lede    = "Global per-user state. Click a row to view + edit." %}
+  {% set lede    = "Global per-user state. Click a row to view details." %}
   {% include "partials/_section_header.html" %}
 
   <form method="get" action="/db/user" class="search-bar">
@@ -22,7 +22,7 @@
       <tbody>
         {% for u in rows %}
           <tr>
-            <td><span class="name">{{ u.user_id }}</span></td>
+            <td><span class="name">{{ unames.get(u.user_id, u.user_id) }}</span><span class="id-sub">{{ u.user_id }}</span></td>
             <td>{{ u.username }}</td>
             <td>{% if u.premium %}<span style="color:var(--amber)">✓</span>{% endif %}</td>
             <td class="numeric">{{ u.rain_minutes }}</td>

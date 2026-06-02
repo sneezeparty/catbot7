@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <a href="/db/profile" class="back-link">back to search</a>
+
+  {% set eyebrow = "db / profile" %}
+  {% set heading %}<span class="name">{{ unames.get(row.user_id, row.user_id) }}</span> <span style="color:var(--paper-muted);font-family:var(--font-mono);font-size:0.6em;font-weight:400">@</span> <span class="name">{{ guild_name(row.guild_id) }}</span>{% endset %}
+  {% include "partials/_section_header.html" %}
+  <p class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs);margin-top:calc(-1 * var(--sp-3))">{{ row.user_id }} @ {{ row.guild_id }}</p>
+
+  {% set body %}
+    Read-only snapshot of this profile row. Field groupings are defined in
+    <code>webui/routes/profile_table.py</code>.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <h2 class="section">Quest / string state</h2>
+  <table class="editor-table">
+    <tbody>
+      {% for f in str_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td>{{ row.get(f, "") }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">Numeric fields</h2>
+  <table class="editor-table">
+    <tbody>
+      {% for f in int_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td class="numeric">{{ "{:,}".format(row.get(f, 0)) if row.get(f) is number else row.get(f, 0) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">Boolean flags</h2>
+  <table class="editor-table">
+    <tbody>
+      {% for f in bool_fields %}
+        <tr>
+          <td><span class="name">{{ f }}</span></td>
+          <td>
+            {% if row.get(f) %}<span class="flag flag-on">true</span>
+            {% else %}<span class="flag flag-off">false</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section">JSONB lists <span class="heading-count">read-only</span></h2>
+  <table class="editor-table">
+    <tbody>
+      {% for jf in jsonb_fields %}
+        <tr>
+          <td><span class="name">{{ jf }}</span></td>
+          <td>
+            {% set items = row.get(jf, []) %}
+            {% if items %}
+              {% for item in items %}
+                <span class="pill">{{ item }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="muted">(empty)</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <details>
+    <summary>All columns <span class="heading-count">{{ row|length }}</span></summary>
+    <table class="editor-table">
+      <tbody>
+        {% for k, v in row.items()|sort %}
+          <tr><td><span class="name">{{ k }}</span></td><td>{{ v }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+{% endblock %}

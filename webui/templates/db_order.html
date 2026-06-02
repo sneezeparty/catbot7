@@ -53,7 +53,7 @@
           <td>{{ "BUY" if o.type_buy else "SELL" }}</td>
           <td class="numeric">{{ o.quantity }}</td>
           <td class="numeric">{{ o.price }}</td>
-          <td><span class="name">{{ o.user_id }}</span></td>
+          <td><span class="name">{{ unames.get(o.user_id, o.user_id) }}</span><span class="id-sub">{{ o.user_id }}</span></td>
           <td>
             {% if o.time == MM_TIME %}
               <span class="muted">—</span>

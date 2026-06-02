@@ -16,7 +16,7 @@
     <thead><tr><th>guild_id</th><th>count</th></tr></thead>
     <tbody>
       {% for g in by_guild %}
-        <tr><td><span class="name">{{ g.guild_id }}</span></td><td class="numeric">{{ g.n }}</td></tr>
+        <tr><td><span class="name">{{ guild_name(g.guild_id) }}</span><span class="id-sub">{{ g.guild_id }}</span></td><td class="numeric">{{ g.n }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -29,9 +29,9 @@
         <tr>
           <td class="numeric">{{ p.id }}</td>
           <td>{{ p.name }}</td>
-          <td><span class="name">{{ p.user_id }}</span></td>
-          <td><span class="name">{{ p.guild_id }}</span></td>
-          <td><span class="name">{{ p.creator }}</span></td>
+          <td><span class="name">{{ unames.get(p.user_id, p.user_id) }}</span><span class="id-sub">{{ p.user_id }}</span></td>
+          <td><span class="name">{{ guild_name(p.guild_id) }}</span><span class="id-sub">{{ p.guild_id }}</span></td>
+          <td><span class="name">{{ unames.get(p.creator, p.creator) }}</span><span class="id-sub">{{ p.creator }}</span></td>
           <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
           <td class="numeric">{{ p.catches_boosted }}</td>
         </tr>

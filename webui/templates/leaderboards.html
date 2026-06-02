@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set eyebrow = "insights" %}
+  {% set heading = "Leaderboards" %}
+  {% set lede    = "Top players across each axis, aggregated per user over all servers." %}
+  {% include "partials/_section_header.html" %}
+
+  {% set body %}
+    Each board sums (or maxes) the relevant column across a user's per-server profiles.
+    Showing the top {{ limit }} per board.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  <div class="lb-grid">
+    {% for board in boards %}
+      <article class="card">
+        <h2>{{ board.title }} <span class="heading-count">{{ board.entries|length }}</span></h2>
+        {% if board.entries %}
+          <table class="editor-table leaderboard">
+            <tbody>
+              {% for e in board.entries %}
+                <tr>
+                  <td class="numeric">{{ loop.index }}</td>
+                  <td><span class="name">{{ unames.get(e.user_id, e.user_id) }}</span><span class="id-sub">{{ e.user_id }}</span></td>
+                  <td class="numeric">{{ "{:,}".format(e.value) }}</td>
+                  <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (e.value / board.top * 100)|round(1) }}%"></div></div></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state">No data yet.</p>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,5 +1,6 @@
 # Cat Bot - A Discord bot about catching cats.
 # Copyright (C) 2026 Lia Milenakos & Cat Bot Contributors
+# Copyright (C) 2026 sneezeparty
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published

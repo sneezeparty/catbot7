@@ -3,7 +3,7 @@
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 
 async def index(request):
@@ -21,6 +21,10 @@ async def index(request):
             by_guild = await conn.fetch(
                 "SELECT guild_id, COUNT(*) AS n FROM prism GROUP BY guild_id ORDER BY n DESC LIMIT 15"
             )
+    unames = await names.resolve_users(
+        state.get_bot(),
+        [r["user_id"] for r in rows] + [r["creator"] for r in rows],
+    )
     return aiohttp_jinja2.render_template(
         "db_prism.html",
         request,
@@ -30,6 +34,7 @@ async def index(request):
             "rows": rows,
             "total": total,
             "by_guild": by_guild,
+            "unames": unames,
         },
     )
 

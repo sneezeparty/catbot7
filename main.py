@@ -1,5 +1,6 @@
 # Cat Bot - A Discord bot about catching cats.
 # Copyright (C) 2026 Lia Milenakos & Cat Bot Contributors
+# Copyright (C) 2026 sneezeparty
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published
@@ -258,8 +259,7 @@ vote_button_texts = [
 
 # various hints/fun facts
 hints = [
-    "Cat Bot has a wiki! <https://catbot.wiki>",
-    "Cat Bot is open source! <https://github.com/milenakos/cat-bot>",
+    "Cat Bot is open source! <https://github.com/sneezeparty/catbot7>",
     "View all cats and rarities with /catalogue",
     "Cat Bot's birthday is on the 21st of April",
     "Unlike the normal one, Cat's /8ball isn't rigged",
@@ -289,7 +289,6 @@ hints = [
     "Cat Bot can go offline! Don't panic if it does",
     "By default, cats spawn 1-10 minutes apart",
     "View the last catch as well as the next one with /last",
-    # RE-ENABLE WHEN VOTING IS PUBLIC: "Make sure to leave Cat Bot [a review on top.gg](<https://top.gg/bot/966695034340663367#reviews>)!",
 ]
 
 # laod the jsons
@@ -4817,7 +4816,7 @@ async def finale(message, user):
         )
         .set_author(
             name="All achievements complete!",
-            icon_url="https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/main/images/cat.png",
+            icon_url="https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/main/images/cat.png",
         )
         .set_footer(text=f"Congrats to {author_string}")
     )
@@ -5392,13 +5391,29 @@ def _spawn_eligible_type_dict() -> dict[str, int]:
 
 def _season_eligible_cattypes() -> list[str]:
     """cattypes filtered by the season gate only (no image check). Used by
-    pack-open rarity rolls, perk drops, and catnip price selection — none of
-    those send a spawn image, so missing art doesn't matter. Returns the full
-    list if no rarity_min_season config is set."""
+    pack-open rarity rolls and perk drops — places where the bot GIVES the
+    player a cat, so getting a brand-new rarity is upside, not friction.
+    Returns the full list if no rarity_min_season config is set."""
     if not RARITY_MIN_SEASON:
         return cattypes
     current_season = _season_announcement_status()[0]
     return [k for k in cattypes if RARITY_MIN_SEASON.get(k, 0) <= current_season]
+
+
+def _quest_eligible_cattypes() -> list[str]:
+    """cattypes filtered for quest/bounty/price ASSIGNMENT — strict subset of
+    _season_eligible_cattypes(). Additionally excludes rarities whose
+    `rarity_min_season` equals the current season (i.e., they debuted this
+    season). New rarities get a one-season grace period during which they
+    can spawn / be earned but can't be REQUIRED as a quest target — gives
+    players time to actually catch some before being asked to turn them in.
+    Used by set_mafia_offer (catnip price) and get_bounties (catnip
+    bounties)."""
+    base = _season_eligible_cattypes()
+    if not RARITY_MIN_SEASON:
+        return base
+    current_season = _season_announcement_status()[0]
+    return [k for k in base if RARITY_MIN_SEASON.get(k, 0) != current_season]
 
 
 async def spawn_cat(ch_id, localcat=None, force_spawn=None):
@@ -5717,12 +5732,6 @@ async def background_loop():
             await asyncio.sleep(0.2)
 
             view = View(timeout=VIEW_TIMEOUT)
-            button = Button(
-                emoji=get_emoji("topgg"),
-                label=random.choice(vote_button_texts),
-                url="https://top.gg/bot/966695034340663367/vote",
-            )
-            view.add_item(button)
 
             button = Button(label="Postpone", custom_id="vote")
             button.callback = postpone_reminder
@@ -5956,8 +5965,8 @@ async def on_ready():
 
     gen_credits = "\n".join(
         [
-            "Self-hosted instance based on Cat Bot by **Lia Milenakos**",
-            "Source: <https://github.com/milenakos/cat-bot>",
+            "Self-hosted Cat Bot instance",
+            "Source: <https://github.com/sneezeparty/catbot7>",
         ]
     )
 
@@ -7034,16 +7043,9 @@ async def on_message(message: discord.Message):
 
                     await achemb(message, "dark_market", "followup")
 
-                vote_time_user = await User.get_or_create(user_id=message.author.id)
                 if random.randint(0, 10) == 0 and user.total_catches > 50 and not user.dark_market_active:
                     button = Button(label="You see a shadow...", style=ButtonStyle.red)
                     button.callback = dark_market_cutscene
-                elif config.VOTING_ENABLED and config.WEBHOOK_VERIFY and vote_time_user.vote_time_topgg + 43200 < time.time():
-                    button = Button(
-                        emoji=get_emoji("topgg"),
-                        label=random.choice(vote_button_texts),
-                        url="https://top.gg/bot/966695034340663367/vote",
-                    )
 
                 if button:
                     view = View(timeout=VIEW_TIMEOUT)
@@ -7454,7 +7456,7 @@ async def on_guild_join(guild):
 
     # you are free to change/remove this, its just a note for general user letting them know
     unofficial_note = "**NOTE: This is an unofficial Cat Bot instance.**\n\n"
-    if not bot.user or bot.user.id == 966695034340663367:
+    if not bot.user:
         unofficial_note = ""
     try:
         if ch.permissions_for(guild.me).send_messages:
@@ -7696,7 +7698,7 @@ async def credits(message: discord.Interaction):
     await message.response.defer()
 
     embedVar = discord.Embed(title="Cat Bot", color=Colors.brown, description=gen_credits).set_thumbnail(
-        url="https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/main/images/cat.png"
+        url="https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/main/images/cat.png"
     )
 
     await message.followup.send(embed=embedVar)
@@ -7744,32 +7746,6 @@ DB Channels: `{await Channel.count():,}`
 """
 
     await message.response.send_message(embed=embed)
-
-
-@bot.tree.command(description="Confused? Check out the Cat Bot Wiki!")
-async def wiki(message: discord.Interaction):
-    embed = discord.Embed(title="Cat Bot Wiki", color=Colors.brown)
-    embed.description = "\n".join(
-        [
-            "Main Page: https://catbot.wiki/",
-            "",
-            "[Cat Bot](https://catbot.wiki/cat-bot)",
-            "[Cat Spawning](https://catbot.wiki/spawning)",
-            "[Commands](https://catbot.wiki/commands)",
-            "[Cat Types](https://catbot.wiki/cat-types)",
-            "[Cattlepass](https://catbot.wiki/cattlepass)",
-            "[Achievements](https://catbot.wiki/achievements)",
-            "[Packs](https://catbot.wiki/packs)",
-            "[Trading](https://catbot.wiki/trading)",
-            "[Gambling](https://catbot.wiki/gambling)",
-            "[Catnip](https://catbot.wiki/catnip)",
-            "[Prisms](https://catbot.wiki/prisms)",
-            "[Stocks](https://catbot.wiki/stocks)",
-        ]
-    )
-    await message.response.send_message(embed=embed)
-    profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
-    await progress(message, profile, "wiki")
 
 
 @bot.tree.command(description="Read The Cat Bot Times™️")
@@ -7990,7 +7966,6 @@ thanks for using cat bot!""",
                     # RE-ENABLE WHEN VOTING IS PUBLIC: "## cat bot is now top 5 on top.gg",
                     # RE-ENABLE WHEN VOTING IS PUBLIC: "thanks for voting",
                     # RE-ENABLE WHEN VOTING IS PUBLIC: discord.ui.MediaGallery(discord.MediaGalleryItem("https://i.imgur.com/MSZF3ly.png")),
-                    # RE-ENABLE WHEN VOTING IS PUBLIC: "also pls still [go vote](https://top.gg/bot/966695034340663367/vote) incase OwO will rebeat us!!",
                     "## yippee",
                     "===",
                     btn,
@@ -8296,7 +8271,7 @@ async def tiktok(message: discord.Interaction, text: str):
             async with session.post(
                 "https://tiktok-tts.weilnet.workers.dev/api/generation",
                 json={"text": text, "voice": "en_us_001"},
-                headers={"User-Agent": "CatBot/1.0 https://github.com/milenakos/cat-bot"},
+                headers={"User-Agent": "CatBot/1.0 https://github.com/sneezeparty/catbot7"},
             ) as response:
                 stuff = await response.json()
                 with io.BytesIO() as f:
@@ -10178,7 +10153,7 @@ async def packs(message: discord.Interaction):
 
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     view, has_special = gen_view(user)
-    description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier.\n[Chance Info](<https://catbot.minkos.lol/packs>)"
+    description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier."
     if has_special:
         description += "\n\n**Special Packs** are packs highlighted in green. Their upgrade chance is 70% instead of 30% and they start below Wooden."
     description += "\n\nClick the buttons below to start opening packs!"
@@ -10278,7 +10253,7 @@ async def battlepass(message: discord.Interaction):
                 if is_weekend:
                     description += "-# *Double Vote XP During Weekends*\n"
 
-                description += f"{get_emoji('topgg')} [Vote on Top.gg](https://top.gg/bot/966695034340663367/vote)\n"
+                description += f"{get_emoji('topgg')} Vote on Top.gg\n"
 
                 if is_weekend:
                     description += f"- Reward: ~~{user.vote_reward}~~ **{user.vote_reward * 2}** XP"
@@ -10400,13 +10375,6 @@ async def battlepass(message: discord.Interaction):
     await gen_main(message, True)
 
 
-if config.VOTING_ENABLED:
-    @bot.tree.command(description="vote for cat bot")
-    async def vote(message: discord.Interaction):
-        view = View(timeout=1)
-        button = Button(label="Vote!", url="https://top.gg/bot/966695034340663367/vote", emoji=get_emoji("topgg"))
-        view.add_item(button)
-        await message.response.send_message(view=view)
 
 
 async def stock_help(message):
@@ -12259,7 +12227,7 @@ async def catstore(message: discord.Interaction):
         body = "\n".join(body_lines)
 
         thumb_url = (
-            f"https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/"
+            f"https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/"
             f"refs/heads/main/images/spawn/{cat_type.lower()}_cat.png"
         )
 
@@ -12496,7 +12464,7 @@ async def jobs(message: discord.Interaction):
                     f"### {_jobs_npc_display(row.offered_by)}  ·  Tier {row.tier} ({tier_name})  ·  {category_label}",
                     section_body,
                     Thumbnail(
-                        f"https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/"
+                        f"https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/"
                         f"refs/heads/main/images/spawn/fine_cat.png"
                     ),
                 ),
@@ -16616,7 +16584,7 @@ async def random_cat(message: discord.Interaction):
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(
-                "https://api.thecatapi.com/v1/images/search", headers={"User-Agent": "CatBot/1.0 https://github.com/milenakos/cat-bot"}
+                "https://api.thecatapi.com/v1/images/search", headers={"User-Agent": "CatBot/1.0 https://github.com/sneezeparty/catbot7"}
             ) as response:
                 data = await response.json()
                 await message.followup.send(data[0]["url"])
@@ -16634,7 +16602,7 @@ if config.WORDNIK_API_KEY:
             try:
                 async with session.get(
                     f"https://api.wordnik.com/v4/word.json/{word}/definitions?api_key={config.WORDNIK_API_KEY}&useCanonical=true&includeTags=false&includeRelated=false&limit=69",
-                    headers={"User-Agent": "CatBot/1.0 https://github.com/milenakos/cat-bot"},
+                    headers={"User-Agent": "CatBot/1.0 https://github.com/sneezeparty/catbot7"},
                 ) as response:
                     data = await response.json()
 
@@ -16801,7 +16769,7 @@ async def set_mafia_offer(level, user):
     level_data = catnip_list["levels"][level]
     vt = level_data["cost"]
     cattype = "Fine"
-    eligible_cattypes = _season_eligible_cattypes()
+    eligible_cattypes = _quest_eligible_cattypes()
     for _ in range(100):
         cattype = random.choice(eligible_cattypes)
         value = sum(type_dict.values()) / type_dict[cattype]
@@ -16873,10 +16841,20 @@ async def get_bounties(level):
                 variation *= 10
         if bounty_type == "rarity":
             margin = 0.2
+            # Threshold rarity is constrained to quest-eligible (excludes
+            # brand-new-this-season rarities). Satisfaction set uses full
+            # cattypes order, so rarer cats — including brand-new ones —
+            # still count as "X or above" satisfiers when caught.
+            quest_eligible = set(_quest_eligible_cattypes())
             rarity_i = random.randint(2, len(cattypes) - 2)
 
             while True:
                 rarity = cattypes[rarity_i]
+                if rarity not in quest_eligible:
+                    rarity_i -= 1
+                    if rarity_i < 0:
+                        break
+                    continue
                 eligible_types = cattypes[rarity_i:]
 
                 prob = sum(type_dict[t] for t in eligible_types) / sum(type_dict.values())
@@ -16887,7 +16865,7 @@ async def get_bounties(level):
                     break
                 rarity_i -= 1
 
-            if rarity_i in used_rarities:
+            if rarity_i < 0 or rarity_i in used_rarities:
                 continue
 
             used_rarities.add(rarity_i)
@@ -16908,8 +16886,9 @@ async def get_bounties(level):
 
             bounties.append({"id": 0, "progress": 0, "cat_type": "", "amount": amount, "desc": f"Catch {amount} cats of any kind"})
         else:
-            # pick a specific cat type not already used
-            available_types = [cat for cat in cattypes if cat not in used_types]
+            # pick a specific cat type not already used; constrain to
+            # quest-eligible so brand-new-this-season rarities are skipped
+            available_types = [cat for cat in _quest_eligible_cattypes() if cat not in used_types]
             if not available_types:
                 continue
 
@@ -17679,7 +17658,7 @@ You can stop. That's okay. Seriously.
         if name == "Jeremy" and random.randint(1, 100) == 69:
             filename = "images/mafia/sus.png"
 
-        filename = "https://wsrv.nl/?url=raw.githubusercontent.com/milenakos/cat-bot/refs/heads/main/" + filename
+        filename = "https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/refs/heads/main/" + filename
 
         if not desc or desc == "\n":
             embed = Container(f"# Mafia - {rank} (Lv{level})")

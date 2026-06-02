@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set eyebrow = "insights" %}
+  {% set heading = "Activity" %}
+  {% set lede    = "Live spawns and rains, the jobs pipeline, and recent events." %}
+  {% include "partials/_section_header.html" %}
+
+  {# ============================ live ops tiles ============================ #}
+  <div class="stat-row">
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">Cats spawned now</span>
+      <span class="stat-value">{{ "{:,}".format(spawns|length) }}</span>
+      <span class="stat-foot">live across all channels</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Active rains</span>
+      <span class="stat-value">{{ "{:,}".format(rains|length) }}</span>
+      <span class="stat-foot">channels raining now</span>
+    </article>
+    {% for st, n in job_states %}
+      {% if st in ("offered", "committed") %}
+      <article class="stat-tile">
+        <span class="stat-eyebrow">Jobs {{ st }}</span>
+        <span class="stat-value">{{ "{:,}".format(n) }}</span>
+        <span class="stat-foot">in the pipeline</span>
+      </article>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {# ============================ recency chart ============================ #}
+  {% if recency %}
+  <h2 class="section">Last-seen recency — past 30 days</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Profiles bucketed by the day of their <em>most recent</em> catch. (The schema stores only
+    the latest catch per profile, so this is a recency distribution, not catches-per-day.)
+  </p>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-recency"></canvas></div>
+  </article>
+  {% endif %}
+
+  {# ============================ jobs pipeline ============================ #}
+  <h2 class="section">Jobs pipeline</h2>
+  <div class="stat-row">
+    {% for st, n in job_states %}
+      <article class="stat-tile">
+        <span class="stat-eyebrow">{{ st }}</span>
+        <span class="stat-value">{{ "{:,}".format(n) }}</span>
+      </article>
+    {% endfor %}
+  </div>
+
+  {% if recent_jobs %}
+  <h2 class="section">Recent resolved jobs <span class="heading-count">{{ recent_jobs|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>resolved</th><th>user_id</th><th>guild_id</th><th>category</th><th class="numeric">tier</th><th>outcome</th><th>complication</th></tr></thead>
+    <tbody>
+      {% for j in recent_jobs %}
+        <tr>
+          <td><span class="muted" title="{{ j.resolved_at|fmt_ts }}">{{ j.resolved_at|fmt_ts }}</span></td>
+          <td><span class="name">{{ unames.get(j.user_id, j.user_id) }}</span><span class="id-sub">{{ j.user_id }}</span></td>
+          <td><span class="name">{{ guild_name(j.guild_id) }}</span><span class="id-sub">{{ j.guild_id }}</span></td>
+          <td>{{ j.category }}</td>
+          <td class="numeric">{{ j.tier }}</td>
+          <td>{% if j.outcome %}<span class="flag {{ 'flag-on' if j.outcome in ('success','win') else 'flag-off' }}">{{ j.outcome }}</span>{% endif %}</td>
+          <td>{{ j.complication or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ active spawns ============================ #}
+  <h2 class="section">Active spawns <span class="heading-count">{{ spawns|length }}</span></h2>
+  {% if spawns %}
+  <table class="editor-table">
+    <thead><tr><th>channel_id</th><th>cattype</th><th>next spawn floor</th></tr></thead>
+    <tbody>
+      {% for s in spawns %}
+        <tr>
+          <td><span class="name">{{ channel_name(s.channel_id) }}</span><span class="id-sub">{{ s.channel_id }}</span></td>
+          <td>{{ s.cattype or "" }}</td>
+          <td><span class="muted">{{ s.yet_to_spawn|fmt_ts }}</span></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No cats spawned right now.</p>
+  {% endif %}
+
+  {# ============================ active rains ============================ #}
+  {% if rains %}
+  <h2 class="section">Active rains <span class="heading-count">{{ rains|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>channel_id</th><th class="numeric">ends in</th></tr></thead>
+    <tbody>
+      {% for r in rains %}
+        <tr>
+          <td><span class="name">{{ channel_name(r.channel_id) }}</span><span class="id-sub">{{ r.channel_id }}</span></td>
+          <td class="numeric">{{ r.rain_should_end - now }}s</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ recent prisms ============================ #}
+  {% if recent_prisms %}
+  <h2 class="section">Recently created prisms <span class="heading-count">{{ recent_prisms|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>name</th><th>creator user_id</th><th>guild_id</th><th>created</th><th class="numeric">boosts</th></tr></thead>
+    <tbody>
+      {% for p in recent_prisms %}
+        <tr>
+          <td><span class="name">{{ p.name }}</span></td>
+          <td><span class="name">{{ unames.get(p.user_id, p.user_id) }}</span><span class="id-sub">{{ p.user_id }}</span></td>
+          <td><span class="name">{{ guild_name(p.guild_id) }}</span><span class="id-sub">{{ p.guild_id }}</span></td>
+          <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+          <td class="numeric">{{ "{:,}".format(p.catches_boosted or 0) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<script id="activity-data" type="application/json">
+{ "recency": {{ recency|tojson }} }
+</script>
+<script>
+(function () {
+  function readData() {
+    try { return JSON.parse(document.getElementById("activity-data").textContent); }
+    catch (e) { return { recency: [] }; }
+  }
+  function bar(canvas, entries, label) {
+    if (!canvas || !entries || !entries.length) return;
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: entries.map(([m]) => m),
+        datasets: [{
+          label: label,
+          data: entries.map(([, n]) => n),
+          backgroundColor: "rgba(255, 201, 77, 0.55)",
+          borderColor: "#ffc94d",
+          borderWidth: 1,
+          borderRadius: 4,
+          hoverBackgroundColor: "#ffc94d"
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
+            borderColor: "#3d3658", borderWidth: 1, padding: 10,
+            titleFont: { family: "'IBM Plex Mono', monospace", weight: "500" },
+            bodyFont:  { family: "'IBM Plex Mono', monospace" }
+          }
+        },
+        scales: {
+          x: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function init() {
+    if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
+    const d = readData();
+    bar(document.getElementById("chart-recency"), d.recency, "profiles");
+  }
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
+  else { init(); }
+})();
+</script>
+{% endblock %}

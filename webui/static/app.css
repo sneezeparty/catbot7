@@ -6,31 +6,43 @@
  */
 
 :root {
-  /* --- palette --- */
-  --ink-0: #0c0805;
-  --ink-1: #14100b;
-  --ink-2: #1d1812;
-  --ink-3: #261e16;
-  --ink-4: #332618;
+  /* --- palette: cool dark base, bright + colorful accents --- */
+  --ink-0: #0e0c14;
+  --ink-1: #14121c;
+  --ink-2: #1c1928;
+  --ink-3: #262236;
+  --ink-4: #322c46;
 
-  --line:      #2c2316;
-  --line-soft: #1f1810;
-  --line-hi:   #3d2e1c;
+  --line:      #2c2740;
+  --line-soft: #1f1b2e;
+  --line-hi:   #3d3658;
 
-  --paper:       #f4ead0;
-  --paper-soft:  #c9b791;
-  --paper-muted: #8a7553;
+  --paper:       #f4f1ff;
+  --paper-soft:  #c4bce0;
+  --paper-muted: #8b83a8;
 
-  --amber:      #e6ad55;
-  --amber-deep: #b07a3a;
-  --amber-glow: rgba(230, 173, 85, 0.18);
-  --amber-wash: rgba(230, 173, 85, 0.06);
+  /* primary accent (kept named --amber for back-compat) — bright gold so
+     dark-text-on-accent buttons still read */
+  --amber:      #ffc94d;
+  --amber-deep: #e0a82e;
+  --amber-glow: rgba(255, 201, 77, 0.22);
+  --amber-wash: rgba(255, 201, 77, 0.07);
 
-  --moss:    #7dba6e;
-  --moss-bg: rgba(125, 186, 110, 0.10);
-  --ember:   #e0a050;
-  --crimson: #d06650;
-  --crimson-bg: rgba(208, 102, 80, 0.10);
+  /* multi-hue accent palette for charts, tiles, section accents */
+  --c-gold:   #ffc94d;
+  --c-pink:   #ff6fae;
+  --c-purple: #a78bfa;
+  --c-cyan:   #34d6c0;
+  --c-orange: #ff9d4d;
+  --c-green:  #6fe06f;
+  --c-blue:   #56b8ff;
+  --c-red:    #ff7a6b;
+
+  --moss:    #6fe06f;
+  --moss-bg: rgba(111, 224, 111, 0.12);
+  --ember:   #ffb14d;
+  --crimson: #ff7a6b;
+  --crimson-bg: rgba(255, 122, 107, 0.12);
 
   /* --- typography --- */
   --font-display: 'Fraunces', ui-serif, 'Iowan Old Style', Georgia, serif;
@@ -104,10 +116,10 @@ body {
 }
 
 body {
-  /* layered atmospheric background: warm radial wash + ink base */
+  /* layered atmospheric background: cool accent washes + ink base */
   background:
-    radial-gradient(80% 60% at 20% 0%, rgba(230, 173, 85, 0.04), transparent 60%),
-    radial-gradient(70% 80% at 100% 100%, rgba(176, 122, 58, 0.03), transparent 60%),
+    radial-gradient(80% 60% at 18% 0%, rgba(167, 139, 250, 0.07), transparent 60%),
+    radial-gradient(70% 80% at 100% 100%, rgba(52, 214, 192, 0.05), transparent 60%),
     var(--ink-1);
   min-height: 100vh;
   position: relative;
@@ -153,7 +165,7 @@ body.app-shell .content { grid-area: main; }
 
 .sidebar {
   background:
-    radial-gradient(120% 60% at 0% 0%, rgba(230, 173, 85, 0.05), transparent 70%),
+    radial-gradient(120% 60% at 0% 0%, rgba(167, 139, 250, 0.06), transparent 70%),
     linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
   border-right: 1px solid var(--line);
   padding: var(--sp-4) var(--sp-3) var(--sp-4);
@@ -181,8 +193,15 @@ body.app-shell .content { grid-area: main; }
 .sidebar-brand .brand-mark {
   font-size: 1.75rem;
   transform: rotate(-8deg);
-  display: inline-block;
+  display: inline-flex;
   filter: drop-shadow(0 1px 0 rgba(0,0,0,0.4));
+}
+.sidebar-brand .brand-mark img {
+  width: 30px;
+  height: 30px;
+  display: block;
+  /* keep the pixel-art cat crisp instead of blurry when scaled */
+  image-rendering: pixelated;
 }
 .sidebar-brand .brand-name {
   font-family: var(--font-display);
@@ -261,12 +280,19 @@ body.app-shell .content { grid-area: main; }
   width: 18px;
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  color: var(--paper-muted);
+  color: var(--glyph-accent, var(--paper-muted));
   transition: color 140ms var(--ease), transform 200ms var(--ease);
 }
+/* give each nav link its own glyph hue for a colorful sidebar */
+.sidebar-nav .sidebar-link:nth-child(6n+1) { --glyph-accent: var(--c-gold); }
+.sidebar-nav .sidebar-link:nth-child(6n+2) { --glyph-accent: var(--c-cyan); }
+.sidebar-nav .sidebar-link:nth-child(6n+3) { --glyph-accent: var(--c-pink); }
+.sidebar-nav .sidebar-link:nth-child(6n+4) { --glyph-accent: var(--c-green); }
+.sidebar-nav .sidebar-link:nth-child(6n+5) { --glyph-accent: var(--c-purple); }
+.sidebar-nav .sidebar-link:nth-child(6n+6) { --glyph-accent: var(--c-orange); }
 .sidebar-link:hover .sidebar-glyph,
 .sidebar-link.active .sidebar-glyph {
-  color: var(--amber);
+  color: var(--glyph-accent, var(--amber));
 }
 .sidebar-link:hover .sidebar-glyph { transform: rotate(360deg); transition-duration: 600ms; }
 
@@ -432,6 +458,7 @@ body.app-shell .content { grid-area: main; }
 }
 
 .card {
+  --card-accent: var(--c-gold);
   background:
     linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
   border: 1px solid var(--line);
@@ -443,14 +470,23 @@ body.app-shell .content { grid-area: main; }
   transition: border-color 200ms var(--ease), transform 240ms var(--ease), box-shadow 240ms var(--ease);
 }
 .card::before {
-  /* hair-thin top highlight to suggest a beveled paper edge */
+  /* colored top accent bar — hue varies per card (see nth-child below) */
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(244, 234, 208, 0.12), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--card-accent), transparent);
+  opacity: 0.7;
 }
 .card:hover { border-color: var(--line-hi); }
+
+/* cycle accent hues so a grid of cards is colorful, not mono */
+.card-grid > .card:nth-child(6n+1) { --card-accent: var(--c-gold); }
+.card-grid > .card:nth-child(6n+2) { --card-accent: var(--c-cyan); }
+.card-grid > .card:nth-child(6n+3) { --card-accent: var(--c-pink); }
+.card-grid > .card:nth-child(6n+4) { --card-accent: var(--c-green); }
+.card-grid > .card:nth-child(6n+5) { --card-accent: var(--c-purple); }
+.card-grid > .card:nth-child(6n+6) { --card-accent: var(--c-orange); }
 
 .card h2 {
   margin: 0 0 var(--sp-3);
@@ -459,7 +495,7 @@ body.app-shell .content { grid-area: main; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--paper-muted);
+  color: var(--card-accent);
 }
 
 .card .metric {
@@ -790,6 +826,15 @@ input.numeric {
 .muted   { color: var(--paper-muted); }
 .danger  { color: var(--crimson); }
 
+/* snowflake ID shown under a resolved name (still copyable) */
+.id-sub {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--paper-muted);
+  margin-top: 1px;
+}
+
 /* tag-style pill used for JSONB list items in profile detail */
 .pill {
   display: inline-block;
@@ -802,6 +847,19 @@ input.numeric {
   font-family: var(--font-mono);
   margin: 1px 2px;
 }
+
+/* read-only on/off badge for boolean DB flags */
+.flag {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px var(--sp-3);
+  font-size: var(--fs-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line-hi);
+}
+.flag-on  { color: var(--moss);        background: var(--moss-bg); border-color: rgba(125, 186, 110, 0.3); }
+.flag-off { color: var(--paper-muted); background: var(--ink-3); }
 
 code {
   font-family: var(--font-mono);
@@ -952,7 +1010,7 @@ h3.subsection::before {
   font-size: var(--fs-xs);
   font-weight: 500;
   vertical-align: middle;
-  border: 1px solid rgba(230, 173, 85, 0.20);
+  border: 1px solid var(--amber-glow);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -966,6 +1024,7 @@ h3.subsection::before {
   margin-bottom: var(--sp-6);
 }
 .stat-tile {
+  --tile-accent: var(--c-gold);
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
@@ -983,25 +1042,34 @@ h3.subsection::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(244, 234, 208, 0.10), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, var(--tile-accent), transparent);
+  opacity: 0.8;
 }
 .stat-tile:hover { border-color: var(--line-hi); }
 
+/* cycle accent hues across a row of tiles */
+.stat-row > .stat-tile:nth-child(6n+1) { --tile-accent: var(--c-gold); }
+.stat-row > .stat-tile:nth-child(6n+2) { --tile-accent: var(--c-cyan); }
+.stat-row > .stat-tile:nth-child(6n+3) { --tile-accent: var(--c-pink); }
+.stat-row > .stat-tile:nth-child(6n+4) { --tile-accent: var(--c-green); }
+.stat-row > .stat-tile:nth-child(6n+5) { --tile-accent: var(--c-purple); }
+.stat-row > .stat-tile:nth-child(6n+6) { --tile-accent: var(--c-orange); }
+
 .stat-tile.accent {
   background:
-    radial-gradient(120% 100% at 0% 0%, rgba(230, 173, 85, 0.10), transparent 70%),
+    radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--tile-accent) 14%, transparent), transparent 70%),
     linear-gradient(180deg, var(--ink-2) 0%, var(--ink-1) 100%);
-  border-color: rgba(230, 173, 85, 0.25);
+  border-color: color-mix(in srgb, var(--tile-accent) 35%, transparent);
 }
-.stat-tile.accent .stat-value { color: var(--amber); }
+.stat-tile.accent .stat-value { color: var(--tile-accent); }
 
 .stat-eyebrow {
   font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 600;
-  color: var(--paper-muted);
+  color: var(--tile-accent);
 }
 .stat-value {
   font-family: var(--font-display);
@@ -1040,6 +1108,16 @@ h3.subsection::before {
 .chart-canvas-wrap canvas { max-height: 100%; }
 
 /* ================================================== leaderboard ===== */
+
+/* multi-board grid on the Leaderboards page */
+.lb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-6);
+}
+.lb-grid .leaderboard { margin-top: var(--sp-3); }
+.lb-grid .leaderboard td:nth-child(4) { width: 30%; }
 
 .leaderboard td:nth-child(1) {
   width: 3em;

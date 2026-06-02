@@ -7,7 +7,7 @@ import aiohttp_jinja2
 import jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 from webui.routes import register as register_routes
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,8 @@ def build_app(bot) -> web.Application:
     env.filters["fmt_ts"] = _format_ts
     env.filters["fmt_dur"] = _format_duration
     env.globals["state"] = state
+    env.globals["guild_name"] = names.guild_name
+    env.globals["channel_name"] = names.channel_name
 
     app.router.add_static("/static/", STATIC_DIR, name="static")
     register_routes(app)

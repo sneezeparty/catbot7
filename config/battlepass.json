@@ -3389,7 +3389,7 @@
     "vote": {
       "vote": {
         "emoji": "topgg",
-        "title": "[Vote on Top.gg](https://top.gg/bot/966695034340663367/vote)",
+        "title": "Vote on Top.gg",
         "xp_min": 250,
         "xp_max": 350,
         "progress": 1
@@ -3585,13 +3585,6 @@
         "title": "Use /tiktok TTS",
         "xp_min": 130,
         "xp_max": 210,
-        "progress": 1
-      },
-      "wiki": {
-        "emoji": "\ud83e\udd13",
-        "title": "Check out /wiki",
-        "xp_min": 120,
-        "xp_max": 200,
         "progress": 1
       },
       "pig": {

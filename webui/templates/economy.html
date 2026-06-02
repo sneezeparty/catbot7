@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set eyebrow = "insights" %}
+  {% set heading = "Economy & market" %}
+  {% set lede    = "Coins in circulation, gambling volume, and the fake stock market." %}
+  {% include "partials/_section_header.html" %}
+
+  {# ============================ coins ============================ #}
+  <h2 class="section">Coins</h2>
+  <div class="stat-row">
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">In circulation</span>
+      <span class="stat-value">{{ "{:,}".format(econ.coins) }}</span>
+      <span class="stat-foot">coins held across all wallets</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Open market value</span>
+      <span class="stat-value">{{ "{:,}".format(order_notional) }}</span>
+      <span class="stat-foot">coins tied up in open orders</span>
+    </article>
+  </div>
+
+  {# ============================ gambling ============================ #}
+  <h2 class="section">Gambling volume</h2>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Roulette wagered</span>
+      <span class="stat-value">{{ "{:,}".format(econ.roulette_bet) }}</span>
+      <span class="stat-foot">total coins bet</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Roulette won</span>
+      <span class="stat-value">{{ "{:,}".format(econ.roulette_won) }}</span>
+      <span class="stat-foot">total coins paid out</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catslots wagered</span>
+      <span class="stat-value">{{ "{:,}".format(econ.catslots_bet) }}</span>
+      <span class="stat-foot">total coins bet</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catslots won</span>
+      <span class="stat-value">{{ "{:,}".format(econ.catslots_won) }}</span>
+      <span class="stat-foot">total coins paid out</span>
+    </article>
+  </div>
+
+  {# ============================ stock prices ============================ #}
+  <h2 class="section">Stock prices</h2>
+  <div class="card-grid">
+    {% for ticker, name, price in prices %}
+      <article class="card">
+        <h2>{{ ticker }}</h2>
+        <p class="metric">{{ "{:,}".format(price) if price is not none else "—" }}</p>
+        <p class="muted">{{ name }}</p>
+      </article>
+    {% endfor %}
+  </div>
+
+  {% if series %}
+  <h2 class="section">Price history — last 3 days</h2>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:300px"><canvas id="chart-prices"></canvas></div>
+  </article>
+  {% endif %}
+
+  {# ============================ order book ============================ #}
+  {% if by_ticker %}
+  <h2 class="section">Open order book</h2>
+  <table class="editor-table">
+    <thead><tr><th>ticker</th><th class="numeric">buy orders</th><th class="numeric">sell orders</th></tr></thead>
+    <tbody>
+      {% for r in by_ticker %}
+        <tr>
+          <td><span class="name">{{ r.ticker }}</span></td>
+          <td class="numeric">{{ "{:,}".format(r.buy_count) }}</td>
+          <td class="numeric">{{ "{:,}".format(r.sell_count) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:var(--sp-3)">Full order list on the <a href="/db/order">Orders</a> page.</p>
+  {% endif %}
+</section>
+
+<script id="econ-data" type="application/json">
+{{ series|tojson }}
+</script>
+<script>
+(function () {
+  const palette = ["#ffc94d", "#34d6c0", "#ff6fae", "#6fe06f", "#a78bfa"];
+  function readData() {
+    try { return JSON.parse(document.getElementById("econ-data").textContent); }
+    catch (e) { return {}; }
+  }
+  function lineChart(canvas, series) {
+    if (!canvas) return;
+    const tickers = Object.keys(series);
+    if (!tickers.length) return;
+    // Use the longest label set as the x-axis.
+    let labels = [];
+    tickers.forEach(t => { if (series[t].labels.length > labels.length) labels = series[t].labels; });
+    const datasets = tickers.map((t, i) => ({
+      label: t,
+      data: series[t].data,
+      borderColor: palette[i % palette.length],
+      backgroundColor: "transparent",
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.25
+    }));
+    new Chart(canvas, {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 10 } },
+          tooltip: {
+            backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
+            borderColor: "#3d3658", borderWidth: 1, padding: 10,
+            titleFont: { family: "'IBM Plex Mono', monospace" }, bodyFont: { family: "'IBM Plex Mono', monospace" }
+          }
+        },
+        scales: {
+          x: { ticks: { color: "#8b83a8", maxTicksLimit: 12, font: { family: "'IBM Plex Mono', monospace", size: 10 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function init() {
+    if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
+    lineChart(document.getElementById("chart-prices"), readData());
+  }
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
+  else { init(); }
+})();
+</script>
+{% endblock %}

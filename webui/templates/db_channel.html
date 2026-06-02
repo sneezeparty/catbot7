@@ -28,12 +28,29 @@
           <th>spawn_max</th>
           <th>cattype</th>
           <th>rain</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
-          {% include "db_channel_row.html" %}
+          <tr>
+            <td><span class="name">{{ channel_name(row.channel_id) }}</span><span class="id-sub">{{ row.channel_id }}</span></td>
+            <td class="numeric">{{ row.cat or "" }}</td>
+            <td class="numeric">
+              {% if row.yet_to_spawn > now %}
+                <span class="muted" title="{{ row.yet_to_spawn|fmt_ts }}">{{ row.yet_to_spawn - now }}s</span>
+              {% else %}
+                ready
+              {% endif %}
+            </td>
+            <td class="numeric">{{ row.spawn_times_min }}</td>
+            <td class="numeric">{{ row.spawn_times_max }}</td>
+            <td>{{ row.cattype or "" }}</td>
+            <td>
+              {% if row.rain_should_end > now %}
+                <span class="muted">{{ row.rain_should_end - now }}s</span>
+              {% endif %}
+            </td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>

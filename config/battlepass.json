@@ -154,153 +154,8 @@
     ],
     "2": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Celestial",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Diamond",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Diamond",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Celestial",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -309,13 +164,48 @@
         "amount": 1
       },
       {
+        "xp": 1100,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
         "xp": 1200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Celestial",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
         "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -325,17 +215,47 @@
       },
       {
         "xp": 1500,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -344,185 +264,165 @@
         "amount": 1
       },
       {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Celestial",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "3": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1400,
         "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -532,199 +432,199 @@
       },
       {
         "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
         "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "4": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Bronze",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Silver",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -734,7 +634,22 @@
       },
       {
         "xp": 1600,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -743,180 +658,145 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
         "reward": "Platinum",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "5": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Bronze",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -930,186 +810,166 @@
         "amount": 1
       },
       {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "6": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
@@ -1118,200 +978,200 @@
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
         "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "7": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Bronze",
         "amount": 1
       },
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
@@ -1324,23 +1184,78 @@
         "amount": 1
       },
       {
+        "xp": 1200,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Silver",
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Gold",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
@@ -1349,171 +1264,116 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1800,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "8": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
@@ -1522,27 +1382,82 @@
       },
       {
         "xp": 1200,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
         "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Gold",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -1551,195 +1466,190 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "9": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
         "reward": "Wooden",
-        "amount": 2
+        "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Stone",
+        "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 1300,
-        "reward": "Bronze",
+        "xp": 1200,
+        "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 1400,
+        "xp": 1200,
         "reward": "Silver",
         "amount": 1
       },
       {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -1749,189 +1659,169 @@
       },
       {
         "xp": 1700,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
         "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Platinum",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Wooden",
+        "amount": 2
+      },
+      {
+        "xp": 2800,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "10": [
       {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
-      },
-      {
         "xp": 1100,
         "reward": "Bronze",
         "amount": 1
       },
       {
+        "xp": 1100,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
         "amount": 1
       },
       {
@@ -1941,185 +1831,150 @@
       },
       {
         "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
         "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "11": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
@@ -2127,18 +1982,58 @@
         "amount": 1
       },
       {
+        "xp": 1100,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
@@ -2147,210 +2042,230 @@
         "amount": 1
       },
       {
+        "xp": 1500,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "12": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Gold",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Silver",
         "amount": 1
       },
       {
@@ -2359,200 +2274,200 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "13": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Stone",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Bronze",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Bronze",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
         "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
         "amount": 1
       },
       {
@@ -2561,180 +2476,140 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
         "xp": 1800,
-        "reward": "Platinum",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "14": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Wooden",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -2743,18 +2618,58 @@
         "amount": 1
       },
       {
+        "xp": 1300,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
@@ -2763,175 +2678,120 @@
         "amount": 1
       },
       {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "15": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Silver",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
-        "reward": "Bronze",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Gold",
         "amount": 1
       },
       {
@@ -2940,422 +2800,472 @@
         "amount": 1
       },
       {
-        "xp": 1300,
-        "reward": "Silver",
+        "xp": 1200,
+        "reward": "Wooden",
         "amount": 1
       },
       {
-        "xp": 1400,
+        "xp": 1200,
         "reward": "Gold",
         "amount": 1
       },
       {
+        "xp": 1300,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
         "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
         "reward": "Gold",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Silver",
         "amount": 1
       },
       {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "16": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Bronze",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Bronze",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Diamond",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
         "reward": "Bronze",
-        "amount": 2
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Bronze",
+        "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Silver",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Gold",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1500,
-        "reward": "Gold",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1600,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1800,
-        "reward": "Diamond",
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Bronze",
         "amount": 1
       },
       {
         "xp": 1900,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
         "reward": "Diamond",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Bronze",
+        "amount": 2
+      },
+      {
+        "xp": 2800,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }
     ],
     "17": [
       {
-        "xp": 550,
+        "xp": 1100,
         "reward": "Stone",
         "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 550,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 600,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 650,
-        "reward": "Stone",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 700,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 750,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 800,
-        "reward": "Gold",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 850,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 900,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 950,
-        "reward": "Platinum",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Wooden",
-        "amount": 1
-      },
-      {
-        "xp": 1000,
-        "reward": "Rain",
-        "amount": 2
       },
       {
         "xp": 1100,
         "reward": "Wooden",
-        "amount": 2
+        "amount": 1
+      },
+      {
+        "xp": 1100,
+        "reward": "Wooden",
+        "amount": 1
       },
       {
         "xp": 1200,
-        "reward": "Bronze",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Stone",
+        "amount": 1
+      },
+      {
+        "xp": 1200,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1300,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1300,
+        "reward": "Stone",
         "amount": 1
       },
       {
         "xp": 1400,
-        "reward": "Silver",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
         "amount": 1
       },
       {
         "xp": 1500,
         "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1500,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 1600,
+        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -3365,7 +3275,22 @@
       },
       {
         "xp": 1700,
-        "reward": "Platinum",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1700,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1800,
+        "reward": "Wooden",
         "amount": 1
       },
       {
@@ -3374,12 +3299,87 @@
         "amount": 1
       },
       {
+        "xp": 1800,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
         "xp": 1900,
-        "reward": "Diamond",
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 1900,
+        "reward": "Platinum",
         "amount": 1
       },
       {
         "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Wooden",
+        "amount": 1
+      },
+      {
+        "xp": 2000,
+        "reward": "Rain",
+        "amount": 2
+      },
+      {
+        "xp": 2400,
+        "reward": "Wooden",
+        "amount": 2
+      },
+      {
+        "xp": 2800,
+        "reward": "Bronze",
+        "amount": 1
+      },
+      {
+        "xp": 3200,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 3600,
+        "reward": "Silver",
+        "amount": 1
+      },
+      {
+        "xp": 4000,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4400,
+        "reward": "Gold",
+        "amount": 1
+      },
+      {
+        "xp": 4800,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5200,
+        "reward": "Platinum",
+        "amount": 1
+      },
+      {
+        "xp": 5600,
+        "reward": "Diamond",
+        "amount": 1
+      },
+      {
+        "xp": 6000,
         "reward": "Celestial",
         "amount": 1
       }

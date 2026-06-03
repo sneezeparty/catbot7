@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "manage" %}
+  {% set heading = "News editor" %}
+  {% set lede    = "Manage The Cat Bot Times. Saves are live — no restart needed." %}
+  {% include "partials/_section_header.html" %}
+
+  {% if saved == "added" %}<div class="flash flash-ok">Article published.</div>
+  {% elif saved == "edited" %}<div class="flash flash-ok">Article updated.</div>
+  {% elif saved == "deleted" %}<div class="flash flash-ok">Article deleted.</div>
+  {% elif saved == "empty" %}<div class="flash flash-err">Nothing saved — title and body were both empty.</div>
+  {% endif %}
+
+  {% set body %}
+    Articles show in <code>/news</code> newest-first. <code>emoji</code> is a literal emoji (🎉) or an
+    uploaded app-emoji name (e.g. <code>goldpack</code>). In the body, write <code>[[name]]</code> to drop an
+    app-emoji inline, and normal Discord markdown otherwise. Order is the read-tracking order, so new posts
+    are <strong>appended</strong> — deleting one keeps everyone's read state aligned automatically.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  {# ===================== add / edit form ===================== #}
+  <article class="card" style="margin-bottom:var(--sp-6)">
+    <h2>{% if edit_idx is not none %}Edit article #{{ edit_idx }}{% else %}Add an article{% endif %}</h2>
+    <form method="post"
+          action="{% if edit_idx is not none %}/news/edit/{{ edit_idx }}{% else %}/news/add{% endif %}"
+          class="news-form">
+      {% set a = edit_article or {} %}
+      <label>Emoji
+        <input name="emoji" value="{{ a.get('emoji', '') }}" placeholder="🎉 or goldpack">
+      </label>
+      <label>Title
+        <input name="title" value="{{ a.get('title', '') }}" placeholder="Shadow &amp; Terminator are here!" required>
+      </label>
+      <label>Body
+        <textarea name="body" rows="8" placeholder="Markdown supported. Use [[catnip]] for inline emoji.">{{ a.get('body', '') }}</textarea>
+      </label>
+      <label>Date <span class="muted">(optional)</span>
+        <input type="date" name="date" value="{{ date_input_value(a.get('date')) }}">
+      </label>
+
+      <fieldset class="news-buttons">
+        <legend class="muted">Link buttons (optional)</legend>
+        {% set btns = a.get('buttons', []) %}
+        {% for i in range(3) %}
+          {% set b = btns[i] if i < btns|length else {} %}
+          <div class="news-btn-row">
+            <input name="button_label" value="{{ b.get('label', '') }}" placeholder="Button label">
+            <input name="button_url" value="{{ b.get('url', '') }}" placeholder="https://…">
+          </div>
+        {% endfor %}
+      </fieldset>
+
+      <div class="news-form-actions">
+        <button class="btn btn-primary" type="submit">{% if edit_idx is not none %}Save changes{% else %}Publish{% endif %}</button>
+        {% if edit_idx is not none %}<a class="btn btn-ghost" href="/news">Cancel</a>{% endif %}
+      </div>
+    </form>
+  </article>
+
+  {# ===================== current articles ===================== #}
+  <h2 class="section">Published <span class="heading-count">{{ articles|length }}</span></h2>
+  {% if articles %}
+    <table class="editor-table">
+      <thead><tr><th>#</th><th>emoji</th><th>title</th><th>date</th><th>preview</th><th></th></tr></thead>
+      <tbody>
+        {% for art in articles %}
+          <tr>
+            <td class="numeric">{{ loop.index0 }}</td>
+            <td>{{ art.get('emoji', '') }}</td>
+            <td><span class="name">{{ art.get('title', '') }}</span></td>
+            <td><span class="muted">{{ date_input_value(art.get('date')) or "—" }}</span></td>
+            <td><span class="muted">{{ (art.get('body', '') | truncate(60)) }}</span></td>
+            <td class="actions">
+              <a class="btn" href="/news?edit={{ loop.index0 }}">Edit</a>
+              <form method="post" action="/news/delete/{{ loop.index0 }}" style="display:inline"
+                    onsubmit="return confirm('Delete this article? Read-state for all users will be realigned.');">
+                <button class="btn btn-danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No articles yet — add one above and it appears in <code>/news</code> immediately.</p>
+  {% endif %}
+</section>
+{% endblock %}

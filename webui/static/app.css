@@ -848,6 +848,40 @@ input.numeric {
   margin: 1px 2px;
 }
 
+/* ============================== news editor form ============================== */
+.news-form label {
+  display: block;
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--paper-soft);
+}
+.news-form input,
+.news-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--ink-1);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+}
+.news-form textarea { font-family: var(--font-mono); font-size: var(--fs-sm); resize: vertical; }
+.news-form input:focus,
+.news-form textarea:focus { outline: none; border-color: var(--amber); box-shadow: var(--ring-focus); }
+.news-buttons {
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.news-buttons legend { padding: 0 var(--sp-2); font-size: var(--fs-xs); }
+.news-btn-row { display: flex; gap: var(--sp-3); }
+.news-btn-row input { flex: 1; }
+.news-form-actions { display: flex; gap: var(--sp-3); align-items: center; }
+
 /* read-only on/off badge for boolean DB flags */
 .flag {
   display: inline-block;

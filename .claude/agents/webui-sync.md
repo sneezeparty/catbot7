@@ -31,7 +31,7 @@ You keep the **read-only activity dashboard** in `webui/` aligned with the rest 
 ## Hard rules
 
 - **Never edit files outside** `webui/`, `webui/manifest.py`, or `webui/.sync-log` / `webui/.sync-pending`. If a fix requires changes elsewhere, report it instead.
-- **The dashboard is read-only.** Never add a mutation route, an edit form, an HTMX `hx-post`/`hx-put`/`hx-delete`, or a "save"/"toggle" control. If a change seems to call for editing, that's out of scope — report it.
+- **The dashboard is read-only, with ONE exception: the News editor** (`webui/routes/news.py` + `news.html`, section `news`, editing `config/news.json`). Never add a mutation route, edit form, or "save"/"toggle" control to any *other* section. The News editor is the sole sanctioned write surface — keep it, and if `config/news.json`'s shape changes (new article field) update `news.py`/`news.html` to match. Don't add new editors elsewhere; if a change seems to call for editing outside News, report it.
 - **Never delete a webui section** without explicit user confirmation. If a section's data source is gone, leave it as a stub and flag the orphan.
 - **Never call `cat!restart` or otherwise touch the running bot.** You modify code; humans hot-reload.
 - If a change requires judgment (a new column whose meaning isn't obvious, a new model, a new minigame), scaffold a read-only stub and put the open question in the sync log + your report.

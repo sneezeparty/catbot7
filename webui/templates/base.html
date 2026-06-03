@@ -33,6 +33,9 @@
     ("prism_table",    "/db/prism",    "Prisms",     "◇"),
     ("order_table",    "/db/order",    "Orders",     "⇅")
   ] %}
+  {% set manage = [
+    ("news",           "/news",        "News",       "📰")
+  ] %}
   <aside class="sidebar" aria-label="Sections">
     <div class="sidebar-brand">
       <span class="brand-mark"><img src="/static/cat.webp?v=1" alt="Cat Bot" width="30" height="30"></span>
@@ -62,9 +65,18 @@
       {% endfor %}
     </nav>
 
+    <div class="sidebar-section-label">Manage</div>
+    <nav class="sidebar-nav">
+      {% for slug, href, label, glyph in manage %}
+        <a class="sidebar-link {% if active_section == slug %}active{% endif %}" href="{{ href }}">
+          <span class="sidebar-glyph" aria-hidden="true">{{ glyph }}</span>
+          <span>{{ label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
     <div class="sidebar-foot">
       <div class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs)">127.0.0.1:9445</div>
-      <div class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs)">read-only</div>
       <div class="muted" style="font-family:var(--font-mono);font-size:var(--fs-2xs)">uptime · {{ state.uptime_seconds()|fmt_dur }}</div>
     </div>
   </aside>

@@ -66,12 +66,15 @@ These counters and `season_stat_baseline` require migration 022. Code paths that
 
 ## Level rewards
 
-Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 1500 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
+Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 6000 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
 
 **XP cost curves:**
 
-- **Levels 1–30** (all seasons): ramp from 550 to 1000 XP per level. Total: 23,250 XP.
-- **Levels 31–40** (seasons 2+): gentle ramp 1100 → 2000 XP per level. Total: 15,500 XP. **Combined season 2+ total: 38,750 XP.**
+- **Season 1 (Levels 1–30):** ramp from 550 to 1000 XP per level. Total: 23,250 XP.
+- **Seasons 2+ (Levels 1–30):** three levels per step, stepping up from 1100 to 2000 XP (blocks of 3: 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000). Total to reach Level 30: **44,500 XP**.
+- **Seasons 2+ (Levels 31–40):** one level per step — 2400, 2800, 3200, 3600, 4000, 4400, 4800, 5200, 5600, 6000. Total for Levels 31–40: 38,000 XP. **Combined Level 40 total: 82,500 XP. Full pass (Level 40 + one Extra Rewards tick): 88,500 XP.**
+
+**Design calibration (seasons 2+):** an average daily player completing 4 quest slots per day (vote slot is uncompletable on this instance) plus passive XP is expected to reach approximately Level 30 over a 30-day season; a very engaged player grinding all four slots at maximum XP is expected to reach approximately Level 40.
 
 **Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Stone-pack-forever tail exists so engaged players past the final level don't feel like they hit a wall. The 31–40 tail added in seasons 2+ replaces the early Stone-pack farm with more meaningful per-level rewards, capped by a per-season capstone (typically a Celestial pack at level 40), with the Stone-pack tail still kicking in past level 40 for the very-engaged.
 

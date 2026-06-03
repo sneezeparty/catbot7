@@ -33,11 +33,11 @@ case "$rel" in
   webui/*|.claude/*) exit 0;;
 esac
 
-# Trigger list. (Config JSON files are intentionally NOT here: the webui is
-# read-only now and no longer edits them — only code/schema changes can break a
-# dashboard query.)
+# Trigger list. Game-config JSONs are intentionally NOT here (the dashboard is
+# read-only and doesn't edit them) — EXCEPT config/news.json, which backs the
+# one editable section (the News editor).
 case "$rel" in
-  main.py|bot.py|config.py|catpg.py|database.py|schema.sql)
+  main.py|bot.py|config.py|catpg.py|database.py|schema.sql|config/news.json)
     mkdir -p "$ROOT/webui"
     # Append unique entry.
     if ! grep -Fxq "$rel" "$PENDING" 2>/dev/null; then

@@ -60,7 +60,7 @@ XP funnels into [battlepass](battlepass.md) levels. There are three XP sources a
 2. **Passive XP drips** — first catch of day (+50), 10-catch streak (+20), catnip level-up (+100 capped at 1000/season), prism boost owner (+20).
 3. **Achievement XP** — each ach with an `xp` field grants it on unlock; routed through `grant_achievement_xp` in `main.py`.
 
-Daily XP for an active player is on the order of **600–1500 XP**, against level XP requirements of 550–1000. So one engaged session ≈ one battlepass level.
+Daily XP for an active player is on the order of **600–1500 XP**. Season 1 level requirements range 550–1000 XP, so one engaged session ≈ one battlepass level. Seasons 2+ requirements range 1100–6000 XP (see [battlepass.md XP cost curves](battlepass.md#level-rewards)), so the later levels require multiple sessions each.
 
 **Design intent:** XP should feel earned, not gifted. The passive drips were added explicitly because the old "vote XP" slot was retired with self-hosting — passive drips fill that gap without re-introducing third-party-dependent rewards. Keep the dominant share with quests; passive drips are sweeteners.
 

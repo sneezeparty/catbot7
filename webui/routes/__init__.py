@@ -9,6 +9,7 @@ from webui.routes import (
     dashboard,
     economy,
     leaderboards,
+    news,
     order_table,
     prism_table,
     profile_table,
@@ -31,3 +32,5 @@ def register(app: web.Application) -> None:
     user_table.register(app)
     prism_table.register(app)
     order_table.register(app)
+    # Manage (the one editable section)
+    news.register(app)

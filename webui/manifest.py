@@ -3,10 +3,11 @@
 Maintained by the `webui-sync` subagent (see .claude/agents/webui-sync.md).
 Hand edits are allowed but the agent may overwrite them on next sync.
 
-The webui is a **read-only activity dashboard** — it never mutates game state
-or configs. Each section therefore maps to its *data sources* (the tables,
-columns, and helper functions its read queries depend on), so the sync agent
-can tell when a schema/model change would break a dashboard query.
+The webui is a **read-only activity dashboard with one exception: the News
+editor** (section `news`), which edits `config/news.json`. Every other section
+is read-only. Each section maps to its *data sources* (the tables, columns, and
+helper functions its read queries depend on), so the sync agent can tell when a
+schema/model change would break a dashboard query.
 
 Each section maps to:
   - source:       "live" (bot/Discord), or the DB table(s) it reads
@@ -134,6 +135,23 @@ SECTIONS: dict[str, dict] = {
             "profile (guild_id=0 row) — resolves the market-maker user_id for annotation",
         ],
     },
+    # ---------------------------------------------------- Manage (EDITABLE)
+    # The ONE sanctioned write surface on the dashboard. Edits config/news.json,
+    # the data source for main.py's /news command (get_news() reads it live).
+    "news": {
+        "source": ["config/news.json"],
+        "routes": [
+            "GET /news",
+            "POST /news/add", "POST /news/edit/{idx}", "POST /news/delete/{idx}",
+        ],
+        "templates": ["news.html"],
+        "data_sources": [
+            "config/news.json -> {articles: [{emoji, title, body, date?, buttons?}]}",
+            "main.py: get_news() / render_news_body() consume this; /news renders it",
+            'delete also splices "user".news_state (positional read-state) via the pool',
+            "webui/io_locks.py: atomic_write_json — safe writes",
+        ],
+    },
 }
 
 
@@ -150,4 +168,5 @@ TRIGGER_PATHS = [
     "catpg.py",
     "database.py",
     "schema.sql",
+    "config/news.json",  # the News editor's data source (the one editable section)
 ]

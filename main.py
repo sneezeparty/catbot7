@@ -677,6 +677,27 @@ def get_emoji(name):
         return "🔳"
 
 
+def get_news():
+    """The Cat Bot Times articles, read fresh from config/news.json each call so
+    the webui News editor's changes go live without a restart. Order = index =
+    news_id (read-state in user.news_state is positional). Returns [] on any
+    read/parse error (e.g. a transient mid-write read; the webui writes
+    atomically so this is just belt-and-suspenders)."""
+    try:
+        with open("config/news.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        articles = data.get("articles", [])
+        return articles if isinstance(articles, list) else []
+    except Exception:
+        return []
+
+
+def render_news_body(text: str) -> str:
+    """Substitute [[emoji_name]] tokens in an article body with get_emoji(name).
+    Everything else is passed through as Discord markdown."""
+    return re.sub(r"\[\[(\w+)\]\]", lambda m: get_emoji(m.group(1)), text or "")
+
+
 async def fetch_dm_channel(user: User) -> discord.PartialMessageable:
     if user.dm_channel_id:
         return bot.get_partial_messageable(user.dm_channel_id)
@@ -3478,28 +3499,9 @@ async def check_channel_setupped(guild: Server, channel: discord.TextChannel) ->
 
 
 # news stuff
-news_list = [
-    {"title": "Cat Bot Survey - win rains!", "emoji": "📜"},
-    {"title": "New Cat Rains perks!", "emoji": "✨"},
-    {"title": "Cat Bot Christmas 2024", "emoji": "🎅"},
-    {"title": "Cattlepass Update", "emoji": "⬆️"},
-    {"title": "Packs!", "emoji": "goldpack"},
-    {"title": "Message from CEO of Cat Bot", "emoji": "finecat"},
-    {"title": "Cat Bot Turns 3", "emoji": "🥳"},
-    {"title": "100,000 SERVERS WHAT", "emoji": "🎉"},
-    {"title": "Regarding recent instabilities", "emoji": "🗒️"},
-    {"title": "cat bot reached #5 on top.gg", "emoji": "yippee"},
-    {"title": "top.gg awards (outdated)", "emoji": "🏆"},
-    {"title": "Welcome to the Cat Mafia", "emoji": "catnip"},
-    {"title": "vote for cat bot as finalist in top.gg awards", "emoji": "❤️"},
-    {"title": "Cat Bot Christmas 2025", "emoji": "christmaspack"},
-    {"title": "Happy Valentine's!", "emoji": "💞"},
-    {"title": "Cat Bot Stocks", "emoji": "📈"},
-    {"title": "PackOrRain Event [ended]", "emoji": "🔥"},
-    {"title": "200,000 servers giveaway [ended]", "emoji": "insane"},
-    {"title": "Cat Bot's 4th Birthday!", "emoji": "b_babycat"},
-    {"title": "Cat Bot Plush (really)", "emoji": "📦"},
-]
+# News ("The Cat Bot Times") is data-driven — articles live in config/news.json
+# and are read fresh via get_news() (defined near get_emoji). Managed from the
+# webui News editor.
 
 achs = [
     ["cat?", "startswith", "???"],
@@ -3908,7 +3910,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         return []
     season_levels = config.battle["seasons"][str(user.season)]
     if user.battlepass >= len(season_levels):
-        level_data = {"xp": 1500, "reward": "Stone", "amount": 1}
+        level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
     else:
         level_data = season_levels[user.battlepass]
 
@@ -3956,7 +3958,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
         if user.battlepass >= len(season_levels):
-            active_level_data = {"xp": 1500, "reward": "Stone", "amount": 1}
+            active_level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
         else:
             active_level_data = season_levels[user.battlepass]
 
@@ -4170,7 +4172,7 @@ async def generate_quest(user: Profile, quest_type: str):
                 continue
         elif quest == "news":
             global_user = await User.get_or_create(user_id=user.user_id)
-            if len(news_list) <= len(global_user.news_state.strip()) and "0" not in global_user.news_state.strip()[-4:]:
+            if len(get_news()) <= len(global_user.news_state.strip()) and "0" not in global_user.news_state.strip()[-4:]:
                 continue
         elif quest == "achievement":
             unlocked = 0
@@ -4610,7 +4612,7 @@ async def progress(
     old_xp = user.progress
     level_complete_embeds = []
     if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-        level_data = {"xp": 1500, "reward": "Stone", "amount": 1}
+        level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
         level_text = "Extra Rewards"
     else:
         level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -4656,7 +4658,7 @@ async def progress(
             level_complete_embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
             if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-                active_level_data = {"xp": 1500, "reward": "Stone", "amount": 1}
+                active_level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
                 new_level_text = "Extra Rewards"
             else:
                 active_level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -7750,18 +7752,17 @@ DB Channels: `{await Channel.count():,}`
 
 @bot.tree.command(description="Read The Cat Bot Times™️")
 async def news(message: discord.Interaction):
-    embed = discord.Embed(
-        title="📰 The Cat Bot Times",
-        description="Coming soon.",
-        color=Colors.brown,
-    )
-    await message.response.send_message(embed=embed)
-    return
-    # The original /news command is preserved below but unreachable.
-    # Restore by removing the early-return above when you have news to publish.
+    articles = get_news()
     user = await User.get_or_create(user_id=message.user.id)
     buttons = []
     current_state = user.news_state.strip()
+
+    if not articles:
+        empty = LayoutView(timeout=VIEW_TIMEOUT)
+        empty.add_item(Container("## 📰 The Cat Bot Times", "No news yet — check back soon!"))
+        await message.response.send_message(view=empty)
+        await achemb(message, "news", "followup")
+        return
 
     async def send_news(interaction: discord.Interaction):
         news_id = int(interaction.data["custom_id"])
@@ -7780,7 +7781,7 @@ async def news(message: discord.Interaction):
         await interaction.response.defer()
 
         current_state = user.news_state.strip()
-        if current_state[news_id] not in "123456789":
+        if news_id < len(current_state) and current_state[news_id] not in "123456789":
             user.news_state = current_state[:news_id] + "1" + current_state[news_id + 1 :]
             await user.save()
 
@@ -7792,374 +7793,43 @@ async def news(message: discord.Interaction):
         back_button.callback = go_back
         back_row = ActionRow(back_button)
 
-        logging.debug("Read news #%d", news_id)
-
-        if news_id == 0:
-            embed = Container(
-                "## 📜 Cat Bot Survey",
-                "Hello and welcome to The Cat Bot Times:tm:! I kind of want to learn more about your time with Cat Bot because I barely know about it lmao. This should only take a couple of minutes.\n\nGood high-quality responses will win FREE cat rain prizes.\n\nSurvey is closed!",
-                "-# <t:1731168230>",
-            )
-            view.add_item(embed)
+        all_articles = get_news()
+        if news_id >= len(all_articles):
+            view.add_item(Container("## (this article no longer exists)"))
             view.add_item(back_row)
             await interaction.edit_original_response(view=view)
-        elif news_id == 1:
-            embed = Container(
-                "## ✨ New Cat Rains perks!",
-                "Hey there! Buying Cat Rains now gives you access to `/editprofile` command! You can add an image, change profile color, and add an emoji next to your name. Additionally, you will now get a special role in our [discord server](https://discord.gg/staring).\nEveryone who ever bought rains and all future buyers will get it.\nAnyone who bought these abilities separately in the past (known as 'Cat Bot Supporter') have received 10 minutes of Rains as compensation.\n\nThis is a really cool perk and I hope you like it!",
-                Button(label="Cat Bot Store", url="https://catbot.shop"),
-                "-# <t:1732377932>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 2:
-            embed = Container(
-                "## ☃️ Cat Bot Christmas",
-                f"⚡ **Cat Bot Wrapped 2024**\nIn 2024 Cat Bot got...\n- 🖥️ *45777* new servers!\n- 👋 *286607* new profiles!\n- {get_emoji('staring_cat')} okay so funny story due to the new 2.1 billion per cattype limit i added a few months ago 4 with 832 zeros cats were deleted... oopsie... there are currently *64105220101255* cats among the entire bot rn though\n- {get_emoji('cat_throphy')} *1518096* achievements get!\nSee last year's Wrapped [here](<https://discord.com/channels/966586000417619998/1021844042654417017/1188573593408385074>).\n\n❓ **New Year Update**\nSomething is coming...",
-                "-# <t:1734458962>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 3:
-            embed = Container(
-                "## Cattlepass is getting an update!",
-                """### qhar?
-- Huge stuff!
-- Cattlepass will now reset every month
-- You will have 3 quests, including voting
-- They refresh 12 hours after completing
-- Quest reward is XP which goes towards progressing
-- There are 30 cattlepass levels with much better rewards (even Ultimate cats and Rain minutes!)
-- Prism crafting/true ending no longer require cattlepass progress.
-- More fun stuff to do each day and better rewards!
+            return
 
-### oh no what if i hate grinding?
-Don't worry, quests are very easy and to complete the cattlepass you will need to complete less than 3 easy quests a day.
-
-### will you sell paid cattlepass? its joever
-There are currently no plans to sell a paid cattlepass.""",
-                "-# <t:1735689601>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 4:
-            embed = Container(
-                f"## {get_emoji('goldpack')} Packs!",
-                f"""you want more gambling? we heard you!
-instead of predetermined cat rewards you now unlock Packs! packs have different rarities and have a 30% chance to upgrade a rarity when opening, then 30% for one more upgrade and so on. this means even the most common packs have a small chance to upgrade to the rarest one!
-the rarities are - Wooden {get_emoji("woodenpack")}, Stone {get_emoji("stonepack")}, Bronze {get_emoji("bronzepack")}, Silver {get_emoji("silverpack")}, Gold {get_emoji("goldpack")}, Platinum {get_emoji("platinumpack")}, Diamond {get_emoji("diamondpack")} and Celestial {get_emoji("celestialpack")}!
-the extra reward is now a stone pack instead of 5 random cats too!
-*LETS GO GAMBLING*""",
-                "-# <t:1740787200>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 5:
-            embed = Container(
-                "## Important Message from CEO of Cat Bot",
-                """(April Fools 2025)
-
-Dear Cat Bot users,
-
-I hope this message finds you well. I want to take a moment to address some recent developments within our organization that are crucial for our continued success.
-
-Our latest update has had a significant impact on our financial resources, resulting in an unexpected budget shortfall. In light of this situation, we have made the difficult decision to implement advertising on our platform to help offset these costs. We believe this strategy will not only stabilize our finances but also create new opportunities for growth.
-
-Additionally, in our efforts to manage expenses more effectively, we have replaced all cat emojis with just the "Fine Cat" branding. This change will help us save on copyright fees while maintaining an acceptable user experience.
-
-We are committed to resolving these challenges and aim to have everything back on track by **April 2nd**. Thank you for your understanding and continued dedication during this time. Together, we will navigate these changes and emerge stronger.
-
-Best regards,
-[Your Name]""",
-                "-# <t:1743454803>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 6:
-            embed = Container(
-                "## 🥳 Cat Bot Turns 3",
-                """april 21st is a special day for cat bot! on this day is its birthday, and in 2025 its turning three!
-happy birthda~~
-...
-hold on...
-im recieving some news cats are starting to get caught with puzzle pieces in their teeth!
-the puzzle pieces say something about having to collect a million of them...
-how interesting!
-
-update: the puzzle piece event has concluded""",
-                "-# <t:1745242856>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 7:
-            embed = Container(
-                "## 🎉 100,000 SERVERS WHAT",
-                """wow! cat bot has reached 100,000 servers! this beyond insane i never thought this would happen thanks everyone
-giving away a whole bunch of rain as celebration!
-
-1. cat stand giveaway (ENDED)
-[join our discord server](<https://discord.gg/FBkXDxjqSz>) and click the first reaction under the latest newspost to join in!
-there will be a total of 10 winners who will get 40 minutes each! giveaway ends july 5th.
-
-2. art contest (ENDED)
-again in our [discord server](<https://discord.gg/zrYstPe3W6>) a new channel has opened for art submissions!
-top 5 people who get the most community votes will get 250, 150, 100, 50 and 50 rain minutes respectively!
-
-3. cat bot event (ENDED)
-starting june 30th, for the next 5 days you will get points randomly on every catch! if you manage to collect 1,000 points before the time runs out you will get 2 minutes of rain!!
-
-4. sale (ENDED)
-starting june 30th, [catbot.shop](<https://catbot.shop>) will have a sale for the next 5 days! if everything above wasnt enough rain for your fancy you can buy some more with a discount!
-
-aaaaaaaaaaaaaaa""",
-                ActionRow(
-                    Button(label="Join our Server", url="https://discord.gg/staring"),
-                    Button(label="Cat Bot Store", url="https://catbot.shop"),
-                ),
-                "-# <t:1751252181>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-
-        elif news_id == 8:
-            embed = Container(
-                "## Regarding recent instabilities",
-                """hello!
-
-stuff has been kinda broken the past few days, and the past 24 hours in paricular.
-
-it was mostly my fault, but i worked hard to fix everything and i think its mostly working now.
-
-as a compensation i will give everyone who voted in the past 3 days 2 free gold packs! you can press the button below to claim them. (note you can only claim it in 1 server, choose wisely)
-
-thanks for using cat bot!""",
-                Button(label="Expired!", disabled=True),
-                "-# <t:1752689941>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 9:
-            # we hijack the cookie system to store the yippee count
-            cookie_user = await Profile.get_or_create(guild_id=9, user_id=bot.user.id)
-
-            async def add_yippee(interaction):
-                nonlocal cookie_user
-                await interaction.response.defer()
-                cookie_user = await Profile.get(["cookies"], guild_id=9, user_id=bot.user.id)
-                cookie_user.cookies += 1
-                await cookie_user.save()
-                await send_yippee(interaction)
-
-            async def send_yippee(interaction):
-                view = LayoutView(timeout=VIEW_TIMEOUT)
-                btn = Button(label=f"yippee! ({cookie_user.cookies:,})", emoji=get_emoji("yippee"), style=ButtonStyle.primary)
-                btn.callback = add_yippee
-                embed = Container(
-                    # RE-ENABLE WHEN VOTING IS PUBLIC: "## cat bot is now top 5 on top.gg",
-                    # RE-ENABLE WHEN VOTING IS PUBLIC: "thanks for voting",
-                    # RE-ENABLE WHEN VOTING IS PUBLIC: discord.ui.MediaGallery(discord.MediaGalleryItem("https://i.imgur.com/MSZF3ly.png")),
-                    "## yippee",
-                    "===",
-                    btn,
-                    "-# <t:1757794211>",
-                )
-                view.add_item(embed)
-                view.add_item(back_row)
-                await interaction.edit_original_response(view=view)
-
-            await send_yippee(interaction)
-        elif news_id == 10:
-            # RE-ENABLE WHEN VOTING IS PUBLIC: original news entry referenced top.gg awards / voting
-            embed = Container(
-                "## (this news entry is hidden on this self-hosted instance)",
-                "-# <t:1759513848>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 11:
-            embed = Container(
-                f"## {get_emoji('catnip')} Welcome to the Cat Mafia",
-                f"""after the dog mafia got arrested, cats got inspired and started their own mafia!
-
-- the dark market is being replaced by {get_emoji("catnip")} catnip
-- the biggest update ever (probably)
-- this is a new late-game complex mechanic with *leveling, bounties and perks*
-- it can be accessed and managed via /catnip
-- discover **10 new cats** - the members of the mafia who have tough challenges for you
-- getting through all of it is a very tough challenge, **the hardest thing in cat bot**
-- the old system is completely gone, all process you had in it will be reset
-
-👉 okay now let me explain:
-at each level you will have some bounties you have to complete within a time frame. if you complete the bounties and pay the price, you will be able to choose one of 3 different perks of random rarities {get_emoji("common")}{get_emoji("uncommon")}{get_emoji("rare")}{get_emoji("epic")}{get_emoji("legendary")}. the perks will stack while catnip is active! failing to complete the bounties will bring you one level down and you will lose your last perk. higher levels are harder but give you better perks!""",
-                "-# <t:1761325200>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 12:
-            # RE-ENABLE WHEN VOTING IS PUBLIC: original news entry referenced top.gg awards / voting
-            embed = Container(
-                "## (this news entry is hidden on this self-hosted instance)",
-                "-# <t:1765747278>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 13:
-            embed = Container(
-                f"## {get_emoji('christmaspack')} Cat Bot Christmas 2025 (event over)",
-                f"""Merry Christmas!
-
-{get_emoji("christmaspack")} **Christmas Packs**
-Christmas packs are a new pack type with a twist: when opening them the upgrade chances are 70% instead of 30%!
-They start below Wooden with base value of 30. Their average value is ~225.
-You can trade, gift, and open them as usual even after the event ends.
-You will be able to collect them until <t:1767297600> using 2 methods:
-- You get 1 when completing the Vote quest, or
-- You get 1 for every 500 snowflakes you earn.
-
-❄️ **Snowflakes**
-You can get them by catching cats. The amount will be determined by the value of the catch (excluding all boosts), where 1 value = 1 ❄️.
-This means catching an eGirl cat will give you 4 Christmas packs!
-
-🎅 **Christmas Sale**
--20% sale starts now on the Cat Bot Store!
-:point_right: **[catbot.shop](<https://catbot.shop>)**""",
-                ActionRow(
-                    Button(label="Cat Bot Store", url="https://catbot.shop"),
-                ),
-                "-# <t:1766433600>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 14:
-            embed = Container(
-                "## 💝 Valentine's Day!",
-                f"""💞 **Pick a Valentine** (event over)
-Use `/valentine` to pick a valentine - your progress and rewards will be shared with them for the duration of the event.
-You can't change this after you picked someone, so choose wisely!
-
-{get_emoji("valentinepack")} **Valentine Packs**
-Valentine packs are the new event pack type, with the upgrade chances being 70% instead of 30%!
-Just like Christmas packs, they start below Wooden with base value of 30 and have average value of ~225.
-You can trade, gift, and open them as usual even after the event ends.
-You will be able to collect them until <t:1771437600> using 2 methods:
-- You and your valentine both get 1 when either of you completes the Vote quest, and
-- You and your valentine both get 1 for every 50 cats you collectively catch.
-
-🥰 **Valentine's Sale** (over)
--20% sale starts now on the Cat Bot Store and will end on <t:1771437600>!
-:point_right: **[catbot.shop](<https://catbot.shop>)**""",
-                ActionRow(
-                    Button(label="Cat Bot Store", url="https://catbot.shop"),
-                ),
-                "-# <t:1771005600>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 15:
-            embed = Container(
-                "## 📈 Welcome to the Stock Market",
-                """ever wanted to invest your cats into stocks? no? well now you can!
-- /stocks and /portfolio
-- deposit packs to get coins
-- trade shares of stocks with other cat bot users globally
-- earn random rewards (dividends) from time to time
-- withdraw back to packs with a 20% fee
-
-i understand this might be overwhelming which is why i added a ton of help buttons throughout the thing! those have much better explanations than this brief overview
-
-ummm good luck and let the line go up!""",
-                "-# <t:1772308800>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 16:
-            embed = Container(
-                "## PackOrRain Event",
-                "everyone *who votes below* will earn a prize! the prize type will be **whatever option gets most votes**, and the prize amount will be **how many millions of catches** everyone does until the event ends!",
-                "-# the prize will be given to everyone who votes, even if their vote wasn't the winning option.",
-                "===",
-                "**Final Prize**: 2 ☔ Rain Minutes",
-                "**Event ended** <t:1773856800>",
-                "===",
-                "-# <t:1773424800>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 17:
-            embed = Container(
-                f"## {get_emoji('insane')} cat bot has reached 200k servers!",
-                "wow big number!!",
-                "to celebrate im ~~doing a 200 rain minute giveaway~~ ended!! in our [discord server](https://discord.com/channels/966586000417619998/1021844042654417017/1492510874458394655)",
-                ActionRow(
-                    Button(label="Join the server", url="https://discord.gg/staring"),
-                ),
-                "-# <t:1775913490>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 18:
-            embed = Container(
-                f"## {get_emoji('b_babycat')} It's Cat Bot's 4th birthday!!",
-                Section(
-                    f"### {get_emoji('b_babycat')} Baby cat becomes an adult 🥳",
-                    "Help decide Baby cat's new name via a poll in our [Discord server](https://discord.com/channels/966586000417619998/1021844042654417017)!",
-                    Button(label="Vote!", url="https://discord.com/channels/966586000417619998/1021844042654417017"),
-                ),
-                f"### {get_emoji('birthdaypack')} Birthday Packs [ended]",
-                f"For the next 5 days, you will get a {get_emoji('birthdaypack')} Birthday Pack for every {get_emoji('b_babycat')} Baby cat you catch!\nCollect 10 of them to get ☔ **2 free Rain Minutes**!",
-                Section(
-                    "### 🎨 Birthday Art Contest",
-                    "Join our [Discord server](https://discord.gg/staring) to participate in the Birthday Art Contest! 3 winners will get ☔ **100 Rain Minutes** each.",
-                    Button(label="Join the server", url="https://discord.gg/staring"),
-                ),
-                Section(
-                    f"### {get_emoji('insane')} -50% off Sale [ended]",
-                    "This is **much higher** than normal sale amounts!!",
-                    Button(label="catbot.shop", emoji="☔", url="https://catbot.shop"),
-                ),
-                "-# <t:1776778856>",
-            )
-            view.add_item(embed)
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
-        elif news_id == 19:
-            view.add_item(
-                Container(
-                    "## (disabled on this self-hosted instance)",
-                )
-            )
-            view.add_item(back_row)
-            await interaction.edit_original_response(view=view)
+        article = all_articles[news_id]
+        emoji = get_emoji(article["emoji"]) if article.get("emoji") else ""
+        heading = "## " + (f"{emoji} " if emoji else "") + (article.get("title") or "")
+        parts = [heading, render_news_body(article.get("body", ""))]
+        link_buttons = [
+            Button(label=b.get("label") or "Link", url=b["url"])
+            for b in (article.get("buttons") or [])
+            if b.get("url")
+        ]
+        if link_buttons:
+            parts.append(ActionRow(*link_buttons))
+        if article.get("date"):
+            parts.append(f"-# <t:{int(article['date'])}>")
+        view.add_item(Container(*parts))
+        view.add_item(back_row)
+        await interaction.edit_original_response(view=view)
 
     async def regen_buttons():
         nonlocal buttons
         await user.refresh_from_db()
         buttons = []
         current_state = user.news_state.strip()
-        for num, article in enumerate(news_list):
+        for num, article in enumerate(get_news()):
             try:
                 have_read_this = current_state[num] != "0"
             except Exception:
                 have_read_this = False
             button = Button(
-                label=article["title"],
-                emoji=get_emoji(article["emoji"]),
+                label=article.get("title") or f"Article {num + 1}",
+                emoji=get_emoji(article["emoji"]) if article.get("emoji") else None,
                 custom_id=str(num),
                 style=ButtonStyle.green if not have_read_this else ButtonStyle.gray,
             )
@@ -8169,8 +7839,8 @@ ummm good luck and let the line go up!""",
 
     await regen_buttons()
 
-    if len(news_list) > len(current_state):
-        user.news_state = current_state + "0" * (len(news_list) - len(current_state))
+    if len(articles) > len(current_state):
+        user.news_state = current_state + "0" * (len(articles) - len(current_state))
         await user.save()
 
     current_page = 0
@@ -8195,7 +7865,7 @@ ummm good luck and let the line go up!""",
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        user.news_state = "1" * len(news_list)
+        user.news_state = "1" * len(get_news())
         await user.save()
         await regen_buttons()
         await interaction.response.edit_message(view=generate_page(current_page))
@@ -8940,7 +8610,7 @@ async def gen_inventory(message, person_id):
     give_achs = []
     if me:
         # give some aches if we are vieweing our own inventory
-        if len(news_list) > len(user.news_state.strip()) or "0" in user.news_state.strip()[-4:]:
+        if len(get_news()) > len(user.news_state.strip()) or "0" in user.news_state.strip()[-4:]:
             embedVar.set_author(name="You have unread news! /news")
 
         if give_collector:
@@ -10363,9 +10033,8 @@ async def battlepass(message: discord.Interaction):
         button.callback = gen_main
         view.add_item(button)
 
-        # /news is currently stubbed to "Coming soon", so the unread-news indicator is suppressed.
-        # if len(news_list) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
-        #     embedVar.set_author(name="You have unread news! /news")
+        if len(get_news()) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
+            embedVar.set_author(name="You have unread news! /news")
 
         if first:
             await interaction.followup.send(embed=embedVar, view=view)
@@ -17787,7 +17456,7 @@ async def achievements(message: discord.Interaction):
         ).set_footer(text=rain_shill)
 
         global_user = await User.get_or_create(user_id=message.user.id)
-        if len(news_list) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
+        if len(get_news()) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
             newembed.set_author(name="You have unread news! /news")
 
         for k, v in ach_list.items():
@@ -18256,7 +17925,7 @@ async def leaderboards(
 
         global_user = await User.get_or_create(user_id=message.user.id)
 
-        if len(news_list) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
+        if len(get_news()) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
             embedVar.set_author(name=f"{message.user} has unread news! /news")
 
         # handle funny buttons

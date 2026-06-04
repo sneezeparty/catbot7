@@ -65,6 +65,20 @@ If a session expires with bounties incomplete: level drops by 1, last perk remov
 
 **Design intent:** failure must be visible and felt. Without the level-drop, catnip would be free progress — players would just camp at level 1 and ignore bounties.
 
+### Job-grace shield
+
+Doing `/jobs` (any outcome: success, near-miss, or total failure) stamps `profile.last_job_time`. While `now − last_job_time < CATNIP_JOB_GRACE_SECONDS` (tunable via `config/tuning.json → catnip_job_grace_hours`, default 24h), two decay paths are suppressed:
+
+1. **Bounty-deadline level-down** (`/catnip`): if the session has expired with incomplete bounties but grace is active, the level-drop is skipped. A notice is shown instead ("job is protecting your mafia level — safe until ..."), and `catnip_active`/bounties are left untouched. Once the grace window passes without a new `/jobs` commit, the next `/catnip` invocation drops the level as usual.
+
+2. **Respect-driven level strip** (`_respect_settle`): when respect reaches 0 and the `hours_at_zero_per_level_loss` threshold is met, the level-strip cycle is skipped while grace is active. The respect **meter** still decays and refills normally — only the level-loss step is suppressed. The Lv4 floor and the level-loss-grace-respect reset are unchanged.
+
+The two decay systems are made congruent: a player who commits at least one `/jobs` per day is provably safe under both. The "engagement, not winning" framing is deliberate — the protection comes from the act of playing jobs, not from succeeding at them.
+
+**What the shield does NOT protect:** leveling up still requires bounties + pay; catnip perks still require an active session (`catnip_active > now`); grace protects the level, not perk uptime. The respect meter decays normally throughout.
+
+The stamping is migration-guarded (`profile.last_job_time` added in migration 027). Before that migration is applied, `_job_grace_active` returns `False` and both decay paths behave exactly as before.
+
 ## Cutscenes
 
 There are two scripted cutscenes (`mafia_cutscene` at level 8 first-reach, `mafia_cutscene2` at level 10 first-reach). They unlock achievements (`thanksforplaying`, `mafia_win`) and lore.

@@ -325,6 +325,13 @@ PRISM_BOOST_FLOOR = config.tuning["prism_boost_floor"]
 # a different player (self-boosts grant nothing). Sourced from tuning.json
 # with a literal default so existing tuning files keep working unchanged.
 PRISM_OWNER_XP_PER_BOOST = int(config.tuning.get("prism_owner_xp_per_boost", 20))
+# Grace window (seconds) during which a recent /jobs commit protects the
+# player's mafia (catnip) level from BOTH decay systems — the catnip bounty
+# deadline and respect decay. Do a job within this window and a lapsed catnip
+# timer won't drop your level; go longer than this with no job and decay
+# resumes. Sourced from tuning.json with a literal default so old tuning files
+# keep working. See _job_grace_active.
+CATNIP_JOB_GRACE_SECONDS = int(config.tuning.get("catnip_job_grace_hours", 24)) * 3600
 COIN_PER_PACK = config.tuning["coin_per_pack"]
 BAKERY_COST_COOKIES = config.tuning["bakery_cost_cookies"]
 BAKERY_COST_COFFEES = config.tuning["bakery_cost_coffees"]
@@ -2206,6 +2213,13 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         season = int(reward.get("_season", 0) or 0)
         profile.big_score_season = season
 
+    # Job-grace: any committed job (win, near-miss, or loss — "doing /jobs" is
+    # engagement, not winning) shields the mafia level from catnip-deadline and
+    # respect decay for CATNIP_JOB_GRACE_SECONDS. See _job_grace_active. No-ops
+    # cleanly if migration 027 hasn't been applied.
+    if _profile_has_last_job_time(profile):
+        profile.last_job_time = int(time.time())
+
     # Lifetime counters + reward grant
     if outcome == "success":
         profile.jobs_completed = int(getattr(profile, "jobs_completed", 0) or 0) + 1
@@ -2523,6 +2537,40 @@ def _safe_prisms_crafted(profile: Profile) -> int:
         return 0
 
 
+def _profile_has_last_job_time(profile: Profile) -> bool:
+    """True iff the profile row has the last_job_time column (migration 027).
+    Same KeyError-vs-AttributeError guard as the respect helpers — lets the
+    job-grace feature no-op cleanly before the migration is applied."""
+    try:
+        _ = profile.last_job_time
+        return True
+    except (KeyError, AttributeError):
+        return False
+
+
+def _safe_last_job_time(profile: Profile) -> int:
+    """profile.last_job_time as an int, or 0 if the column doesn't exist
+    (migration 027 unrun)."""
+    try:
+        return int(profile.last_job_time or 0)
+    except (KeyError, AttributeError):
+        return 0
+
+
+def _job_grace_active(profile: Profile, now: int | None = None) -> bool:
+    """True while a recent /jobs commit shields the mafia (catnip) level from
+    decay. Stamped on every committed job (any outcome) via last_job_time; the
+    window is CATNIP_JOB_GRACE_SECONDS (24h by default). Returns False before
+    migration 027 (no column → _safe_last_job_time gives 0)."""
+    if CATNIP_JOB_GRACE_SECONDS <= 0:
+        return False
+    last = _safe_last_job_time(profile)
+    if last <= 0:
+        return False
+    now = now if now is not None else int(time.time())
+    return (now - last) < CATNIP_JOB_GRACE_SECONDS
+
+
 def _prism_tax_enabled(profile: Profile) -> bool:
     """True iff the prisms_crafted column exists on this profile row. Used
     to gate the coin tax behavior so prism crafting still works pre-migration
@@ -2574,18 +2622,25 @@ def _respect_settle(profile: Profile, now: int | None = None) -> int:
     levels_lost = 0
     hours_at_zero = 0
 
+    # A recent /jobs commit shields the level from respect-driven loss too, so
+    # a daily jobber is provably safe under both decay systems (without this, a
+    # tiny tier-1-only daily job protects the catnip deadline but still lets
+    # respect drift to the floor). The respect METER still decays normally
+    # below — only the level strip is suppressed while grace is active.
+    grace_active = _job_grace_active(profile, now)
+
     for _ in range(elapsed):
         if current > 0:
             current = max(0, current - decay)
             hours_at_zero = 0
         else:
             hours_at_zero += 1
-            if hours_at_zero >= hz_per_loss and cat_level > floor:
+            if not grace_active and hours_at_zero >= hz_per_loss and cat_level > floor:
                 cat_level -= 1
                 levels_lost += 1
                 current = grace
                 hours_at_zero = 0
-            # else: at floor or still accumulating — stay at 0
+            # else: protected by a recent job, at floor, or still accumulating
 
     profile.respect = current
     profile.catnip_level = cat_level
@@ -16880,8 +16935,21 @@ async def catnip(message: discord.Interaction):
         )
 
     if user.catnip_active < time.time() and not user.hibernation and user.catnip_level > 0:
-        embed = await level_down(user, message, True)
-        await message.followup.send(f"<@{user.user_id}>", embed=embed, ephemeral=True)
+        if _job_grace_active(user):
+            # Bounty timer lapsed, but a recent /jobs commit is shielding the
+            # level. Don't drop it — surface a one-shot heads-up instead. The
+            # lapsed timer/bounties are left as-is; once the grace window passes
+            # with no new job, the next /catnip drops the level as usual.
+            safe_until = _safe_last_job_time(user) + CATNIP_JOB_GRACE_SECONDS
+            await message.followup.send(
+                f"{get_emoji('catnip')} Your bounty timer lapsed, but a recent job is "
+                f"protecting your mafia level — safe until <t:{safe_until}:R>. "
+                "Do another job before then to stay safe.",
+                ephemeral=True,
+            )
+        else:
+            embed = await level_down(user, message, True)
+            await message.followup.send(f"<@{user.user_id}>", embed=embed, ephemeral=True)
 
     if user.catnip_amount == 0:
         await set_mafia_offer(user.catnip_level, user)
@@ -17239,6 +17307,15 @@ You can stop. That's okay. Seriously.
         desc = "\n"
         if user.hibernation:
             desc += "\nThe timer for leveling up will **not start** until you begin your bounties.\n"
+
+        # Job-grace status — doing /jobs shields your level from the catnip
+        # timer for 24h, so you can engage catnip less often.
+        if user.catnip_level > 0:
+            if _job_grace_active(user):
+                safe_until = _safe_last_job_time(user) + CATNIP_JOB_GRACE_SECONDS
+                desc += f"\n{get_emoji('catnip')} Mafia level protected by a recent job — safe until <t:{safe_until}:R>.\n"
+            else:
+                desc += "\n⚠️ Do a `/jobs` to protect your mafia level from the catnip timer.\n"
 
         if user.catnip_level > 0 and user.catnip_level < 11:
 

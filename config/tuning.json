@@ -80,6 +80,7 @@
     "level_loss_floor": 4,
     "level_loss_grace_respect": 25
   },
+  "catnip_job_grace_hours": 24,
   "catstore_tier_mult": {
     "Mythic": 1.5,
     "Divine": 4,

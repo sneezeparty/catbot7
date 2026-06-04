@@ -274,6 +274,7 @@ Two columns on `profile`:
 - **At respect == 0**, accumulating `hours_at_zero_per_level_loss` (default 6) zero-hours costs **−1 catnip_level**. After the loss, respect resets to `level_loss_grace_respect` (default 25) so the player has a runway before the next loss.
 - **Floor**: catnip_level cannot decay below `level_loss_floor` (default 4). Tier‑2 jobs always remain accessible as a recovery path, so a returning player from a long absence can always rebuild.
 - **Store discount tracks current catnip_level.** When a level is lost to decay, the discount drops with it (Lv10's +30% reverts to Lv9's +25%, etc.). This is the same code path catnip already used — no extra wiring.
+- **Job-grace shield**: any committed `/jobs` (success, near-miss, or failure) stamps `profile.last_job_time`. While `now − last_job_time < CATNIP_JOB_GRACE_SECONDS` (default 24h, tunable via `config/tuning.json → catnip_job_grace_hours`) the level-strip step is skipped — the respect meter still decays normally, but the actual level loss does not fire. This makes the respect decay system and the catnip bounty-deadline decay system congruent: one `/jobs` per day shields the level under both. See [catnip.md → Job-grace shield](catnip.md#job-grace-shield) for the full mechanic including the bounty-deadline side.
 
 ### Equilibrium math
 
@@ -322,6 +323,8 @@ Everything lives in `config/tuning.json → respect` and is hot-reloadable via `
 ### Design intent
 
 The pre-rebalance coast — max catnip once, profit forever — broke the "active commitment" implicit in /jobs being a contract system. Respect fixes that with a mechanic that's visible (a clear meter, not silent rot), predictable (deterministic decay rate, easily-grokked thresholds), and recoverable (floor at Lv4, grace bump after each loss). No catch-up penalty for returning players; they just see decay running. Combined with the top-tier price increases and the prism coin tax, the loop becomes: do jobs to keep respect → keep respect to keep discount → keep discount to afford the new top-tier prices → top-tier purchases now actually feel like they cost something.
+
+The **job-grace shield** makes this loop explicit: doing /jobs every day protects the catnip level under *both* decay systems (respect-driven strip and bounty-deadline drop). A player who commits daily doesn't need to worry about catnip decay at all — the two decay paths and the grace window were sized to be congruent on a 24h cadence. The protection is engagement-based, not outcome-based, so even a loss or near-miss counts.
 
 The asymmetry with Heat is intentional: Heat punishes *over-commitment* (too many high-risk jobs in a row), Respect punishes *under-commitment* (going idle). Together they sandwich the player into a healthy middle: keep playing, but don't burn yourself out chasing T4s every window.
 

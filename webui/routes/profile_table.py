@@ -74,6 +74,7 @@ INT_FIELDS = [
     "reroll_level",
     # Jobs / Mafia Killings
     "heat",                   # current heat level; admin may reset to 0
+    "last_job_time",          # unix ts of most recent committed /jobs (grace-period shield)
     "perks_suspended_until",  # unix ts; set to 0 to lift a Pinch early
     "big_score_season",       # season number of last Big Score attempt
     "big_score_wins",         # all-time Big Score successes

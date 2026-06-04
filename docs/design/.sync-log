@@ -67,3 +67,5 @@
 2026-06-03 00:00  battlepass.md   updated Extra Rewards tail: 1500 XP -> 6000 XP per Stone pack (re: main.py)
 2026-06-03 00:00  battlepass.md   updated XP cost curves: split S1/S2+ curves; S2+ L1-30 = 1100-2000 (3× each) = 44,500 XP; S2+ L31-40 = 2400-6000 = 82,500 cumulative; full pass = 88,500; added calibration note (re: main.py + config/battlepass.json)
 2026-06-03 00:00  economy.md      updated daily-XP paragraph: clarified S1 vs S2+ level requirements; linked to battlepass.md (re: main.py + config/battlepass.json)
+2026-06-03 00:00  catnip.md       added "Job-grace shield" sub-section under Decay: profile.last_job_time (migration 027), _job_grace_active, CATNIP_JOB_GRACE_SECONDS (re: main.py + schema.sql + config/tuning.json)
+2026-06-03 00:00  jobs.md         added job-grace bullet to Respect Rules list and new grace-shield paragraph to Respect Design intent (re: main.py + schema.sql + config/tuning.json)

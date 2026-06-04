@@ -120,6 +120,8 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 023 | Add `profile.job_rerolls_window` (`integer DEFAULT 0`) and `profile.job_rerolls_window_idx` (`bigint DEFAULT 0`) for the paid `/jobs` board reroll price-escalation counter. No backfill needed. Idempotent (per-column gated). Bot must be stopped before running. |
 | 024 | Add `profile.season_trophies` (`jsonb DEFAULT '[]'`) — append-only trophy records awarded at season rollover to the top-3 players per category (coins earned, cats caught, heists completed) per server. Displayed on `/catprofile`. No backfill needed. |
 | 025 | Add `profile."cat_Shadow"` and `profile."cat_Terminator"` (integer DEFAULT 0) — per-server catch counters for the two new rarities. No backfill needed. |
+| 026 | Reset `user.news_state` to `''` for all users — clears stale read-state from the hardcoded news list so the new `config/news.json`-driven articles show as unread for everyone. |
+| 027 | Add `profile.last_job_time` (`bigint DEFAULT 0`) — UNIX timestamp of the player's most recent committed job; shields mafia level from both decay systems for 24h after a job. Backfills from each profile's most recent resolved `jobinstance` row. |
 
 Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020`, which mutates data in place** and would double-remap if re-run; restore the pre-migration data before re-running it.
 

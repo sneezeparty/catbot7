@@ -107,6 +107,7 @@ SECTIONS: dict[str, dict] = {
             "profile.* (full row in detail view)",
             "profile_table.py: INT_FIELDS / STR_FIELDS / BOOL_FIELDS / JSONB_FIELDS — display groupings; "
             "new columns can be added here to surface them, but nothing is written back",
+            "profile.last_job_time (bigint, unix ts — Jobs grace-period shield; in INT_FIELDS)",
         ],
     },
     "user_table": {

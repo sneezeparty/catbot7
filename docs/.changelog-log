@@ -77,3 +77,4 @@
 2026-05-31 00:00  Changed: Extended "Two new cat rarities" bullet — rarity_min_season gate now noted across pack opens and catnip pricing, not just spawns (re: main.py)
 2026-05-31 00:00  Changed: "Season rollover grants 100-coin starting allowance instead of wiping to 0" (re: main.py, config/tuning.json)
 2026-06-03 00:00  Changed: "Battlepass XP requirements ~2x higher; Extra Rewards grind cost 1500→6000 XP" (re: main.py, config/battlepass.json — user-provided context)
+2026-06-03 00:00  Added: "/jobs shields catnip level from decay for 24h; /catnip shows protection status" (re: main.py, schema.sql, config/tuning.json — user-provided context)

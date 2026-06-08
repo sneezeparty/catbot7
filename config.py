@@ -55,3 +55,10 @@ STORE_ENABLED = os.environ.get("store_enabled", "0") == "1"
 # the upstream bot used to link to its own support server. Empty string = the
 # link or button is omitted entirely from those surfaces.
 SUPPORT_INVITE = os.environ.get("support_invite", "")
+
+# Bot operator's Discord user ID — the only account allowed to run `cat!*`
+# backdoors (cat!restart, cat!eval, cat!news, cat!custom, cat!print, cat!sweep,
+# cat!rain). Auto-overridden in on_ready() from the Discord application's
+# team-owner / owner. This value is the fallback that's live in the brief
+# window between startup (or `cat!restart`) and on_ready completing.
+OWNER_ID = int(os.environ.get("owner_id", "266016971294900224"))

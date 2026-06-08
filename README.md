@@ -14,6 +14,14 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
   <a href="https://discord.gg/GAv9umz5RB">
     <img src="https://img.shields.io/badge/Join-Cat%20Bot's%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Cat Bot's Discord">
   </a>
+  &nbsp;&nbsp;
+  <a href="https://top.gg/bot/1503024098412855458">
+    <img src="https://img.shields.io/badge/View-on%20top.gg-FF3366?style=for-the-badge" alt="View on top.gg">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://buymeacoffee.com/sneezeparty">
+    <img src="https://img.shields.io/badge/Buy%20me-a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee">
+  </a>
 </p>
 
 ## What's different from upstream

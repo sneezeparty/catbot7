@@ -659,8 +659,11 @@ emojis = {}
 RAIN_ID = 1270470307102195752
 PLUSH_ID = 0
 
-# for dev commands, this is fetched in on_ready
-OWNER_ID = 553093932012011520
+# for dev commands, this is fetched in on_ready (auto-set to the Discord
+# application's owner/team-owner). The fallback below is only live during the
+# few-second window between startup and on_ready firing — and is sourced from
+# config.OWNER_ID (env var `owner_id`) so no one else's ID is hardcoded.
+OWNER_ID = config.OWNER_ID
 
 # for funny stats, you can probably edit background_loop to restart every X of them
 loop_count = 0
@@ -7347,7 +7350,7 @@ async def on_message(message: discord.Message):
         except Exception:
             pass
     if text.lower().startswith("cat!rain"):
-        # syntax: cat!rain 553093932012011520 short
+        # syntax: cat!rain <user_id> short
         things = text.split(" ")
         user = await User.get_or_create(user_id=int(things[1]))
         if not user.rain_minutes:
@@ -8260,10 +8263,59 @@ async def getid(message: discord.Interaction, thing: discord.User | discord.Role
     await message.response.send_message(f"The ID of {thing.mention} is {thing.id}\nyou can use it in /changemessage like this: `{thing.mention}`")
 
 
+# Paginated to stay under Discord's Components V2 40-child cap per LayoutView.
+# Each Section contributes 4 (self + 2 text lines + accessory), so 10 Sections
+# in one Container hit 40 before the heading/separators are added. Split into
+# two pages; the cap math is in the plan file.
+SETTINGS_PAGES = [
+    {
+        "label": "Display & cleanup",
+        "settings": [
+            (
+                "only_setupped_channels",
+                "Only in Setupped",
+                "If enabled, mutes reactions, responses, achievements and cattlepass progress outside of setupped channels",
+            ),
+            ("do_reactions", "Reactions", "Controls all Cat Bot reactions"),
+            ("do_responses", "Responses", "Controls Cat Bot easter egg responses to specific messages sent"),
+            ("mute_achievements", "Mute Achievements", 'If enabled, will hide all Cat Bot "achievement get" messages'),
+            (
+                "auto_delete_achievements",
+                "Auto-Delete Achievements",
+                'If enabled, will delete all "achievement get" messages after 10 seconds',
+            ),
+            (
+                "auto_delete_catches",
+                "Auto-Delete Catches",
+                'If enabled, will delete all "user cought" messages after ~10 seconds',
+            ),
+        ],
+    },
+    {
+        "label": "Game features & lifecycle",
+        "settings": [
+            ("do_rain", "Cat Rains", "Controls whether Cat Rains can happen"),
+            ("do_catnip", "Catnip", "Controls whether catnip is accessible"),
+            (
+                "anti_double_catch",
+                "Anti-Double Catch",
+                "If enabled, users must wait 5 minutes after catching in one channel to catch in another",
+            ),
+            (
+                "season_announcements",
+                "Season Announcements",
+                "If enabled, Cat Bot warns your setupped channels the day before a Cattlepass season ends and wipes coins/catnip/jobs/packs",
+            ),
+        ],
+    },
+]
+
+
 @bot.tree.command(description="(ADMIN) tune various cat bot things")
 @discord.app_commands.default_permissions(manage_guild=True)
 async def settings(message: discord.Interaction):
     server = await Server.get_or_create(server_id=message.guild.id)
+    current_page = 0
 
     async def toggle_parameter(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -8273,6 +8325,18 @@ async def settings(message: discord.Interaction):
         parameter = interaction.data["custom_id"]
         server[parameter] = not server[parameter]
         await server.save()
+        await interaction.edit_original_response(view=await settings_view())
+
+    async def page_nav(interaction: discord.Interaction):
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        nonlocal current_page
+        await interaction.response.defer()
+        if interaction.data["custom_id"] == "settings_prev":
+            current_page = (current_page - 1) % len(SETTINGS_PAGES)
+        else:
+            current_page = (current_page + 1) % len(SETTINGS_PAGES)
         await interaction.edit_original_response(view=await settings_view())
 
     def make_button(parameter):
@@ -8285,43 +8349,22 @@ async def settings(message: discord.Interaction):
 
     async def settings_view():
         await server.refresh_from_db()
+        page = SETTINGS_PAGES[current_page]
+        sections = [
+            Section(f"### {title}", desc, make_button(param))
+            for (param, title, desc) in page["settings"]
+        ]
+        prev_btn = Button(label="◀ Prev", custom_id="settings_prev")
+        prev_btn.callback = page_nav
+        next_btn = Button(label="Next ▶", custom_id="settings_next")
+        next_btn.callback = page_nav
         view = LayoutView(timeout=VIEW_TIMEOUT)
         view.add_item(
             Container(
                 f"## Cat Bot Settings for {message.guild.name}",
-                Section(
-                    "### Only in Setupped",
-                    "If enabled, mutes reactions, responses, achievements and cattlepass progress outside of setupped channels",
-                    make_button("only_setupped_channels"),
-                ),
-                Section("### Reactions", "Controls all Cat Bot reactions", make_button("do_reactions")),
-                Section("### Responses", "Controls Cat Bot easter egg responses to specific messages sent", make_button("do_responses")),
-                Section("### Mute Achievements", 'If enabled, will hide all Cat Bot "achievement get" messages', make_button("mute_achievements")),
-                Section(
-                    "### Auto-Delete Achievements",
-                    'If enabled, will delete all "achievement get" messages after 10 seconds',
-                    make_button("auto_delete_achievements"),
-                ),
-                Section(
-                    "### Auto-Delete Catches",
-                    'If enabled, will delete all "user cought" messages after ~10 seconds',
-                    make_button("auto_delete_catches"),
-                ),
-                "===",
-                Section("### Cat Rains", "Controls whether Cat Rains can happen", make_button("do_rain")),
-                Section("### Catnip", "Controls whether catnip is accessible", make_button("do_catnip")),
-                "===",
-                Section(
-                    "### Anti-Double Catch",
-                    "If enabled, users must wait 5 minutes after catching in one channel to catch in another",
-                    make_button("anti_double_catch"),
-                ),
-                "===",
-                Section(
-                    "### Season Announcements",
-                    "If enabled, Cat Bot warns your setupped channels the day before a Cattlepass season ends and wipes coins/catnip/jobs/packs",
-                    make_button("season_announcements"),
-                ),
+                f"-# Page {current_page + 1} of {len(SETTINGS_PAGES)} — {page['label']}",
+                *sections,
+                ActionRow(prev_btn, next_btn),
             )
         )
         return view
@@ -8500,8 +8543,6 @@ async def gen_stats(profile, star):
     stats.append(["cats_received_as_gift", "🎁", f"Cats received as gift: {profile.cat_gifts_recieved:,}{star}"])
     stats.append(["trades_completed", "💱", f"Trades completed: {profile.trades_completed}{star}"])
     stats.append(["cats_traded", "💱", f"Cats traded: {profile.cats_traded:,}{star}"])
-    if profile.user_id == 553093932012011520:
-        stats.append(["owner", get_emoji("neocat"), "a cute catgirl :3"])
     return stats
 
 
@@ -16477,11 +16518,11 @@ async def bounty(message, user, cattype):
         embed = discord.Embed(title=f"✅ {title[i]}", color=Colors.green, description=description).set_author(name="Mafia Level " + str(level))
         user.bounties_complete += 1
         if user.bounties_complete >= 5:
-            await achemb(message, "bounty_novice", "followup")
+            await achemb(message, "bounty_novice", "send")
         if user.bounties_complete >= 19:  # we do a little trolling (???)
-            await achemb(message, "bounty_hunter", "followup")
+            await achemb(message, "bounty_hunter", "send")
         if user.bounties_complete >= 100:
-            await achemb(message, "bounty_lord", "followup")
+            await achemb(message, "bounty_lord", "send")
         await message.channel.send(f"<@{user.user_id}>", embed=embed)
         await user.save()
 

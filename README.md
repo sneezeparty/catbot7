@@ -16,7 +16,7 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
   </a>
   &nbsp;&nbsp;
   <a href="https://top.gg/bot/1503024098412855458">
-    <img src="https://img.shields.io/badge/View-on%20top.gg-FF3366?style=for-the-badge" alt="View on top.gg">
+    <img src="https://img.shields.io/badge/Install-on%20your%20server-FF3366?style=for-the-badge" alt="Install on your server (top.gg)">
   </a>
   &nbsp;&nbsp;
   <a href="https://buymeacoffee.com/sneezeparty">

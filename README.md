@@ -7,10 +7,6 @@
 A self-hosted Discord bot about catching cats. Spawns appear in setupped channels, players type `cat` to catch, per-server profiles track everything else (packs, the mafia, the catstore, the casino, achievements, a fake stock market, and so on).
 
 <p align="center">
-  <a href="https://discord.com/discovery/applications/1503024098412855458">
-    <img src="https://img.shields.io/badge/Add%20Cat%20Bot-to%20your%20server-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Add Cat Bot to your server">
-  </a>
-  &nbsp;&nbsp;
   <a href="https://discord.gg/GAv9umz5RB">
     <img src="https://img.shields.io/badge/Join-Cat%20Bot's%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Cat Bot's Discord">
   </a>

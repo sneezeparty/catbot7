@@ -130,11 +130,14 @@ async def index(request):
             )
             prism_history = [(r["month"], int(r["n"])) for r in history]
 
-            # Top catchers, summing across (user, guild) profiles
+            # Top catchers, summing across (user, guild) profiles. Skip the
+            # guild_id=0 stock-market-maker pseudo-profile (bot's own user_id;
+            # not a real player).
             top = await conn.fetch(
                 """
                 SELECT user_id, SUM(total_catches)::bigint AS catches
                 FROM profile
+                WHERE guild_id <> 0
                 GROUP BY user_id
                 ORDER BY catches DESC NULLS LAST
                 LIMIT 10
@@ -143,6 +146,7 @@ async def index(request):
             leaderboard = [{"user_id": r["user_id"], "catches": int(r["catches"] or 0)} for r in top]
 
     bot = state.get_bot()
+    await names.refresh_guild_name_cache()
     unames = await names.resolve_users(bot, [u["user_id"] for u in leaderboard])
 
     # Trim distributions for legibility

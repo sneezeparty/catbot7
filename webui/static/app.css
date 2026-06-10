@@ -1153,6 +1153,10 @@ h3.subsection::before {
 .lb-grid .leaderboard { margin-top: var(--sp-3); }
 .lb-grid .leaderboard td:nth-child(4) { width: 30%; }
 
+/* Leaderboards are short (≤25 rows); a sticky header isn't useful and
+   actively hides row #1 when the table is scrolled (thead z-index covers
+   the row passing under it). */
+.leaderboard thead { position: static; }
 .leaderboard td:nth-child(1) {
   width: 3em;
   color: var(--paper-muted);

@@ -50,6 +50,7 @@ async def index(request):
                     "key": key, "title": title, "unit": unit,
                     "entries": entries, "top": top,
                 })
+    await names.refresh_guild_name_cache()
     unames = await names.resolve_users(
         state.get_bot(), [e["user_id"] for b in boards for e in b["entries"]]
     )

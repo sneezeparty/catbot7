@@ -467,7 +467,8 @@ CREATE TABLE public.server (
     auto_delete_catches boolean DEFAULT false,
     mute_achievements boolean DEFAULT false,
     anti_double_catch boolean DEFAULT false,
-    season_announcements boolean DEFAULT true
+    season_announcements boolean DEFAULT true,
+    name character varying(100) DEFAULT ''::character varying NOT NULL
 );
 
 ALTER TABLE public.server OWNER TO cat_bot;
@@ -676,6 +677,30 @@ CREATE INDEX idx_yet_to_spawn ON public.channel (yet_to_spawn);
 CREATE INDEX jobinstance_active ON public.jobinstance (user_id, guild_id, state);
 
 CREATE INDEX jobinstance_expiry ON public.jobinstance (expires_at) WHERE state = 'offered';
+
+
+CREATE TABLE public.metric_snapshot (
+    bucket_time bigint NOT NULL,
+    guild_count integer DEFAULT 0 NOT NULL,
+    profile_count integer DEFAULT 0 NOT NULL,
+    user_count integer DEFAULT 0 NOT NULL,
+    active_24h integer DEFAULT 0 NOT NULL,
+    active_7d integer DEFAULT 0 NOT NULL,
+    active_30d integer DEFAULT 0 NOT NULL,
+    total_catches bigint DEFAULT 0 NOT NULL,
+    total_packs bigint DEFAULT 0 NOT NULL,
+    total_prisms bigint DEFAULT 0 NOT NULL,
+    coins_in_circulation bigint DEFAULT 0 NOT NULL,
+    catnip_total bigint DEFAULT 0 NOT NULL,
+    jobs_completed_lifetime bigint DEFAULT 0 NOT NULL,
+    jobs_failed_lifetime bigint DEFAULT 0 NOT NULL,
+    live_spawns integer DEFAULT 0 NOT NULL,
+    active_rains integer DEFAULT 0 NOT NULL,
+    pending_jobs integer DEFAULT 0 NOT NULL,
+    PRIMARY KEY (bucket_time)
+);
+
+ALTER TABLE public.metric_snapshot OWNER TO cat_bot;
 
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;

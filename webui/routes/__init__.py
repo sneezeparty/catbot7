@@ -4,6 +4,8 @@ from aiohttp import web
 
 from webui.routes import (
     activity,
+    activity_server,
+    activity_user,
     channel_table,
     commands,
     dashboard,
@@ -22,6 +24,8 @@ def register(app: web.Application) -> None:
     # Insights
     dashboard.register(app)
     activity.register(app)
+    activity_server.register(app)
+    activity_user.register(app)
     economy.register(app)
     leaderboards.register(app)
     commands.register(app)

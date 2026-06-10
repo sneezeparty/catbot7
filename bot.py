@@ -32,7 +32,6 @@ import database
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 log_level = logging.INFO
 
@@ -45,6 +44,27 @@ try:
     log_level = logging.DEBUG
 except ImportError:
     pass
+
+# We pass log_handler=None to bot.run() (below) so discord.py doesn't attach
+# its own handler to the `discord` logger — without that, every discord.*
+# record was emitted twice (once by discord's handler, once by root's after
+# propagation). discord.py's setup_logging would have set both the handler's
+# level and the discord logger's level to log_level; we do that ourselves
+# here. We also install its _ColourFormatter on the handler when the stream
+# supports it, so logs stay colored — that formatter is the other thing
+# setup_logging would have wired up for us.
+handler.setLevel(log_level)
+logging.getLogger("discord").setLevel(log_level)
+if discord.utils.stream_supports_colour(handler.stream):
+    handler.setFormatter(discord.utils._ColourFormatter())
+else:
+    handler.setFormatter(
+        logging.Formatter(
+            "[{asctime}] [{levelname:<8}] {name}: {message}",
+            "%Y-%m-%d %H:%M:%S",
+            style="{",
+        )
+    )
 
 
 winuvloop.install()
@@ -135,6 +155,7 @@ bot.cat_bot_reload_hook = reload  # pyright: ignore
 
 try:
     config.HARD_RESTART_TIME = time.time()
-    bot.run(config.TOKEN, log_handler=handler, log_level=log_level)
+    # log_handler=None — see the comment block above where log_level is set.
+    bot.run(config.TOKEN, log_handler=None)
 finally:
     asyncio.run(database.close())

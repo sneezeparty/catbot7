@@ -657,6 +657,10 @@ except (FileNotFoundError, ValueError):
 
 # d.py doesnt cache app emojis so we do it on our own yippe
 emojis = {}
+# Coalesces concurrent fetch_application_emojis() calls — on_connect and
+# on_ready both want this populated, and without a lock they race the global
+# being empty and both hit Discord's tight per-route bucket → 429 + 3s retry.
+_emojis_lock = asyncio.Lock()
 
 # for mentioning it in catch message, will be auto-fetched in on_ready()
 RAIN_ID = 1270470307102195752
@@ -5077,6 +5081,139 @@ async def _spawn_revival_loop():
             logging.exception("spawn revival loop iteration failed")
 
 
+# Activity dashboard hourly aggregate snapshot. Cadence is faster than the
+# bucket (1 hour) so every hour boundary gets a row promptly; the bucket-time
+# PK + ON CONFLICT DO NOTHING makes the extra writes within a bucket no-ops.
+METRICS_SNAPSHOT_INTERVAL = 300
+
+
+async def _metrics_snapshot_tick():
+    """Compute and upsert one row into metric_snapshot for the current hour
+    bucket. Also opportunistically refreshes server.name for every guild the
+    bot is currently in.
+
+    Robust to a partially-migrated DB: missing table/column is logged once and
+    skipped. Robust to restarts: PK on bucket_time + ON CONFLICT DO NOTHING
+    means the next tick after a restart is at worst a no-op.
+    """
+    import asyncpg as _asyncpg
+    if pool is None or not bot or not bot.is_ready():
+        return
+    bucket = (int(time.time()) // 3600) * 3600
+    now_ts = int(time.time())
+    today_start = int(
+        datetime.datetime.now(datetime.timezone.utc)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .timestamp()
+    )
+    week_start = today_start - 6 * 86400
+    month_start = today_start - 29 * 86400
+
+    try:
+        async with pool.acquire() as conn:
+            # 1) Opportunistic server.name refresh for every guild the bot is in.
+            for g in list(bot.guilds):
+                if not g or not g.name:
+                    continue
+                try:
+                    await conn.execute(
+                        "UPDATE server SET name = $1 WHERE server_id = $2 AND name <> $1",
+                        g.name[:100], g.id,
+                    )
+                except Exception:
+                    logging.debug("server.name update skipped (column missing?)")
+                    break
+
+            # 2) Compute the snapshot row.
+            agg = await conn.fetchrow(
+                """
+                SELECT
+                  COALESCE(SUM(total_catches), 0)            AS total_catches,
+                  COALESCE(SUM(packs_opened), 0)             AS total_packs,
+                  COALESCE(SUM(GREATEST(coins, 0)), 0)       AS coins,
+                  COALESCE(SUM(catnip_total_cats), 0)        AS catnip_total,
+                  COALESCE(SUM(jobs_completed), 0)           AS jobs_completed,
+                  COALESCE(SUM(jobs_failed), 0)              AS jobs_failed,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $1
+                                      THEN user_id END)      AS a24,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $2
+                                      THEN user_id END)      AS a7,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $3
+                                      THEN user_id END)      AS a30,
+                  COUNT(*)                                   AS profile_count
+                FROM profile
+                """,
+                now_ts - 86400, week_start, month_start,
+            )
+            user_count = await conn.fetchval('SELECT COUNT(*) FROM "user"')
+            prism_count = await conn.fetchval("SELECT COUNT(*) FROM prism")
+            live_spawns = await conn.fetchval(
+                "SELECT COUNT(*) FROM channel WHERE cat <> 0"
+            )
+            active_rains = await conn.fetchval(
+                "SELECT COUNT(*) FROM channel WHERE rain_should_end > $1", now_ts,
+            )
+            pending_jobs = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobinstance WHERE state IN ('offered','committed')"
+            )
+
+            # 3) Upsert (no-op on conflict).
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO metric_snapshot (
+                        bucket_time, guild_count, profile_count, user_count,
+                        active_24h, active_7d, active_30d,
+                        total_catches, total_packs, total_prisms,
+                        coins_in_circulation, catnip_total,
+                        jobs_completed_lifetime, jobs_failed_lifetime,
+                        live_spawns, active_rains, pending_jobs
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15, $16, $17
+                    )
+                    ON CONFLICT (bucket_time) DO NOTHING
+                    """,
+                    bucket,
+                    len(bot.guilds),
+                    int(agg["profile_count"] or 0),
+                    int(user_count or 0),
+                    int(agg["a24"] or 0),
+                    int(agg["a7"] or 0),
+                    int(agg["a30"] or 0),
+                    int(agg["total_catches"] or 0),
+                    int(agg["total_packs"] or 0),
+                    int(prism_count or 0),
+                    int(agg["coins"] or 0),
+                    int(agg["catnip_total"] or 0),
+                    int(agg["jobs_completed"] or 0),
+                    int(agg["jobs_failed"] or 0),
+                    int(live_spawns or 0),
+                    int(active_rains or 0),
+                    int(pending_jobs or 0),
+                )
+            except _asyncpg.exceptions.UndefinedTableError:
+                logging.warning(
+                    "metric_snapshot table missing — run migration 029"
+                )
+    except Exception:
+        logging.exception("metrics snapshot tick failed")
+
+
+async def _metrics_snapshot_loop():
+    """Background ticker that periodically snapshots aggregate counters into
+    metric_snapshot. Same shape as _spawn_revival_loop / _season_announcement_loop.
+    """
+    while not bot.is_closed():
+        try:
+            await asyncio.sleep(METRICS_SNAPSHOT_INTERVAL)
+            await _metrics_snapshot_tick()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("metrics snapshot loop iteration failed")
+
+
 def _season_announcement_status():
     """Returns (current_season, season_ends_tomorrow) using the same epoch and
     clock as refresh_quests. season_ends_tomorrow is True on the last calendar
@@ -6097,22 +6234,33 @@ async def background_loop():
     loop_count += 1
 
 
+async def _ensure_emojis_loaded():
+    """Populate the `emojis` global from the Discord API at most once.
+    Both on_connect and on_ready call this; the lock serializes them so the
+    second caller sees the populated dict instead of racing a second GET on
+    the rate-limited /applications/{id}/emojis route."""
+    global emojis
+    if emojis:
+        return
+    async with _emojis_lock:
+        if emojis:
+            return
+        emojis = {emoji.name: str(emoji) for emoji in await bot.fetch_application_emojis()}
+
+
 # fetch app emojis early
 async def on_connect():
-    global emojis
-    if len(emojis) == 0:
-        emojis = {emoji.name: str(emoji) for emoji in await bot.fetch_application_emojis()}
+    await _ensure_emojis_loaded()
 
 
 # some code which is run when bot is started
 async def on_ready():
-    global OWNER_ID, on_ready_debounce, gen_credits, emojis
+    global OWNER_ID, on_ready_debounce, gen_credits
     if on_ready_debounce:
         return
     on_ready_debounce = True
     logging.info("cat is now online")
-    if len(emojis) == 0:
-        emojis = {emoji.name: str(emoji) for emoji in await bot.fetch_application_emojis()}
+    await _ensure_emojis_loaded()
     appinfo = bot.application
     if appinfo.team and appinfo.team.owner_id:
         OWNER_ID = appinfo.team.owner_id
@@ -7597,6 +7745,17 @@ async def on_entitlement_delete(entitlement):
 
 # the message when cat gets added to a new server
 async def on_guild_join(guild):
+    # Cache the guild's display name on join so the activity dashboard can
+    # resolve it even if the bot later leaves. Skipped silently if the column
+    # is missing (pre-migration). The snapshot loop refreshes this hourly too.
+    try:
+        server = await Server.get_or_create(server_id=guild.id)
+        if guild.name:
+            server.name = guild.name[:100]
+            await server.save()
+    except Exception:
+        logging.debug("on_guild_join server.name population skipped", exc_info=True)
+
     def verify(ch):
         return ch and ch.permissions_for(guild.me).send_messages
 
@@ -10275,7 +10434,7 @@ async def vote(message: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        if not first:
+        if not first and not interaction.response.is_done():
             await interaction.response.defer()
         await global_user.refresh_from_db()
         await profile.refresh_from_db()
@@ -15252,9 +15411,7 @@ async def catslots(
             self.add_item(self.per_line)
 
         async def on_submit(self, interaction: discord.Interaction):
-            await profile.refresh_from_db()
-
-            # ---- validate lines ----
+            # ---- validate lines (in-memory, no I/O — safe before defer) ----
             try:
                 lines_n = int(self.lines.value)
             except ValueError:
@@ -15266,7 +15423,7 @@ async def catslots(
                 )
                 return
 
-            # ---- validate per-line ----
+            # ---- validate per-line (in-memory, no I/O — safe before defer) ----
             try:
                 per_line = int(self.per_line.value)
             except ValueError:
@@ -15283,10 +15440,19 @@ async def catslots(
                 )
                 return
 
+            # Defer BEFORE the DB query — the 3s response window is too
+            # tight to fit a refresh_from_db() round-trip if anything blips.
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                return
+
+            await profile.refresh_from_db()
+
             total_bet = lines_n * per_line
             max_bet = max(profile.coins, 100)
             if total_bet > max_bet:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"your total bet ({total_bet:,}) exceeds your max ({max_bet:,}). "
                     f"debt is allowed up to 100 coins.",
                     ephemeral=True,
@@ -15295,14 +15461,13 @@ async def catslots(
 
             # ---- concurrency re-check ----
             if lock_key in catslots_lock:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "you're already spinning /catslots — wait for the reels to settle, time-traveler",
                     ephemeral=True,
                 )
                 await achemb(interaction, "paradoxical_catslots", "followup")
                 return
 
-            await interaction.response.defer()
             await _do_spin(interaction, lines_n, per_line)
 
     async def _do_spin(interaction: discord.Interaction, lines_n: int, per_line: int):
@@ -15860,11 +16025,21 @@ async def catslots(
             await do_funny(interaction)
             return
 
+        # Defer BEFORE the DB query — discord's interaction-response window
+        # is only 3 seconds. A slow DB call (or a gateway blip) used to
+        # expire the token before defer was even called, raising 404
+        # Unknown interaction. If the click is already stale (bot was
+        # offline when the user pressed it), bail quietly.
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            return
+
         last = catslots_last_bet.get(lock_key)
         if not last:
             # Defensive — shouldn't happen since the button only appears after
             # a recorded spin, but reload restart clears the dict.
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "no previous bet on record — use Change Bet to set one.", ephemeral=True
             )
             return
@@ -15873,7 +16048,7 @@ async def catslots(
 
         # ---- concurrency check ----
         if lock_key in catslots_lock:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "you're already spinning /catslots — wait for the reels to settle, time-traveler",
                 ephemeral=True,
             )
@@ -15884,7 +16059,7 @@ async def catslots(
         await profile.refresh_from_db()
         max_bet = max(profile.coins, 100)
         if total_bet > max_bet:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "you can't afford the same bet anymore — try a smaller one",
                 ephemeral=True,
             )
@@ -15896,7 +16071,6 @@ async def catslots(
                 pass
             return
 
-        await interaction.response.defer()
         await _do_spin(interaction, lines_n, per_line)
 
     async def on_open_modal(interaction: discord.Interaction):
@@ -18839,6 +19013,15 @@ async def setup(bot2):
     if old_season_task and not old_season_task.done():
         old_season_task.cancel()
     config.season_announce_task = bot.loop.create_task(_season_announcement_loop())
+
+    # Same restart-safe pattern for the activity-dashboard snapshot ticker.
+    # Fire one tick immediately so a freshly-restarted bot doesn't wait 5
+    # minutes for its first row; ON CONFLICT DO NOTHING makes it safe.
+    old_metrics_task = getattr(config, "metrics_snapshot_task", None)
+    if old_metrics_task and not old_metrics_task.done():
+        old_metrics_task.cancel()
+    config.metrics_snapshot_task = bot.loop.create_task(_metrics_snapshot_loop())
+    bot.loop.create_task(_metrics_snapshot_tick())
 
     app_commands = await bot.tree.sync()
     for i in app_commands:

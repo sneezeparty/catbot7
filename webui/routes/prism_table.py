@@ -21,6 +21,7 @@ async def index(request):
             by_guild = await conn.fetch(
                 "SELECT guild_id, COUNT(*) AS n FROM prism GROUP BY guild_id ORDER BY n DESC LIMIT 15"
             )
+    await names.refresh_guild_name_cache()
     unames = await names.resolve_users(
         state.get_bot(),
         [r["user_id"] for r in rows] + [r["creator"] for r in rows],

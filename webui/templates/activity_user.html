@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set _name = unames.get(user_id, "user #" ~ (user_id|string)[-6:]) %}
+  {% set eyebrow = "insights · user" %}
+  {% set heading = _name ~ ' <span class="muted" style="font-size:0.55em;font-weight:400">' ~ user_id ~ '</span>' %}
+  {% set lede    = "Per-user activity drilldown." %}
+  {% include "partials/_section_header.html" %}
+
+  <p><a href="/activity">← Back to activity</a></p>
+
+  {# ============================ tiles ============================ #}
+  <h2 class="section">Snapshot</h2>
+  <div class="stat-row">
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">Catches</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_catches) }}</span>
+      <span class="stat-foot">across all guilds</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Guilds</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.guild_count) }}</span>
+      <span class="stat-foot">with a profile</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Coins</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_coins) }}</span>
+      <span class="stat-foot">summed across wallets</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Max bp level</span>
+      <span class="stat-value">{{ tiles.max_battlepass }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs completed</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.jobs_completed) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Prisms</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.prism_count) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catch streak</span>
+      <span class="stat-value">{{ tiles.daily_catch_streak }}</span>
+      <span class="stat-foot">max {{ tiles.max_daily_streak }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Top.gg votes</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_votes) }}</span>
+      <span class="stat-foot">all-time</span>
+    </article>
+  </div>
+
+  {# ============================ user flags ============================ #}
+  <h2 class="section">User flags</h2>
+  <article class="card">
+    <ul class="kv">
+      <li><span>Premium</span><strong>{{ "yes" if user_flags.premium else "no" }}</strong></li>
+      <li><span>Blessings enabled</span><strong>{{ "yes" if user_flags.blessings_enabled else "no" }}</strong></li>
+      <li><span>Blessings anonymous</span><strong>{{ "yes" if user_flags.blessings_anonymous else "no" }}</strong></li>
+      <li><span>Claimed free rain</span><strong>{{ "yes" if user_flags.claimed_free_rain else "no" }}</strong></li>
+      <li><span>Last Top.gg vote</span><strong class="mono-soft">{{ user_flags.vote_time_topgg|fmt_ts }}</strong></li>
+    </ul>
+  </article>
+
+  {% if tiles.guild_count == 0 %}
+  <p class="empty-state">No profiles for this user.</p>
+  {% else %}
+
+  {# ============================ per-guild table ============================ #}
+  {% if per_guild %}
+  <h2 class="section">Per-guild breakdown <span class="heading-count">{{ per_guild|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr>
+      <th>server</th>
+      <th class="numeric">catches</th>
+      <th class="numeric">coins</th>
+      <th class="numeric">bp</th>
+      <th class="numeric">catnip</th>
+      <th class="numeric">jobs ✓</th>
+      <th class="numeric">jobs ✗</th>
+      <th>last catch</th>
+    </tr></thead>
+    <tbody>
+      {% for p in per_guild %}
+        <tr>
+          <td>
+            <a href="/activity/server/{{ p.guild_id }}">
+              <span class="name">{{ guild_name(p.guild_id) }}</span>
+            </a>
+            <span class="id-sub">{{ p.guild_id }}</span>
+          </td>
+          <td class="numeric">{{ "{:,}".format(p.total_catches) }}</td>
+          <td class="numeric">{{ "{:,}".format(p.coins) }}</td>
+          <td class="numeric">{{ p.battlepass }}</td>
+          <td class="numeric">{{ p.catnip_level }}</td>
+          <td class="numeric">{{ "{:,}".format(p.jobs_completed) }}</td>
+          <td class="numeric">{{ "{:,}".format(p.jobs_failed) }}</td>
+          <td><span class="muted">{{ p.last_catch|fmt_ts }}</span></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ distributions ============================ #}
+  <h2 class="section">Distributions</h2>
+  <div class="charts-row">
+    <article class="card chart-card">
+      <h2>Catches by rarity</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-rarity"></canvas></div>
+    </article>
+    <article class="card chart-card">
+      <h2>Packs by tier</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-packs"></canvas></div>
+    </article>
+  </div>
+
+  {# ============================ jobs ============================ #}
+  <h2 class="section">Jobs activity — last 30 days</h2>
+  {% if jobs_day_keys %}
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-jobs-day"></canvas></div>
+  </article>
+  {% else %}
+  <p class="empty-state">No resolved jobs for this user in the past 30 days.</p>
+  {% endif %}
+
+  {# ============================ recent jobs ============================ #}
+  {% if recent_jobs %}
+  <h2 class="section">Recent resolved jobs <span class="heading-count">{{ recent_jobs|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>resolved</th><th>server</th><th>category</th><th class="numeric">tier</th><th>outcome</th><th>complication</th></tr></thead>
+    <tbody>
+      {% for j in recent_jobs %}
+        <tr>
+          <td><span class="muted" title="{{ j.resolved_at|fmt_ts }}">{{ j.resolved_at|fmt_ts }}</span></td>
+          <td>
+            <a href="/activity/server/{{ j.guild_id }}">
+              <span class="name">{{ guild_name(j.guild_id) }}</span>
+            </a>
+            <span class="id-sub">{{ j.guild_id }}</span>
+          </td>
+          <td>{{ j.category }}</td>
+          <td class="numeric">{{ j.tier }}</td>
+          <td>{% if j.outcome %}<span class="flag {{ 'flag-on' if j.outcome in ('success','win') else 'flag-off' }}">{{ j.outcome }}</span>{% endif %}</td>
+          <td>{{ j.complication or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ prisms ============================ #}
+  {% if prisms %}
+  <h2 class="section">Prisms <span class="heading-count">{{ prisms|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>name</th><th>server</th><th>created</th><th class="numeric">boosts</th></tr></thead>
+    <tbody>
+      {% for p in prisms %}
+        <tr>
+          <td><span class="name">{{ p.name }}</span></td>
+          <td>
+            <a href="/activity/server/{{ p.guild_id }}">
+              <span class="name">{{ guild_name(p.guild_id) }}</span>
+            </a>
+            <span class="id-sub">{{ p.guild_id }}</span>
+          </td>
+          <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+          <td class="numeric">{{ "{:,}".format(p.catches_boosted or 0) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ orders ============================ #}
+  {% if orders %}
+  <h2 class="section">Recent stock orders <span class="heading-count">{{ orders|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>time</th><th>ticker</th><th>side</th><th class="numeric">qty</th><th class="numeric">price</th><th class="numeric">notional</th></tr></thead>
+    <tbody>
+      {% for o in orders %}
+        <tr>
+          <td><span class="muted">{{ o.time|fmt_ts }}</span></td>
+          <td><span class="name">{{ o.ticker }}</span></td>
+          <td>{% if o.type_buy %}<span class="flag flag-on">buy</span>{% else %}<span class="flag flag-off">sell</span>{% endif %}</td>
+          <td class="numeric">{{ "{:,}".format(o.quantity) }}</td>
+          <td class="numeric">{{ "{:,}".format(o.price) }}</td>
+          <td class="numeric">{{ "{:,}".format(o.quantity * o.price) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% endif %}
+</section>
+
+<script id="usr-data" type="application/json">
+{
+  "rarities": {{ rarities|tojson }},
+  "packs": {{ packs|tojson }},
+  "jobs_day_keys": {{ jobs_day_keys|tojson }},
+  "jobs_per_day_stacked": {{ jobs_per_day_stacked|tojson }},
+  "jobs_outcomes_seen": {{ jobs_outcomes_seen|tojson }}
+}
+</script>
+<script>
+(function () {
+  const palette = ["#ffc94d", "#34d6c0", "#ff6fae", "#6fe06f", "#a78bfa", "#ff9d4d", "#56b8ff", "#ff7a6b", "#ffd866", "#7ee0c0", "#c9a7ff"];
+  function readData() {
+    try { return JSON.parse(document.getElementById("usr-data").textContent); }
+    catch (e) { return {}; }
+  }
+  function doughnut(canvas, entries) {
+    if (!canvas || !entries || !entries.length) return;
+    const labels = entries.map(([k]) => k);
+    const data   = entries.map(([, v]) => v);
+    new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{
+          data, backgroundColor: labels.map((_, i) => palette[i % palette.length]),
+          borderColor: "#14121c", borderWidth: 2, hoverOffset: 8
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: "58%",
+        plugins: {
+          legend: { position: "right", labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 8 } },
+          tooltip: {
+            backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
+            borderColor: "#3d3658", borderWidth: 1, padding: 10,
+            callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed.toLocaleString()}` }
+          }
+        }
+      }
+    });
+  }
+  function stackedBar(canvas, dayKeys, stacked, outcomes) {
+    if (!canvas || !dayKeys || !dayKeys.length) return;
+    const datasets = outcomes.map((oc, i) => ({
+      label: oc, data: stacked[oc] || [],
+      backgroundColor: palette[i % palette.length] + "8c", borderColor: palette[i % palette.length],
+      borderWidth: 1, borderRadius: 2, stack: "outcomes",
+    }));
+    new Chart(canvas, {
+      type: "bar", data: { labels: dayKeys, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 10 } }, tooltip: { backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff", borderColor: "#3d3658", borderWidth: 1, padding: 10 } },
+        scales: {
+          x: { stacked: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { stacked: true, beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function init() {
+    if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
+    const d = readData();
+    doughnut(document.getElementById("chart-rarity"), d.rarities);
+    doughnut(document.getElementById("chart-packs"), d.packs);
+    stackedBar(document.getElementById("chart-jobs-day"), d.jobs_day_keys, d.jobs_per_day_stacked, d.jobs_outcomes_seen);
+  }
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
+  else { init(); }
+})();
+</script>
+{% endblock %}

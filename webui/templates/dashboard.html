@@ -132,7 +132,12 @@
       {% for u in leaderboard %}
         <tr>
           <td class="numeric">{{ loop.index }}</td>
-          <td><span class="name">{{ unames.get(u.user_id, u.user_id) }}</span><span class="id-sub">{{ u.user_id }}</span></td>
+          <td>
+            <a href="/activity/user/{{ u.user_id }}">
+              <span class="name">{{ unames.get(u.user_id, "user #" ~ (u.user_id|string)[-6:]) }}</span>
+            </a>
+            <span class="id-sub">{{ u.user_id }}</span>
+          </td>
           <td class="numeric">{{ "{:,}".format(u.catches) }}</td>
           <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (u.catches / top_catches * 100)|round(1) }}%"></div></div></td>
         </tr>

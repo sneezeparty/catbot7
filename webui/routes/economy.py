@@ -9,7 +9,7 @@ import time
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 # ticker -> display name (mirrors main.stock_data; hardcoded so the webui has
 # no import-time dependency on main, which reloads on cat!restart)
@@ -95,6 +95,7 @@ async def index(request):
                 'FROM "order" GROUP BY ticker ORDER BY ticker'
             )
 
+    await names.refresh_guild_name_cache()
     return aiohttp_jinja2.render_template(
         "economy.html",
         request,

@@ -193,6 +193,7 @@ async def index(request):
         )
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
+    await names.refresh_guild_name_cache()
     unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
     return aiohttp_jinja2.render_template(
         "db_profile_search.html",
@@ -233,6 +234,7 @@ async def detail(request):
                 row_dict[jf] = []
         elif raw is None:
             row_dict[jf] = []
+    await names.refresh_guild_name_cache()
     unames = await names.resolve_users(state.get_bot(), [user_id])
     return aiohttp_jinja2.render_template(
         "db_profile_detail.html",

@@ -3,7 +3,7 @@
 import aiohttp_jinja2
 from aiohttp import web
 
-from webui import state
+from webui import names, state
 
 TOGGLES = [
     "only_setupped_channels",
@@ -32,6 +32,7 @@ async def index(request):
                 )
             else:
                 rows = await conn.fetch("SELECT * FROM server ORDER BY server_id LIMIT 200")
+    await names.refresh_guild_name_cache()
     return aiohttp_jinja2.render_template(
         "db_server.html",
         request,

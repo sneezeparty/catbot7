@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard">
+  {% set eyebrow = "insights · server" %}
+  {% set heading = guild_name(guild_id) ~ ' <span class="muted" style="font-size:0.55em;font-weight:400">' ~ guild_id ~ '</span>' %}
+  {% set lede    = "Per-server activity drilldown." %}
+  {% include "partials/_section_header.html" %}
+
+  <p><a href="/activity">← Back to activity</a></p>
+
+  {# ============================ tiles ============================ #}
+  <h2 class="section">Snapshot</h2>
+  <div class="stat-row">
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">Profiles</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.profile_count) }}</span>
+      <span class="stat-foot">players in this guild</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catches</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_catches) }}</span>
+      <span class="stat-foot">summed across profiles</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Coins</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_coins) }}</span>
+      <span class="stat-foot">in wallets here</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Packs opened</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.total_packs) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Prisms</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.prism_count) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs completed</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.jobs_completed) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs failed</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.jobs_failed) }}</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Active 7d / 30d</span>
+      <span class="stat-value">{{ "{:,}".format(tiles.active_7d) }} / {{ "{:,}".format(tiles.active_30d) }}</span>
+      <span class="stat-foot">distinct catchers</span>
+    </article>
+  </div>
+
+  {% if tiles.profile_count == 0 %}
+  <p class="empty-state">No profiles in this guild yet.</p>
+  {% else %}
+
+  {# ============================ distributions ============================ #}
+  <h2 class="section">Distributions</h2>
+  <div class="charts-row">
+    <article class="card chart-card">
+      <h2>Catches by rarity</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-rarity"></canvas></div>
+    </article>
+    <article class="card chart-card">
+      <h2>Packs by tier</h2>
+      <div class="chart-canvas-wrap"><canvas id="chart-packs"></canvas></div>
+    </article>
+  </div>
+
+  {% if catnip_distribution %}
+  <h2 class="section">Catnip level distribution</h2>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:220px"><canvas id="chart-catnip"></canvas></div>
+  </article>
+  {% endif %}
+
+  {# ============================ jobs ============================ #}
+  <h2 class="section">Jobs — last 30 days</h2>
+  {% if jobs_day_keys %}
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-jobs-day"></canvas></div>
+  </article>
+  {% else %}
+  <p class="empty-state">No resolved jobs in this guild in the past 30 days.</p>
+  {% endif %}
+
+  {# ============================ top users in this guild ============================ #}
+  {% if top_users %}
+  <h2 class="section">Top players <span class="heading-count">{{ top_users|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr>
+      <th>#</th><th>user</th>
+      <th class="numeric">catches</th>
+      <th class="numeric">coins</th>
+      <th class="numeric">bp</th>
+      <th class="numeric">catnip</th>
+      <th class="numeric">jobs</th>
+      <th class="numeric">prisms</th>
+    </tr></thead>
+    <tbody>
+      {% for u in top_users %}
+        <tr>
+          <td class="numeric">{{ loop.index }}</td>
+          <td>
+            <a href="/activity/user/{{ u.user_id }}">
+              <span class="name">{{ unames.get(u.user_id, "user #" ~ (u.user_id|string)[-6:]) }}</span>
+            </a>
+            <span class="id-sub">{{ u.user_id }}</span>
+          </td>
+          <td class="numeric">{{ "{:,}".format(u.total_catches) }}</td>
+          <td class="numeric">{{ "{:,}".format(u.coins) }}</td>
+          <td class="numeric">{{ u.battlepass }}</td>
+          <td class="numeric">{{ u.catnip_level }}</td>
+          <td class="numeric">{{ "{:,}".format(u.jobs_completed) }}</td>
+          <td class="numeric">{{ "{:,}".format(u.prism_count) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ recent jobs ============================ #}
+  {% if recent_jobs %}
+  <h2 class="section">Recent resolved jobs <span class="heading-count">{{ recent_jobs|length }}</span></h2>
+  <table class="editor-table">
+    <thead><tr><th>resolved</th><th>user</th><th>category</th><th class="numeric">tier</th><th>outcome</th><th>complication</th></tr></thead>
+    <tbody>
+      {% for j in recent_jobs %}
+        <tr>
+          <td><span class="muted" title="{{ j.resolved_at|fmt_ts }}">{{ j.resolved_at|fmt_ts }}</span></td>
+          <td>
+            <a href="/activity/user/{{ j.user_id }}">
+              <span class="name">{{ unames.get(j.user_id, "user #" ~ (j.user_id|string)[-6:]) }}</span>
+            </a>
+            <span class="id-sub">{{ j.user_id }}</span>
+          </td>
+          <td>{{ j.category }}</td>
+          <td class="numeric">{{ j.tier }}</td>
+          <td>{% if j.outcome %}<span class="flag {{ 'flag-on' if j.outcome in ('success','win') else 'flag-off' }}">{{ j.outcome }}</span>{% endif %}</td>
+          <td>{{ j.complication or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% endif %}
+
+  {# ============================ live ops in this guild ============================ #}
+  <h2 class="section">Live ops in this guild</h2>
+  <details>
+    <summary>Active spawns <span class="heading-count">{{ spawns_here|length }}</span></summary>
+    {% if spawns_here %}
+    <table class="editor-table">
+      <thead><tr><th>channel</th><th>cattype</th><th>next spawn floor</th></tr></thead>
+      <tbody>
+        {% for s in spawns_here %}
+          <tr>
+            <td><span class="name">{{ channel_name(s.channel_id) }}</span><span class="id-sub">{{ s.channel_id }}</span></td>
+            <td>{{ s.cattype or "" }}</td>
+            <td><span class="muted">{{ s.yet_to_spawn|fmt_ts }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No cats spawned in this guild right now.</p>
+    {% endif %}
+  </details>
+
+  <details>
+    <summary>Active rains <span class="heading-count">{{ rains_here|length }}</span></summary>
+    {% if rains_here %}
+    <table class="editor-table">
+      <thead><tr><th>channel</th><th class="numeric">ends in</th></tr></thead>
+      <tbody>
+        {% for r in rains_here %}
+          <tr>
+            <td><span class="name">{{ channel_name(r.channel_id) }}</span><span class="id-sub">{{ r.channel_id }}</span></td>
+            <td class="numeric">{{ r.rain_should_end - now }}s</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No rains active in this guild right now.</p>
+    {% endif %}
+  </details>
+
+  <details>
+    <summary>Recent prisms <span class="heading-count">{{ recent_prisms|length }}</span></summary>
+    {% if recent_prisms %}
+    <table class="editor-table">
+      <thead><tr><th>name</th><th>creator</th><th>created</th><th class="numeric">boosts</th></tr></thead>
+      <tbody>
+        {% for p in recent_prisms %}
+          <tr>
+            <td><span class="name">{{ p.name }}</span></td>
+            <td>
+              <a href="/activity/user/{{ p.user_id }}">
+                <span class="name">{{ unames.get(p.user_id, "user #" ~ (p.user_id|string)[-6:]) }}</span>
+              </a>
+              <span class="id-sub">{{ p.user_id }}</span>
+            </td>
+            <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+            <td class="numeric">{{ "{:,}".format(p.catches_boosted or 0) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No prisms in this guild yet.</p>
+    {% endif %}
+  </details>
+</section>
+
+<script id="srv-data" type="application/json">
+{
+  "rarities": {{ rarities|tojson }},
+  "packs": {{ packs|tojson }},
+  "catnip_distribution": {{ catnip_distribution|tojson }},
+  "jobs_day_keys": {{ jobs_day_keys|tojson }},
+  "jobs_per_day_stacked": {{ jobs_per_day_stacked|tojson }},
+  "jobs_outcomes_seen": {{ jobs_outcomes_seen|tojson }}
+}
+</script>
+<script>
+(function () {
+  const palette = ["#ffc94d", "#34d6c0", "#ff6fae", "#6fe06f", "#a78bfa", "#ff9d4d", "#56b8ff", "#ff7a6b", "#ffd866", "#7ee0c0", "#c9a7ff"];
+  function readData() {
+    try { return JSON.parse(document.getElementById("srv-data").textContent); }
+    catch (e) { return {}; }
+  }
+  function doughnut(canvas, entries) {
+    if (!canvas || !entries || !entries.length) return;
+    const labels = entries.map(([k]) => k);
+    const data   = entries.map(([, v]) => v);
+    new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{
+          data, backgroundColor: labels.map((_, i) => palette[i % palette.length]),
+          borderColor: "#14121c", borderWidth: 2, hoverOffset: 8
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: "58%",
+        plugins: {
+          legend: { position: "right", labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 8 } },
+          tooltip: {
+            backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
+            borderColor: "#3d3658", borderWidth: 1, padding: 10,
+            callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed.toLocaleString()}` }
+          }
+        }
+      }
+    });
+  }
+  function bar(canvas, entries, color) {
+    if (!canvas || !entries || !entries.length) return;
+    const c = color || "#ffc94d";
+    new Chart(canvas, {
+      type: "bar",
+      data: { labels: entries.map(([m]) => m), datasets: [{ data: entries.map(([, n]) => n), backgroundColor: c + "8c", borderColor: c, borderWidth: 1, borderRadius: 4 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff", borderColor: "#3d3658", borderWidth: 1, padding: 10 } },
+        scales: {
+          x: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function stackedBar(canvas, dayKeys, stacked, outcomes) {
+    if (!canvas || !dayKeys || !dayKeys.length) return;
+    const datasets = outcomes.map((oc, i) => ({
+      label: oc, data: stacked[oc] || [],
+      backgroundColor: palette[i % palette.length] + "8c", borderColor: palette[i % palette.length],
+      borderWidth: 1, borderRadius: 2, stack: "outcomes",
+    }));
+    new Chart(canvas, {
+      type: "bar", data: { labels: dayKeys, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 10 } }, tooltip: { backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff", borderColor: "#3d3658", borderWidth: 1, padding: 10 } },
+        scales: {
+          x: { stacked: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { stacked: true, beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function init() {
+    if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
+    const d = readData();
+    doughnut(document.getElementById("chart-rarity"), d.rarities);
+    doughnut(document.getElementById("chart-packs"), d.packs);
+    const catnipEntries = (d.catnip_distribution || []).map(([lvl, n]) => ["L" + lvl, n]);
+    bar(document.getElementById("chart-catnip"), catnipEntries, "#34d6c0");
+    stackedBar(document.getElementById("chart-jobs-day"), d.jobs_day_keys, d.jobs_per_day_stacked, d.jobs_outcomes_seen);
+  }
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
+  else { init(); }
+})();
+</script>
+{% endblock %}

@@ -3,42 +3,189 @@
 <section class="dashboard">
   {% set eyebrow = "insights" %}
   {% set heading = "Activity" %}
-  {% set lede    = "Live spawns and rains, the jobs pipeline, and recent events." %}
+  {% set lede    = "Catches, coins, jobs, and engagement over time." %}
   {% include "partials/_section_header.html" %}
 
-  {# ============================ live ops tiles ============================ #}
+  {# ============================ live tiles row 1 ============================ #}
+  <h2 class="section">Live snapshot</h2>
   <div class="stat-row">
     <article class="stat-tile accent">
-      <span class="stat-eyebrow">Cats spawned now</span>
-      <span class="stat-value">{{ "{:,}".format(spawns|length) }}</span>
-      <span class="stat-foot">live across all channels</span>
+      <span class="stat-eyebrow">Guilds</span>
+      <span class="stat-value">{{ "{:,}".format(live.guild_count) }}</span>
+      <span class="stat-foot">connected right now</span>
     </article>
     <article class="stat-tile">
-      <span class="stat-eyebrow">Active rains</span>
-      <span class="stat-value">{{ "{:,}".format(rains|length) }}</span>
-      <span class="stat-foot">channels raining now</span>
+      <span class="stat-eyebrow">Setupped channels</span>
+      <span class="stat-value">{{ "{:,}".format(live.setupped_channels) }}</span>
+      <span class="stat-foot">currently spawning cats</span>
     </article>
-    {% for st, n in job_states %}
-      {% if st in ("offered", "committed") %}
-      <article class="stat-tile">
-        <span class="stat-eyebrow">Jobs {{ st }}</span>
-        <span class="stat-value">{{ "{:,}".format(n) }}</span>
-        <span class="stat-foot">in the pipeline</span>
-      </article>
-      {% endif %}
-    {% endfor %}
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Profiles</span>
+      <span class="stat-value">{{ "{:,}".format(live.profile_count) }}</span>
+      <span class="stat-foot">per-(user, guild) rows</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Users</span>
+      <span class="stat-value">{{ "{:,}".format(live.user_count) }}</span>
+      <span class="stat-foot">distinct user rows</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Cats live now</span>
+      <span class="stat-value">{{ "{:,}".format(live.live_spawns) }}</span>
+      <span class="stat-foot">awaiting a catch</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Rains active</span>
+      <span class="stat-value">{{ "{:,}".format(live.active_rains) }}</span>
+      <span class="stat-foot">channels raining</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs offered</span>
+      <span class="stat-value">{{ "{:,}".format(live.pending_jobs_offered) }}</span>
+      <span class="stat-foot">in the pipeline</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs committed</span>
+      <span class="stat-value">{{ "{:,}".format(live.pending_jobs_committed) }}</span>
+      <span class="stat-foot">awaiting resolve</span>
+    </article>
   </div>
 
-  {# ============================ recency chart ============================ #}
-  {% if recency %}
-  <h2 class="section">Last-seen recency — past 30 days</h2>
+  {# ============================ live tiles row 2 (active catchers) ============================ #}
+  <h2 class="section">Active catchers</h2>
   <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
-    Profiles bucketed by the day of their <em>most recent</em> catch. (The schema stores only
-    the latest catch per profile, so this is a recency distribution, not catches-per-day.)
+    Distinct users with at least one catch in the window (from <code>profile.last_catch</code>).
   </p>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Today</span>
+      <span class="stat-value">{{ "{:,}".format(activity_counts.today) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 7 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity_counts.week) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 30 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity_counts.month) }}</span>
+      <span class="stat-foot">active catchers</span>
+    </article>
+  </div>
+
+  {# ============================ headline chart: catches/day ============================ #}
+  <h2 class="section">Catches added per day — last 30 days</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Deltas of total catches across all profiles, bucketed daily from the
+    <code>metric_snapshot</code> table. The first ~24h after a fresh deployment
+    will be empty until snapshot history accumulates.
+    {% if snapshot_warmup %}
+    <br><strong class="muted">Currently warming up:</strong> only {{ snapshot_rows }} snapshot row(s) collected so far.
+    {% endif %}
+  </p>
+  {% if catches_per_day %}
   <article class="card chart-card chart-card-wide">
-    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-recency"></canvas></div>
+    <div class="chart-canvas-wrap" style="height:260px"><canvas id="chart-catches-day"></canvas></div>
   </article>
+  {% else %}
+  <p class="empty-state">No snapshot data yet — needs ~24h of snapshot history to populate.</p>
+  {% endif %}
+
+  {# ============================ coins in circulation ============================ #}
+  <h2 class="section">Coins in circulation — last 30 days</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Daily peak of total coins held across all wallets, from the snapshot table.
+  </p>
+  {% if coins_per_day %}
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-coins-day"></canvas></div>
+  </article>
+  {% else %}
+  <p class="empty-state">No snapshot data yet — needs ~24h of snapshot history to populate.</p>
+  {% endif %}
+
+  {# ============================ jobs activity ============================ #}
+  <h2 class="section">Jobs activity — last 30 days</h2>
+  <div class="charts-row">
+    <article class="card chart-card">
+      <h2>Resolved per day, by outcome</h2>
+      <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-jobs-day"></canvas></div>
+    </article>
+    <article class="card chart-card">
+      <h2>By tier</h2>
+      <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-jobs-tier"></canvas></div>
+    </article>
+  </div>
+
+  {% if jobs_by_category %}
+  <h2 class="section">Jobs by category — last 30 days</h2>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:220px"><canvas id="chart-jobs-category"></canvas></div>
+  </article>
+  {% endif %}
+
+  {# ============================ engagement charts row ============================ #}
+  <h2 class="section">Engagement</h2>
+  <div class="charts-row">
+    <article class="card chart-card">
+      <h2>Prisms created — last 12 weeks</h2>
+      <div class="chart-canvas-wrap" style="height:220px"><canvas id="chart-prisms-week"></canvas></div>
+    </article>
+    <article class="card chart-card">
+      <h2>Stock orders — last 30 days</h2>
+      <div class="chart-canvas-wrap" style="height:220px"><canvas id="chart-orders-day"></canvas></div>
+    </article>
+  </div>
+
+  {# ============================ top servers ============================ #}
+  {% if top_servers %}
+  <h2 class="section">Top servers <span class="heading-count">{{ top_servers|length }}</span></h2>
+  {% set top_server_catches = top_servers[0].catches if top_servers else 1 %}
+  <table class="editor-table leaderboard">
+    <thead><tr><th>#</th><th>server</th><th class="numeric">catches</th><th class="numeric">coins</th><th class="numeric">profiles</th><th>relative</th></tr></thead>
+    <tbody>
+      {% for s in top_servers %}
+        <tr>
+          <td class="numeric">{{ loop.index }}</td>
+          <td>
+            <a href="/activity/server/{{ s.guild_id }}">
+              <span class="name">{{ guild_name(s.guild_id) }}</span>
+            </a>
+            <span class="id-sub">{{ s.guild_id }}</span>
+          </td>
+          <td class="numeric">{{ "{:,}".format(s.catches) }}</td>
+          <td class="numeric">{{ "{:,}".format(s.coins) }}</td>
+          <td class="numeric">{{ "{:,}".format(s.profile_count) }}</td>
+          <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (s.catches / top_server_catches * 100)|round(1) if top_server_catches else 0 }}%"></div></div></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# ============================ top users ============================ #}
+  {% if top_users %}
+  <h2 class="section">Top catchers <span class="heading-count">{{ top_users|length }}</span></h2>
+  {% set top_user_catches = top_users[0].catches if top_users else 1 %}
+  <table class="editor-table leaderboard">
+    <thead><tr><th>#</th><th>user</th><th class="numeric">catches</th><th>relative</th></tr></thead>
+    <tbody>
+      {% for u in top_users %}
+        <tr>
+          <td class="numeric">{{ loop.index }}</td>
+          <td>
+            <a href="/activity/user/{{ u.user_id }}">
+              <span class="name">{{ unames.get(u.user_id, "user #" ~ (u.user_id|string)[-6:]) }}</span>
+            </a>
+            <span class="id-sub">{{ u.user_id }}</span>
+          </td>
+          <td class="numeric">{{ "{:,}".format(u.catches) }}</td>
+          <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (u.catches / top_user_catches * 100)|round(1) if top_user_catches else 0 }}%"></div></div></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 
   {# ============================ jobs pipeline ============================ #}
@@ -55,13 +202,23 @@
   {% if recent_jobs %}
   <h2 class="section">Recent resolved jobs <span class="heading-count">{{ recent_jobs|length }}</span></h2>
   <table class="editor-table">
-    <thead><tr><th>resolved</th><th>user_id</th><th>guild_id</th><th>category</th><th class="numeric">tier</th><th>outcome</th><th>complication</th></tr></thead>
+    <thead><tr><th>resolved</th><th>user</th><th>server</th><th>category</th><th class="numeric">tier</th><th>outcome</th><th>complication</th></tr></thead>
     <tbody>
       {% for j in recent_jobs %}
         <tr>
           <td><span class="muted" title="{{ j.resolved_at|fmt_ts }}">{{ j.resolved_at|fmt_ts }}</span></td>
-          <td><span class="name">{{ unames.get(j.user_id, j.user_id) }}</span><span class="id-sub">{{ j.user_id }}</span></td>
-          <td><span class="name">{{ guild_name(j.guild_id) }}</span><span class="id-sub">{{ j.guild_id }}</span></td>
+          <td>
+            <a href="/activity/user/{{ j.user_id }}">
+              <span class="name">{{ unames.get(j.user_id, "user #" ~ (j.user_id|string)[-6:]) }}</span>
+            </a>
+            <span class="id-sub">{{ j.user_id }}</span>
+          </td>
+          <td>
+            <a href="/activity/server/{{ j.guild_id }}">
+              <span class="name">{{ guild_name(j.guild_id) }}</span>
+            </a>
+            <span class="id-sub">{{ j.guild_id }}</span>
+          </td>
           <td>{{ j.category }}</td>
           <td class="numeric">{{ j.tier }}</td>
           <td>{% if j.outcome %}<span class="flag {{ 'flag-on' if j.outcome in ('success','win') else 'flag-off' }}">{{ j.outcome }}</span>{% endif %}</td>
@@ -72,72 +229,128 @@
   </table>
   {% endif %}
 
-  {# ============================ active spawns ============================ #}
-  <h2 class="section">Active spawns <span class="heading-count">{{ spawns|length }}</span></h2>
-  {% if spawns %}
-  <table class="editor-table">
-    <thead><tr><th>channel_id</th><th>cattype</th><th>next spawn floor</th></tr></thead>
-    <tbody>
-      {% for s in spawns %}
-        <tr>
-          <td><span class="name">{{ channel_name(s.channel_id) }}</span><span class="id-sub">{{ s.channel_id }}</span></td>
-          <td>{{ s.cattype or "" }}</td>
-          <td><span class="muted">{{ s.yet_to_spawn|fmt_ts }}</span></td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty-state">No cats spawned right now.</p>
+  {# ============================ recency ============================ #}
+  {% if recency %}
+  <h2 class="section">Last-seen recency — past 30 days</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Profiles bucketed by the day of their <em>most recent</em> catch.
+  </p>
+  <article class="card chart-card chart-card-wide">
+    <div class="chart-canvas-wrap" style="height:240px"><canvas id="chart-recency"></canvas></div>
+  </article>
   {% endif %}
 
-  {# ============================ active rains ============================ #}
-  {% if rains %}
-  <h2 class="section">Active rains <span class="heading-count">{{ rains|length }}</span></h2>
-  <table class="editor-table">
-    <thead><tr><th>channel_id</th><th class="numeric">ends in</th></tr></thead>
-    <tbody>
-      {% for r in rains %}
-        <tr>
-          <td><span class="name">{{ channel_name(r.channel_id) }}</span><span class="id-sub">{{ r.channel_id }}</span></td>
-          <td class="numeric">{{ r.rain_should_end - now }}s</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
+  {# ============================ live ops (collapsed) ============================ #}
+  <h2 class="section">Live ops</h2>
+  <details>
+    <summary>Active spawns <span class="heading-count">{{ spawns|length }}</span></summary>
+    {% if spawns %}
+    <table class="editor-table">
+      <thead><tr><th>channel</th><th>cattype</th><th>next spawn floor</th></tr></thead>
+      <tbody>
+        {% for s in spawns %}
+          <tr>
+            <td><span class="name">{{ channel_name(s.channel_id) }}</span><span class="id-sub">{{ s.channel_id }}</span></td>
+            <td>{{ s.cattype or "" }}</td>
+            <td><span class="muted">{{ s.yet_to_spawn|fmt_ts }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No cats spawned right now.</p>
+    {% endif %}
+  </details>
 
-  {# ============================ recent prisms ============================ #}
-  {% if recent_prisms %}
-  <h2 class="section">Recently created prisms <span class="heading-count">{{ recent_prisms|length }}</span></h2>
-  <table class="editor-table">
-    <thead><tr><th>name</th><th>creator user_id</th><th>guild_id</th><th>created</th><th class="numeric">boosts</th></tr></thead>
-    <tbody>
-      {% for p in recent_prisms %}
-        <tr>
-          <td><span class="name">{{ p.name }}</span></td>
-          <td><span class="name">{{ unames.get(p.user_id, p.user_id) }}</span><span class="id-sub">{{ p.user_id }}</span></td>
-          <td><span class="name">{{ guild_name(p.guild_id) }}</span><span class="id-sub">{{ p.guild_id }}</span></td>
-          <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
-          <td class="numeric">{{ "{:,}".format(p.catches_boosted or 0) }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
+  <details>
+    <summary>Active rains <span class="heading-count">{{ rains|length }}</span></summary>
+    {% if rains %}
+    <table class="editor-table">
+      <thead><tr><th>channel</th><th class="numeric">ends in</th></tr></thead>
+      <tbody>
+        {% for r in rains %}
+          <tr>
+            <td><span class="name">{{ channel_name(r.channel_id) }}</span><span class="id-sub">{{ r.channel_id }}</span></td>
+            <td class="numeric">{{ r.rain_should_end - now }}s</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No rains active right now.</p>
+    {% endif %}
+  </details>
+
+  <details>
+    <summary>Recent prisms <span class="heading-count">{{ recent_prisms|length }}</span></summary>
+    {% if recent_prisms %}
+    <table class="editor-table">
+      <thead><tr><th>name</th><th>creator</th><th>server</th><th>created</th><th class="numeric">boosts</th></tr></thead>
+      <tbody>
+        {% for p in recent_prisms %}
+          <tr>
+            <td><span class="name">{{ p.name }}</span></td>
+            <td>
+              <a href="/activity/user/{{ p.user_id }}">
+                <span class="name">{{ unames.get(p.user_id, "user #" ~ (p.user_id|string)[-6:]) }}</span>
+              </a>
+              <span class="id-sub">{{ p.user_id }}</span>
+            </td>
+            <td>
+              <a href="/activity/server/{{ p.guild_id }}">
+                <span class="name">{{ guild_name(p.guild_id) }}</span>
+              </a>
+              <span class="id-sub">{{ p.guild_id }}</span>
+            </td>
+            <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+            <td class="numeric">{{ "{:,}".format(p.catches_boosted or 0) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No prisms created yet.</p>
+    {% endif %}
+  </details>
 </section>
 
 <script id="activity-data" type="application/json">
-{ "recency": {{ recency|tojson }} }
+{
+  "catches_per_day": {{ catches_per_day|tojson }},
+  "coins_per_day": {{ coins_per_day|tojson }},
+  "jobs_day_keys": {{ jobs_day_keys|tojson }},
+  "jobs_per_day_stacked": {{ jobs_per_day_stacked|tojson }},
+  "jobs_outcomes_seen": {{ jobs_outcomes_seen|tojson }},
+  "jobs_by_category": {{ jobs_by_category|tojson }},
+  "jobs_by_tier": {{ jobs_by_tier|tojson }},
+  "prisms_per_week": {{ prisms_per_week|tojson }},
+  "orders_per_day_buy": {{ orders_per_day_buy|tojson }},
+  "orders_per_day_sell": {{ orders_per_day_sell|tojson }},
+  "recency": {{ recency|tojson }}
+}
 </script>
 <script>
 (function () {
+  const palette = ["#ffc94d", "#34d6c0", "#ff6fae", "#6fe06f", "#a78bfa", "#ff9d4d", "#56b8ff"];
   function readData() {
     try { return JSON.parse(document.getElementById("activity-data").textContent); }
-    catch (e) { return { recency: [] }; }
+    catch (e) { return {}; }
   }
-  function bar(canvas, entries, label) {
+  const COMMON_PLUGINS = {
+    legend: { labels: { color: "#c4bce0", font: { family: "'IBM Plex Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 10 } },
+    tooltip: {
+      backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
+      borderColor: "#3d3658", borderWidth: 1, padding: 10,
+      titleFont: { family: "'IBM Plex Mono', monospace" }, bodyFont: { family: "'IBM Plex Mono', monospace" }
+    }
+  };
+  const COMMON_SCALES = {
+    x: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+    y: { beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+  };
+  function bar(canvas, entries, label, color) {
     if (!canvas || !entries || !entries.length) return;
+    const c = color || "#ffc94d";
     new Chart(canvas, {
       type: "bar",
       data: {
@@ -145,36 +358,134 @@
         datasets: [{
           label: label,
           data: entries.map(([, n]) => n),
-          backgroundColor: "rgba(255, 201, 77, 0.55)",
-          borderColor: "#ffc94d",
+          backgroundColor: c + "8c",
+          borderColor: c,
           borderWidth: 1,
           borderRadius: 4,
-          hoverBackgroundColor: "#ffc94d"
+          hoverBackgroundColor: c
         }]
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: "#1c1928", titleColor: "#f4f1ff", bodyColor: "#f4f1ff",
-            borderColor: "#3d3658", borderWidth: 1, padding: 10,
-            titleFont: { family: "'IBM Plex Mono', monospace", weight: "500" },
-            bodyFont:  { family: "'IBM Plex Mono', monospace" }
-          }
-        },
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: COMMON_PLUGINS.tooltip },
+        scales: COMMON_SCALES,
+      }
+    });
+  }
+  function horizontalBar(canvas, entries, label, color) {
+    if (!canvas || !entries || !entries.length) return;
+    const c = color || "#34d6c0";
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: entries.map(([k]) => k),
+        datasets: [{
+          label: label,
+          data: entries.map(([, n]) => n),
+          backgroundColor: c + "8c",
+          borderColor: c,
+          borderWidth: 1,
+          borderRadius: 4,
+          hoverBackgroundColor: c
+        }]
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: COMMON_PLUGINS.tooltip },
         scales: {
-          x: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
-          y: { beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+          x: { beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
         }
+      }
+    });
+  }
+  function line(canvas, entries, label, color) {
+    if (!canvas || !entries || !entries.length) return;
+    const c = color || "#56b8ff";
+    new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: entries.map(([m]) => m),
+        datasets: [{
+          label: label,
+          data: entries.map(([, n]) => n),
+          borderColor: c,
+          backgroundColor: c + "22",
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: COMMON_PLUGINS.tooltip },
+        scales: COMMON_SCALES,
+      }
+    });
+  }
+  function stackedBar(canvas, dayKeys, stacked, outcomes) {
+    if (!canvas || !dayKeys || !dayKeys.length) return;
+    const datasets = outcomes.map((oc, i) => ({
+      label: oc,
+      data: stacked[oc] || [],
+      backgroundColor: palette[i % palette.length] + "8c",
+      borderColor: palette[i % palette.length],
+      borderWidth: 1,
+      borderRadius: 2,
+      stack: "outcomes",
+    }));
+    new Chart(canvas, {
+      type: "bar",
+      data: { labels: dayKeys, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: COMMON_PLUGINS,
+        scales: {
+          x: { stacked: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 } }, grid: { color: "rgba(244, 241, 255, 0.05)" } },
+          y: { stacked: true, beginAtZero: true, ticks: { color: "#8b83a8", font: { family: "'IBM Plex Mono', monospace", size: 11 }, precision: 0 }, grid: { color: "rgba(244, 241, 255, 0.05)" } }
+        }
+      }
+    });
+  }
+  function groupedBar(canvas, labels, buyData, sellData) {
+    if (!canvas || !labels || !labels.length) return;
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [
+          { label: "buy", data: buyData, backgroundColor: "#6fe06f8c", borderColor: "#6fe06f", borderWidth: 1, borderRadius: 3 },
+          { label: "sell", data: sellData, backgroundColor: "#ff6fae8c", borderColor: "#ff6fae", borderWidth: 1, borderRadius: 3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: COMMON_PLUGINS,
+        scales: COMMON_SCALES,
       }
     });
   }
   function init() {
     if (typeof Chart === "undefined") { setTimeout(init, 60); return; }
     const d = readData();
-    bar(document.getElementById("chart-recency"), d.recency, "profiles");
+    bar(document.getElementById("chart-catches-day"), d.catches_per_day, "catches", "#ffc94d");
+    line(document.getElementById("chart-coins-day"), d.coins_per_day, "coins", "#56b8ff");
+    stackedBar(document.getElementById("chart-jobs-day"), d.jobs_day_keys, d.jobs_per_day_stacked, d.jobs_outcomes_seen);
+    bar(document.getElementById("chart-jobs-tier"), d.jobs_by_tier, "jobs", "#a78bfa");
+    horizontalBar(document.getElementById("chart-jobs-category"), d.jobs_by_category, "jobs", "#34d6c0");
+    bar(document.getElementById("chart-prisms-week"), d.prisms_per_week, "prisms", "#34d6c0");
+    // Build grouped buy/sell from two aligned arrays
+    const labels = [];
+    const buyMap = {}, sellMap = {};
+    (d.orders_per_day_buy || []).forEach(([day, n]) => { if (!labels.includes(day)) labels.push(day); buyMap[day] = n; });
+    (d.orders_per_day_sell || []).forEach(([day, n]) => { if (!labels.includes(day)) labels.push(day); sellMap[day] = n; });
+    labels.sort();
+    const buyData = labels.map(d => buyMap[d] || 0);
+    const sellData = labels.map(d => sellMap[d] || 0);
+    groupedBar(document.getElementById("chart-orders-day"), labels, buyData, sellData);
+    bar(document.getElementById("chart-recency"), d.recency, "profiles", "#ffc94d");
   }
   if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
   else { init(); }

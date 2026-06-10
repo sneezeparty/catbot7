@@ -126,6 +126,7 @@ INT_FIELDS = [
 STR_FIELDS = [
     "catch_quest",
     "misc_quest",
+    "vote_quest",
     "extra_quest",
     "challenge_quest",
     "gift3_recipients",

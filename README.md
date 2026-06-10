@@ -24,7 +24,7 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 
 | Area | Upstream | This fork |
 |---|---|---|
-| Voting | `/vote` earns rain minutes, drives streak counter | Voting retired (`voting_enabled=0`), streak renamed to `daily_catch_streak` and tracks per-day catches |
+| Voting | `/vote` earns rain minutes, drives streak counter | `/vote` re-implemented as a battlepass XP source (250–350 XP daily, 2× weekends). XP is auto-granted across all of a player's server profiles at vote time — no need to claim via `/battlepass` in each server. On by default; set `voting_enabled=0` to disable. Streak counter renamed to `daily_catch_streak` and tracks per-day catches independently of voting. The vote battlepass slot rolls a real vote quest ~1/3 of the time; the other ~2/3 it hosts a random misc-pool substitute quest instead (same XP tracking, no Top.gg interaction required for those rolls). |
 | Wallet | Two silos, "cat dollars" for /roulette and "coins" for /stocks and /packs | One `coins` wallet shared across /stocks, /packs, /roulette, /catstore, /catslots |
 | Marketplace | None | `/catstore` sells discovered cat rarities, plus an Extras sub-tree for paid rain blocks and Stone-through-Celestial packs |
 | PvE | None | `/jobs` Mafia Killings, six NPCs, deterministic 6h contract windows, complications, job perks, daily commit cap, once-per-season Big Score, paid board reroll (level-scaled coin cost, escalates within the 12h window; also available via `/catstore`) |
@@ -60,7 +60,7 @@ Upload the [Cat Bot emoji pack](https://github.com/staring-cat/emojis/releases/l
 
 Bring up Postgres. Either native (create user `cat_bot` and database `cat_bot`, then `psql -U cat_bot -d cat_bot -f schema.sql`), or run `bash setup-pg.sh` after editing `PGPASS` inside it. The script starts Postgres 17 in podman on `127.0.0.1:5433` and applies the schema.
 
-Set env vars, then run `python bot.py`.
+Set env vars, then run `python bot.py`. The easiest way is to copy `.env.example` to `.env` in the project root and fill in your values — `config.py` reads it on startup (existing shell env vars always win). Alternatively, append `export VAR=value` lines to `venv/bin/activate` as before.
 
 ### Env vars (read in `config.py`)
 
@@ -71,17 +71,15 @@ Set env vars, then run `python bot.py`.
 | `psql_host` | default `127.0.0.1` | DB host |
 | `psql_port` | default `5432` | DB port. Set `5433` if using `setup-pg.sh` |
 | `sentry_dsn` | no | Sentry DSN for error reporting |
-| `webhook_verify` | no | top.gg vote webhook secret (dormant, voting retired). Without it the public aiohttp server on `0.0.0.0:8069` is not started |
-| `top_gg_modern_token` | no | top.gg v1 API token (dormant) |
+| `webhook_verify` | no | top.gg vote webhook HMAC secret. Without it the public aiohttp server on `0.0.0.0:8069` is not started; voting still works via polling fallback |
+| `top_gg_modern_token` | no | top.gg v1 API token. Used for the vote-replay polling loop (required if `voting_enabled=1` and you can't expose port 8069) and for stats/command-list posting |
 | `wordnik_api_key` | no | `/define`. Without it the command is unregistered and its battlepass quest is auto-skipped |
 | `backup_channel_id` | no | DB backup channel ID |
 | `donor_channel_id` | no | supporter images channel ID |
 | `rain_channel_id` | no | rain log channel ID |
-| `voting_enabled` | default `0` | re-enable the retired voting path. `daily_catch_streak` drives gameplay regardless |
+| `voting_enabled` | default `1` | top.gg voting is on by default. Set to `0` to disable `/vote`, the webhook route, vote-replay/reminder loops, the `/battlepass` "Vote on Top.gg" daily quest (250–350 XP, 2x weekends), and the catch-message vote button |
 | `store_enabled` | default `0` | enable the `/store` slash command, entitlement event handlers, and the startup reconciliation pass. SKUs live in `config/store.json` |
 | `support_invite` | default empty | invite to your support / community Discord. Used wherever the upstream bot used to link to its own server. Empty means the link is omitted entirely |
-
-Tip: append `export VAR=value` lines to `venv/bin/activate` so they are set whenever the venv is active.
 
 ## Admin webui
 
@@ -126,6 +124,7 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 025 | Add `profile."cat_Shadow"` and `profile."cat_Terminator"` (integer DEFAULT 0) — per-server catch counters for the two new rarities. No backfill needed. |
 | 026 | Reset `user.news_state` to `''` for all users — clears stale read-state from the hardcoded news list so the new `config/news.json`-driven articles show as unread for everyone. |
 | 027 | Add `profile.last_job_time` (`bigint DEFAULT 0`) — UNIX timestamp of the player's most recent committed job; shields mafia level from both decay systems for 24h after a job. Backfills from each profile's most recent resolved `jobinstance` row. |
+| 028 | Add `profile.vote_quest` (`VARCHAR(30) DEFAULT ''`) — tracks which misc-pool substitute quest (if any) is currently occupying the vote battlepass slot. Empty string means the slot is showing the real Top.gg vote quest. |
 
 Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020`, which mutates data in place** and would double-remap if re-run; restore the pre-migration data before re-running it.
 

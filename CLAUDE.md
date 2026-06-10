@@ -29,7 +29,7 @@ All read from env vars. `TOKEN` and `psql_password` are required; everything els
 - `webhook_verify` — top.gg vote webhook secret. **If unset, the public-facing aiohttp web server (on `0.0.0.0:8069`) is not started at all.** (The admin webui on localhost is independent — see Architecture.)
 - `top_gg_modern_token` — top.gg v1 API (stats, command list, vote replay fallback)
 - `wordnik_api_key` — `/define`
-- `voting_enabled` — `"1"` re-enables voting. While `0` (default), `/vote`, the top.gg webhook route, vote-replay/reminder loops, and the catch-message vote button are all skipped. Voting is permanently off on this self-hosted instance; the daily catch streak (`user.daily_catch_streak`) is the only streak counter that actually drives gameplay (it scales the Loyalty Streak catnip perk).
+- `voting_enabled` — top.gg voting, **on by default**; set `"0"` to disable. While `0`, `/vote`, the top.gg webhook route, vote-replay/reminder loops, and the catch-message vote button are all skipped. When enabled, votes flow through `do_vote()` (webhook or polling-replay loop), users claim 250–350 XP (2x weekends) via the existing `/battlepass` "Vote on Top.gg" daily quest, and `user.daily_catch_streak` advances with each vote (scaling the Loyalty Streak catnip perk and streak-pack milestones). `top_gg_modern_token` is required for polling-replay; `webhook_verify` is only needed if port 8069 is reachable from top.gg.
 
 `BACKUP_ID`, `DONOR_CHANNEL_ID`, `RAIN_CHANNEL_ID` are hardcoded Discord channel IDs (not env vars).
 

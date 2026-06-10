@@ -66,15 +66,16 @@ These counters and `season_stat_baseline` require migration 022. Code paths that
 
 ## Level rewards
 
-Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 6000 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
+Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 6,300 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
 
 **XP cost curves:**
 
 - **Season 1 (Levels 1–30):** ramp from 550 to 1000 XP per level. Total: 23,250 XP.
-- **Seasons 2+ (Levels 1–30):** three levels per step, stepping up from 1100 to 2000 XP (blocks of 3: 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000). Total to reach Level 30: **44,500 XP**.
-- **Seasons 2+ (Levels 31–40):** one level per step — 2400, 2800, 3200, 3600, 4000, 4400, 4800, 5200, 5600, 6000. Total for Levels 31–40: 38,000 XP. **Combined Level 40 total: 82,500 XP. Full pass (Level 40 + one Extra Rewards tick): 88,500 XP.**
+- **Season 2 (Levels 1–30):** three levels per step, stepping up from 900 to 1800 XP (blocks of 3: 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800). Total to reach Level 30: **40,500 XP**. (Earlier S2 builds used the 1150→2050 curve totaling 48,000 XP; that left returning veterans who'd already harvested the early-game achievement XP front-load missing L30 by a single day. The flatter curve gives engaged voters ~4 days of real-life slack while still keeping L30 out of reach for casual play.)
+- **Seasons 3+ (Levels 1–30):** unchanged from the original 1150→2050 curve (48,000 XP). Per-season values live in `config/battlepass.json` and can be retuned individually.
+- **Seasons 2+ (Levels 31–40):** one level per step — 2500, 2950, 3350, 3800, 4200, 4600, 5050, 5450, 5900, 6300. Total for Levels 31–40: 44,100 XP. **Combined Level 40 total in S2: 84,600 XP** (40,500 + 44,100). **Full pass (Level 40 + one Extra Rewards tick): 90,900 XP.**
 
-**Design calibration (seasons 2+):** an average daily player completing 4 quest slots per day (vote slot is uncompletable on this instance) plus passive XP is expected to reach approximately Level 30 over a 30-day season; a very engaged player grinding all four slots at maximum XP is expected to reach approximately Level 40.
+**Design calibration (Season 2, post-rebalance):** an average engaged player completing all five daily quest slots (catch, misc, extra, challenge, plus vote when `voting_enabled=1`) yields ~1,450–1,560 XP/day, putting a *returning* engaged voter at L30 by ~day 26 (4-day slack vs. the 30-day season), a *fresh* engaged voter (with ~11.6k XP front-load from early achievements) at L30 by ~day 19, and a casual 3/4-quest player at ~33 days (still misses L30). A Tier-4-perks grinder is expected to reach approximately Level 40 in-season. When `voting_enabled=0`, the vote slot still yields its substitute-quest XP, so calibration shifts only modestly.
 
 **Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Stone-pack-forever tail exists so engaged players past the final level don't feel like they hit a wall. The 31–40 tail added in seasons 2+ replaces the early Stone-pack farm with more meaningful per-level rewards, capped by a per-season capstone (typically a Celestial pack at level 40), with the Stone-pack tail still kicking in past level 40 for the very-engaged.
 
@@ -100,7 +101,7 @@ XP range: ~120–350.
 
 ### Extra slot
 
-Added in May 2026 to replace the retired vote quest. Defined under `quests.extra`. Current options:
+Added in May 2026. Originally added when the vote quest was inactive on this self-hosted instance; the vote quest slot has since been re-enabled (gated on `config.VOTING_ENABLED`). Defined under `quests.extra`. Current options:
 
 | Quest | Reward | Description / Gating |
 | --- | --- | --- |
@@ -113,7 +114,7 @@ Added in May 2026 to replace the retired vote quest. Defined under `quests.extra
 | `job_hard` | ~360–420 XP | complete a Tier 4+ mafia job; implicitly gated on catnip ≥ 8 (T4 job requirement) |
 | `store_buy` | ~240–300 XP | buy any cat from `/catstore` |
 | `store_sell` | ~220–280 XP | sell any cat to `/catstore` |
-| `store_spree` | ~320–400 XP | spend ≥ 5,000 coins on a single `/catstore` purchase |
+| `store_spree` | ~320–400 XP | spend ≥ 2,500 coins on a single `/catstore` purchase |
 | `perk_user` | ~220–280 XP | have a job perk active when the trigger fires; implicitly gated on having received at least one job perk drop |
 
 **Design intent:** the extra slot is the *novel-mechanic* slot — quests here probe parts of the bot that catch/misc don't cover (catnip, social, casino variety, jobs, the Cat Store). The `sacrifice` quest is intentionally opaque: users see "reward depends on the cat" and don't see the per-cat table. This creates a small thrill of "which cat is worth sacrificing" without turning into a spreadsheet exercise.
@@ -142,6 +143,46 @@ Added alongside `gift3` in May 2026. A 5th peer slot — not gated on catnip, vo
 
 `slow` is intentionally omitted from the belated-catch path (which requires <3 s response): a belated catch cannot satisfy the 60-second patience condition, so the branch is skipped rather than awarding credit.
 
+### Vote slot
+
+A separate quest slot that is **gated on `config.VOTING_ENABLED`** — when `voting_enabled=0` the slot is inert and `/vote` returns "voting isn't enabled on this instance." When enabled, the `/vote` command surfaces the player's vote status and reward info.
+
+**Slot composition (1/3 real vote, 2/3 substitute).** When `generate_quest("vote")` runs, it rolls `random.randint(1, 3)`:
+- **Pass (== 1, ~33%):** the slot is set to the real "Vote on Top.gg" quest, drawn from `quests.vote` in `battlepass.json`. XP range is **150–220 XP base** with a **2× weekend multiplier**. The reward is randomized and stored in `user.vote_reward`.
+- **Fail (~67%):** a single-action misc quest is picked at random from a filtered subset of `quests.misc` (see substitute pool rules below) and stored in `user.vote_quest` (the `profile.vote_quest` text column, default `''`). The substitute's XP range comes from the misc quest's own `xp_min/xp_max`. XP and claim timestamp still ride on `vote_reward` and `vote_cooldown` — no extra columns needed.
+
+If the substitute pool is empty (extreme config drift), the slot falls back to the real vote quest.
+
+**Substitute pool filtering rules.** A misc quest is eligible for the substitute pool only if:
+- `progress == 1` (single-action completion — multi-step quests cannot substitute because the vote slot has no progress counter wired to misc actions outside `/battlepass` itself).
+- Not in the retired set: `slots`, `reminder`, `plush`.
+- Not `define` when `WORDNIK_API_KEY` is unset.
+- Not equal to the player's currently-active `misc_quest` (avoids the same quest appearing in two slots simultaneously).
+
+**Refresh ordering.** `refresh_quests` regenerates the vote slot **last** (after catch, misc, extra, and challenge) so that the freshly-rolled `misc_quest` is visible when the substitute pool filters out duplicates.
+
+**Claim mechanics.**
+
+*Real vote path:* unchanged — `do_vote()` auto-grants XP at vote time and the `/battlepass` safety-net catch path coexist (see below for the short-circuit). When `user.vote_quest != ""` (substitute is active), the `quest == "vote"` branch in `progress()` returns early without crediting, so `do_vote()` never double-pays a substitute slot.
+
+*Substitute path:* when `user.vote_quest` is set and equals the quest name passed to `progress()`, the slot completes as a single-action misc quest. `quest_xp_boost` job-perk multiplier applies (it is a misc-pool quest). `vote_cooldown` is stamped to `now()` as the claim time. The voter does not need to /vote — the substitute is triggered by performing the underlying misc action (e.g., `/gift`, `/catslots`, `/news`).
+
+**Auto-grant at vote time (real vote only).** On this self-hosted fork, real-vote XP is **auto-granted at vote time** rather than requiring the player to manually run `/battlepass` in each server. When `do_vote()` fires (either via top.gg webhook or vote-replay polling), it iterates `Profile.collect("user_id = $1", user_id)` and calls `progress(None, profile, "vote")` for every profile the voter has. The `quest == "vote"` branch short-circuits immediately if `user.vote_quest != ""` (substitute is active), so only profiles in a real-vote cycle receive the auto-grant.
+
+The `/battlepass` open claim gate (`progress(message, user, "vote")` when `vote_time_topgg + QUEST_COOLDOWN > now`) is preserved as an **idempotent safety net** for profiles that didn't exist at vote time.
+
+`progress()` accepts a `None` interaction for this purpose — the call skips embed logic when the first argument is `None`.
+
+**Column.** `profile.vote_quest` (text, default `''`): holds the substitute misc quest id. Empty string means "real vote cycle." Added by migration `028_vote_substitute_slot.py`. On season rollover / `refresh_quests` sanity pass, `vote_quest` is cleared if the stored quest id no longer exists in `quests.misc` or if `define` loses its API key.
+
+**Catch-message vote button.** Appears when `VOTING_ENABLED` is true, conditioned in two stages: first `random.randint(1, 40) == 1` (roughly 1-in-40 catches), then `vote_time_topgg + 43200 < now` (player is eligible to vote). Both must hold; the random gate is the binding constraint on most catches.
+
+The **`/battlepass` vote quest line** renders "Vote on Top.gg" as a clickable markdown link to `TOP_GG_VOTE_URL` for the real-vote cycle; substitute slots render the misc quest description instead.
+
+**Env-var requirements:** voting is **on by default** (`voting_enabled` defaults to `"1"`); set `voting_enabled=0` to disable. `top_gg_modern_token` is required for vote-replay fallback polling and stats posting. `webhook_verify` is optional — starts the public `0.0.0.0:8069` webhook server; without it, only the vote-replay polling path is active.
+
+**Design intent:** the real-vote XP (150–220 base) is intentionally the *smallest* of the five daily quest rewards, so voting feels rewarding but not coercive. The 2/3 substitute mechanic ensures the slot contributes meaningful activity-driven XP even on days when the player does not vote — without that, non-voters would lose a fifth of their daily quest economy every cycle. The substitute is constrained to single-action misc quests so it can complete naturally as a side effect of normal play, not as an extra obligation. The `refresh_quests` last-ordering rule ensures no quest appears in two slots at once, preserving the economy design of five distinct daily tasks.
+
 ## Quest selection
 
 `generate_quest()` in `main.py` picks a random quest from the slot's pool, with these eligibility checks:
@@ -153,6 +194,8 @@ Added alongside `gift3` in May 2026. A 5th peer slot — not gated on catnip, vo
 - `catnip_session` — skipped if user has no catnip access.
 
 The challenge slot has no per-quest eligibility skips — all five quests are completable by any player (Legendary+ cats are rare but spawnable by any server with cat spawning enabled).
+
+The vote slot's substitute pool has its own filtering rules (documented under the Vote slot section above): `progress == 1`, not retired, not `define` without API key, not the current `misc_quest`.
 
 **Design intent:** the bot should never assign a quest a user *cannot* complete. The skip list grows organically — when a quest type becomes infeasible for some users, add it here.
 
@@ -179,4 +222,6 @@ When a quest completes (or passive XP rolls over a level boundary):
 - `gift3_recipients` is the comma-separated list of distinct recipient IDs for the `gift3` extra quest. It resets on completion and on season rollover.
 - `reminder_challenge` drives DM reminders for the challenge slot (same pattern as `reminder_catch`, `reminder_misc`, `reminder_extra`). Postpone uses the `challenge_` prefix in the button custom ID.
 
-If you add a new quest slot, mirror this pattern: `<slot>_quest`, `<slot>_progress`, `<slot>_cooldown`, `<slot>_reward`, plus any quest-specific temp state. The challenge slot's migration is `migrations/003_challenge_slot.py` (idempotent ALTER TABLE per column, `.done` marker).
+The vote slot additionally uses `profile.vote_quest` (text, default `''`) to hold the current substitute misc quest id. Empty string means "real vote cycle." The substitute completes single-action — no `vote_progress` column exists; the `progress=1` pool constraint removes the need for one.
+
+If you add a new quest slot, mirror this pattern: `<slot>_quest`, `<slot>_progress`, `<slot>_cooldown`, `<slot>_reward`, plus any quest-specific temp state. The challenge slot's migration is `migrations/003_challenge_slot.py` (idempotent ALTER TABLE per column, `.done` marker). The vote substitute column is `migrations/028_vote_substitute_slot.py`.

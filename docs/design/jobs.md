@@ -158,6 +158,8 @@ Two-stage roll on success:
 
 The two dice are independent of the success die and the complication die. **Drops are success-only** — near-miss and total-failure never drop a perk (Crew Insurance is the exception: it's a *consumption* mechanic that converts an outcome, not a drop mechanic).
 
+**Sub-Lv4 board gating.** `_perks_roll_drop` accepts an optional `mafia_level` parameter. When `mafia_level < 4`, the two perks in `_PERKS_REQUIRE_FULL_BOARD` (`daily_cap_extension` and `reroll_board`) are filtered from the pool before the weighted pick. At Lv2–3 the player only ever sees the single tutorial-errand board, so these perks would silently expire unused — excluding them lets the per-tier weights renormalize onto the remaining entries (`pack_drop_boost`, `free_pack`, etc.) and keeps drops feeling valuable. Both call sites in `_jobs_generate_offers` (tutorial branch at Lv2–3 and full-board loop at Lv4+) pass `mafia_level=level` so the filter is applied consistently.
+
 A perk drop failure inside `_jobs_apply_outcome` is caught and swallowed — the job resolution always wins.
 
 ### Perk personalities

@@ -435,6 +435,9 @@ class Colors:
 # rain shill message for footers
 rain_shill = ""
 
+# top.gg vote URL for this bot
+TOP_GG_VOTE_URL = "https://top.gg/bot/1503024098412855458/vote"
+
 # timeout for views
 # higher one means buttons work for longer but uses more ram to keep track of them
 VIEW_TIMEOUT = config.tuning["view_timeout_seconds"]
@@ -820,18 +823,18 @@ def _battlepass_level_info(profile):
     """Current battlepass level label, XP progress, and XP cap for a profile.
 
     Mirrors the /battlepass + /inventory logic, including the "Extra Rewards"
-    fallback (1500 XP per level, no season cap) once a player passes the last
+    fallback (6300 XP per level, no season cap) once a player passes the last
     defined level of their season. Returns (label, progress, cap, season_max);
     season_max is None in Extra Rewards mode or if the season data is missing."""
     try:
         season_levels = config.battle["seasons"][str(profile.season)]
         if profile.battlepass >= len(season_levels):
-            return ("Extra Rewards", profile.progress, 1500, None)
+            return ("Extra Rewards", profile.progress, 6300, None)
         season_max = len(season_levels)
         cap = season_levels[profile.battlepass]["xp"]
         return (f"Level {profile.battlepass + 1}/{season_max}", profile.progress, cap, season_max)
     except Exception:
-        return (f"Level {profile.battlepass + 1}", profile.progress, 1500, None)
+        return (f"Level {profile.battlepass + 1}", profile.progress, 6300, None)
 
 
 # Catstore-scoped multiplier on top of cat_value(). Doubles every price the
@@ -1331,7 +1334,7 @@ def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 
         offer = _jobs_build_tutorial_offer(rng, current_heat)
         offer["_slot_idx"] = 0
         offer["_template_id"] = _jobs_template_id(window_idx, 0, offer["offered_by"], offer["tier"], extra_salt)
-        offer["perk_drop"] = _perks_roll_drop(offer["offered_by"], int(offer["tier"]), _perk_rng_for(0)) or ""
+        offer["perk_drop"] = _perks_roll_drop(offer["offered_by"], int(offer["tier"]), _perk_rng_for(0), mafia_level=level) or ""
         return [offer]
 
     out = []
@@ -1350,7 +1353,7 @@ def _jobs_generate_offers(profile: Profile, window_idx: int, user_season: int = 
                 continue
         picked["_slot_idx"] = slot_idx
         picked["_template_id"] = _jobs_template_id(window_idx, slot_idx, picked["offered_by"], picked["tier"], extra_salt)
-        picked["perk_drop"] = _perks_roll_drop(picked["offered_by"], int(picked["tier"]), _perk_rng_for(slot_idx)) or ""
+        picked["perk_drop"] = _perks_roll_drop(picked["offered_by"], int(picked["tier"]), _perk_rng_for(slot_idx), mafia_level=level) or ""
         out.append(picked)
     return out
 
@@ -3017,13 +3020,24 @@ def _perks_consume_charge(profile: Profile, perk_id: str) -> bool:
     return False
 
 
-def _perks_roll_drop(npc: str, tier: int, rng: random.Random) -> str | None:
+_PERKS_REQUIRE_FULL_BOARD = frozenset({"daily_cap_extension", "reroll_board"})
+
+
+def _perks_roll_drop(npc: str, tier: int, rng: random.Random, mafia_level: int | None = None) -> str | None:
     """Roll the perk-drop die for (npc, tier). Returns a perk_id from the
-    pool, or None if the die misses, the chance is 0, or the pool is empty."""
+    pool, or None if the die misses, the chance is 0, or the pool is empty.
+
+    `mafia_level`, when provided, drops perks whose effect requires the
+    full multi-slot board (`daily_cap_extension`, `reroll_board`) from the
+    pool for sub-Lv4 players — at Lv2-3 the player only ever sees the
+    single tutorial errand, so those perks would silently expire unused.
+    """
     chance = float(PERKS_DROP_CHANCE_BY_TIER.get(str(tier), 0.0) or 0.0)
     if chance <= 0 or rng.random() >= chance:
         return None
     pool = (PERKS_DROP_POOLS.get(npc) or {}).get(str(tier)) or []
+    if mafia_level is not None and mafia_level < 4:
+        pool = [e for e in pool if e.get("id") not in _PERKS_REQUIRE_FULL_BOARD]
     if not pool:
         return None
     weights = [max(0, int(e.get("weight", 0))) for e in pool]
@@ -3968,7 +3982,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         return []
     season_levels = config.battle["seasons"][str(user.season)]
     if user.battlepass >= len(season_levels):
-        level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
+        level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
     else:
         level_data = season_levels[user.battlepass]
 
@@ -4016,7 +4030,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
         if user.battlepass >= len(season_levels):
-            active_level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
+            active_level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
         else:
             active_level_data = season_levels[user.battlepass]
 
@@ -4208,6 +4222,28 @@ async def achemb(message, ach_id, send_type, author_string=None):
             await result.delete(delay=30)
 
 
+# Pre-migration-028 guards: profile.vote_quest may not yet exist on the row
+# (catpg raises KeyError on attribute access for missing columns). These
+# helpers let the vote-substitute-slot codepaths degrade gracefully — read
+# returns '' (= "treat as real vote quest"), write is skipped — so the bot
+# keeps running until the operator applies migration 028. Remove the guards
+# once the migration is universally applied.
+def _vote_quest_safe(user) -> str:
+    try:
+        return user.vote_quest or ""
+    except (KeyError, AttributeError):
+        return ""
+
+
+def _set_vote_quest_safe(user, value: str) -> bool:
+    try:
+        _ = user.vote_quest
+    except (KeyError, AttributeError):
+        return False
+    user.vote_quest = value
+    return True
+
+
 async def generate_quest(user: Profile, quest_type: str):
     while True:
         quest = random.choice(list(config.battle["quests"][quest_type].keys()))
@@ -4243,8 +4279,34 @@ async def generate_quest(user: Profile, quest_type: str):
 
     quest_data = config.battle["quests"][quest_type][quest]
     if quest_type == "vote":
-        user.vote_reward = random.randint(quest_data["xp_min"] // 10, quest_data["xp_max"] // 10) * 10
-        user.vote_cooldown = 0
+        # ~1/3 of refresh cycles the slot is the real Vote on Top.gg quest;
+        # the other ~2/3 we sub in a random single-action misc quest so the
+        # vote prompt doesn't dominate. Substitute reuses vote_reward (XP)
+        # and vote_cooldown (claim timestamp). vote_quest stores the misc
+        # quest id; empty string means "real vote quest." Pre-migration 028
+        # the vote_quest column may be absent — _set_vote_quest_safe returns
+        # False in that case and we fall back to the real vote quest path.
+        roll_substitute = random.randint(1, 3) != 1
+        sub_assigned = False
+        if roll_substitute:
+            sub_pool = [
+                k for k, q in config.battle["quests"]["misc"].items()
+                if q.get("progress", 1) == 1
+                and k not in ("slots", "reminder", "plush")
+                and k != user.misc_quest
+                and not (k == "define" and not config.WORDNIK_API_KEY)
+            ]
+            if sub_pool:
+                sub = random.choice(sub_pool)
+                if _set_vote_quest_safe(user, sub):
+                    sub_data = config.battle["quests"]["misc"][sub]
+                    user.vote_reward = random.randint(sub_data["xp_min"] // 10, sub_data["xp_max"] // 10) * 10
+                    user.vote_cooldown = 0
+                    sub_assigned = True
+        if not sub_assigned:
+            _set_vote_quest_safe(user, "")
+            user.vote_reward = random.randint(quest_data["xp_min"] // 10, quest_data["xp_max"] // 10) * 10
+            user.vote_cooldown = 0
     elif quest_type == "catch":
         user.catch_reward = random.randint(quest_data["xp_min"] // 10, quest_data["xp_max"] // 10) * 10
         user.catch_quest = quest
@@ -4543,14 +4605,29 @@ async def refresh_quests(user):
         user.challenge_progress = 0
         user.challenge_cooldown = 1
         user.challenge_reward = 0
-    if QUEST_COOLDOWN < user.vote_cooldown + QUEST_COOLDOWN < time.time():
-        await generate_quest(user, "vote")
+    # Substitute vote quest retirement: if the misc quest currently hosted in
+    # the vote slot got removed (or define lost its API key), force a re-roll.
+    # Uses the safe accessor to no-op pre-migration 028 when the column is
+    # missing from the profile row.
+    _vq = _vote_quest_safe(user)
+    if _vq and _vq not in config.battle["quests"]["misc"]:
+        _set_vote_quest_safe(user, "")
+        user.vote_cooldown = 1
+        user.vote_reward = 0
+    elif _vq == "define" and not config.WORDNIK_API_KEY:
+        _set_vote_quest_safe(user, "")
+        user.vote_cooldown = 1
+        user.vote_reward = 0
     if QUEST_COOLDOWN < user.catch_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "catch")
     if QUEST_COOLDOWN < user.misc_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "misc")
     if QUEST_COOLDOWN < user.extra_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "extra")
+    # vote slot regenerates LAST so the substitute pool can exclude the
+    # freshly-rolled misc_quest (avoids the same quest landing in two slots).
+    if QUEST_COOLDOWN < user.vote_cooldown + QUEST_COOLDOWN < time.time():
+        await generate_quest(user, "vote")
     # Challenge slot was added after the original schema, so existing profiles
     # have challenge_cooldown=0 (which the inequality above misses) and an
     # empty challenge_quest. Treat empty as "needs first generation" so the
@@ -4569,7 +4646,7 @@ async def multi_progress(message: discord.Message | discord.Interaction, user: P
 
 
 async def progress(
-    message: discord.Message | discord.Interaction, user: Profile, quest: str, is_belated: Optional[bool] = False, refetch: bool = True
+    message: discord.Message | discord.Interaction | None, user: Profile, quest: str, is_belated: Optional[bool] = False, refetch: bool = True
 ) -> Profile:
     if refetch:
         await refresh_quests(user)
@@ -4601,6 +4678,11 @@ async def progress(
             user.catch_progress = 0
             user.reminder_catch = 1
     elif quest == "vote":
+        # Vote slot is a misc-pool substitute this cycle — voting doesn't
+        # claim it. The substitute is progressed via its own quest name
+        # through the user.vote_quest branch below.
+        if _vote_quest_safe(user):
+            return user
         if user.vote_cooldown != 0:
             return user
         quest_data = config.battle["quests"]["vote"][quest]
@@ -4657,6 +4739,16 @@ async def progress(
                 # Fire the first-completion ach BEFORE the level-up flow so it
                 # lands inline with the other catch-context embeds.
                 await achemb(message, "challenge_first", "send")
+    elif _vote_quest_safe(user) == quest and quest:
+        # Vote slot is hosting this misc quest as a substitute. Single-action
+        # completion (substitute pool is filtered to progress=1). Uses misc
+        # quest_data for the progress embed; XP routes through vote_reward.
+        if user.vote_cooldown != 0:
+            return user
+        quest_data = config.battle["quests"]["misc"][quest]
+        quest_complete = True
+        user.vote_cooldown = int(time.time())
+        current_xp = user.progress + user.vote_reward + _qxp_bonus(user.vote_reward, include_catch_xp=False)
     else:
         return user
 
@@ -4670,7 +4762,7 @@ async def progress(
     old_xp = user.progress
     level_complete_embeds = []
     if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-        level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
+        level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
         level_text = "Extra Rewards"
     else:
         level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -4716,7 +4808,7 @@ async def progress(
             level_complete_embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
             if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-                active_level_data = {"xp": 6000, "reward": "Stone", "amount": 1}
+                active_level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
                 new_level_text = "Extra Rewards"
             else:
                 active_level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -4750,12 +4842,16 @@ async def progress(
     if is_belated:
         embed_progress.set_footer(text="For catching within 3 seconds")
 
-    server = await Server.get_or_create(server_id=message.guild.id)
-    if await check_channel_setupped(server, message.channel):
-        if level_complete_embeds:
-            await message.channel.send(f"<@{user.user_id}>", embeds=level_complete_embeds + [embed_progress])
-        else:
-            await message.channel.send(f"<@{user.user_id}>", embed=embed_progress)
+    # message=None is the silent-grant path (e.g. vote XP auto-credited from
+    # do_vote with no interaction in hand). XP + inventory rewards still land;
+    # we just skip the channel ceremony.
+    if message is not None:
+        server = await Server.get_or_create(server_id=message.guild.id)
+        if await check_channel_setupped(server, message.channel):
+            if level_complete_embeds:
+                await message.channel.send(f"<@{user.user_id}>", embeds=level_complete_embeds + [embed_progress])
+            else:
+                await message.channel.send(f"<@{user.user_id}>", embed=embed_progress)
 
     return user
 
@@ -7071,7 +7167,7 @@ async def on_message(message: discord.Message):
                     coughstring = "{username} cought {emoji} {type} cat!!!!1!\nYou now have {count} cats of dat type!!!\nthis fella was cought in {time}!!!!"
 
                 view = None
-                button = None
+                buttons = []
 
                 async def dark_market_cutscene(interaction):
                     nonlocal message
@@ -7104,12 +7200,27 @@ async def on_message(message: discord.Message):
                     await achemb(message, "dark_market", "followup")
 
                 if random.randint(0, 10) == 0 and user.total_catches > 50 and not user.dark_market_active:
-                    button = Button(label="You see a shadow...", style=ButtonStyle.red)
-                    button.callback = dark_market_cutscene
+                    shadow_button = Button(label="You see a shadow...", style=ButtonStyle.red)
+                    shadow_button.callback = dark_market_cutscene
+                    buttons.append(shadow_button)
 
-                if button:
+                # Vote button on the catch message: only ~1 in 40 catches
+                # (expected somewhere between every 20th and 60th cat) so it
+                # doesn't feel spammy. /battlepass still has a direct link.
+                if config.VOTING_ENABLED and random.randint(1, 40) == 1:
+                    vote_user = await User.get_or_create(user_id=message.author.id)
+                    if vote_user.vote_time_topgg + 43200 < time.time():
+                        buttons.append(Button(
+                            label=random.choice(vote_button_texts),
+                            style=ButtonStyle.url,
+                            url=TOP_GG_VOTE_URL,
+                            emoji=get_emoji("topgg"),
+                        ))
+
+                if buttons:
                     view = View(timeout=VIEW_TIMEOUT)
-                    view.add_item(button)
+                    for b in buttons:
+                        view.add_item(b)
 
                 user[f"cat_{le_emoji}"] += silly_amount
                 new_count = user[f"cat_{le_emoji}"]
@@ -7143,7 +7254,7 @@ async def on_message(message: discord.Message):
 
                         if server.auto_delete_catches:
                             # button do stuff = button stay... for now-
-                            delay = 30 if (button and button.callback) else 10
+                            delay = 30 if any(getattr(b, "callback", None) for b in buttons) else 10
                             await result.delete(delay=delay)
 
                     except Exception:
@@ -8464,7 +8575,7 @@ async def gen_stats(profile, star):
     # (30 for season 1, 40 for seasons 2+). Going past it means the player
     # entered the Extra Rewards fallback, which is what "season complete"
     # means here — and the bonus XP they earned in Extra Rewards mode is
-    # 1500 per overflow level.
+    # 6300 per overflow level.
     for season in profile.bp_history.split(";"):
         if not season:
             break
@@ -8476,7 +8587,7 @@ async def gen_stats(profile, star):
         season_max = len(config.battle["seasons"].get(str(season_num), [])) or 30
         if season_lvl > season_max:
             seasons_complete += 1
-            total_xp += 1500 * (season_lvl - (season_max + 1))
+            total_xp += 6300 * (season_lvl - (season_max + 1))
         if season_lvl > max_level:
             max_level = season_lvl
 
@@ -8491,7 +8602,7 @@ async def gen_stats(profile, star):
         season_max_curr = len(config.battle["seasons"].get(str(profile.season), [])) or 30
         if profile.battlepass > season_max_curr:
             seasons_complete += 1
-            total_xp += 1500 * (profile.battlepass - (season_max_curr + 1))
+            total_xp += 6300 * (profile.battlepass - (season_max_curr + 1))
         if profile.battlepass > max_level:
             max_level = profile.battlepass
 
@@ -8650,7 +8761,7 @@ async def gen_inventory(message, person_id):
     try:
         needed_xp = config.battle["seasons"][str(person.season)][person.battlepass]["xp"]
     except Exception:
-        needed_xp = 1500
+        needed_xp = 6300
 
     stats = await gen_stats(person, "")
     highlighted_stat = None
@@ -10005,8 +10116,19 @@ async def battlepass(message: discord.Interaction):
 
         description = f"Season ends <t:{timestamp}:R>\n\n"
 
-        # vote
-        if config.VOTING_ENABLED:
+        # vote slot — real Top.gg vote ~1/3 of cycles, otherwise a misc-pool
+        # substitute hosted in the same slot (vote_quest carries the misc id).
+        # Pre-migration 028, _vote_quest_safe returns '' and we fall through
+        # to the real vote branch unconditionally.
+        _vq_display = _vote_quest_safe(user)
+        if _vq_display:
+            sub_quest = config.battle["quests"]["misc"].get(_vq_display)
+            if sub_quest:
+                if user.vote_cooldown != 0:
+                    description += f"✅ ~~{sub_quest['title']}~~\n- Refreshes <t:{int(user.vote_cooldown + QUEST_COOLDOWN)}:R>\n"
+                else:
+                    description += f"{get_emoji(sub_quest['emoji'])} {sub_quest['title']}\n- Reward: {user.vote_reward} XP\n"
+        elif config.VOTING_ENABLED:
             streak_string = ""
             if global_user.daily_catch_streak >= 5:
                 streak_string = f" (🔥 {global_user.daily_catch_streak}x streak)"
@@ -10019,7 +10141,7 @@ async def battlepass(message: discord.Interaction):
                 if is_weekend:
                     description += "-# *Double Vote XP During Weekends*\n"
 
-                description += f"{get_emoji('topgg')} Vote on Top.gg\n"
+                description += f"{get_emoji('topgg')} [Vote on Top.gg]({TOP_GG_VOTE_URL})\n"
 
                 if is_weekend:
                     description += f"- Reward: ~~{user.vote_reward}~~ **{user.vote_reward * 2}** XP"
@@ -10086,8 +10208,8 @@ async def battlepass(message: discord.Interaction):
             description += f"{get_emoji(challenge_quest['emoji'])} {challenge_quest['title']}{progress_string}\n- Reward: {user.challenge_reward} XP\n\n"
 
         if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-            description += f"**Extra Rewards** [{user.progress}/1500 XP]\n"
-            colored = int(user.progress / 150)
+            description += f"**Extra Rewards** [{user.progress}/6300 XP]\n"
+            colored = int(user.progress / 630)
             description += get_emoji("staring_square") * colored + "⬛" * (10 - colored) + "\nReward: " + get_emoji("stonepack") + " Stone pack\n\n"
         else:
             level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -10116,7 +10238,7 @@ async def battlepass(message: discord.Interaction):
             if num % 10 == 9:
                 description += "\n"
         if user.battlepass >= len(config.battle["seasons"][str(user.season)]) - 1:
-            description += f"*Extra:* {get_emoji('stonepack')} per 1500 XP"
+            description += f"*Extra:* {get_emoji('stonepack')} per 6300 XP"
 
         embedVar = discord.Embed(
             title=f"Cattlepass Season {user.season}",
@@ -10140,6 +10262,103 @@ async def battlepass(message: discord.Interaction):
     await gen_main(message, True)
 
 
+@bot.tree.command(description="Vote for Cat Bot on top.gg for battlepass XP")
+async def vote(message: discord.Interaction):
+    if not config.VOTING_ENABLED:
+        await message.response.send_message("Voting isn't enabled on this instance.", ephemeral=True)
+        return
+
+    global_user = await User.get_or_create(user_id=message.user.id)
+    profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+
+    async def render(interaction, first=False):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        if not first:
+            await interaction.response.defer()
+        await global_user.refresh_from_db()
+        await profile.refresh_from_db()
+
+        now = int(time.time())
+        next_vote = int(global_user.vote_time_topgg) + 43200
+        can_vote = next_vote <= now
+
+        if global_user.vote_time_topgg == 0:
+            last_line = "**Last vote:** never"
+        else:
+            last_line = f"**Last vote:** <t:{int(global_user.vote_time_topgg)}:R>"
+
+        if can_vote:
+            next_line = f"{get_emoji('topgg')} **You can vote now!**"
+        else:
+            next_line = f"**Next vote:** <t:{next_vote}:R>"
+
+        streak_line = f"🔥 **Streak:** {global_user.daily_catch_streak:,}"
+        if global_user.daily_catch_streak > 0:
+            streak_progress = get_streak_reward(global_user.daily_catch_streak)["done_emoji"]
+            for i in range(global_user.daily_catch_streak + 1, global_user.daily_catch_streak + 9):
+                streak_progress += get_streak_reward(i)["emoji"]
+            streak_line += f"\n{streak_progress}"
+
+        is_weekend = (discord.utils.utcnow() + datetime.timedelta(hours=4)).weekday() >= 4
+        xp_line = f"**Reward:** {profile.vote_reward} XP"
+        if is_weekend:
+            xp_line = f"**Reward:** ~~{profile.vote_reward}~~ **{profile.vote_reward * 2}** XP *(Weekend 2x!)*"
+        xp_line += "\n-# Run `/battlepass` after voting to claim."
+
+        embedVar = discord.Embed(
+            title=f"{get_emoji('topgg')} Vote for Cat Bot",
+            description="\n\n".join([last_line, next_line, streak_line, xp_line, f"**Total votes:** {global_user.total_votes:,}"]),
+            color=Colors.brown,
+        )
+
+        view = View(timeout=VIEW_TIMEOUT)
+        view.add_item(Button(label="Vote on top.gg", style=ButtonStyle.url, url=TOP_GG_VOTE_URL, emoji=get_emoji("topgg")))
+
+        if profile.reminders_enabled:
+            toggle_btn = Button(emoji="🔕", label="Disable Reminders", style=ButtonStyle.blurple)
+        else:
+            toggle_btn = Button(emoji="🔔", label="Enable Reminders", style=ButtonStyle.blurple)
+        toggle_btn.callback = toggle_reminders
+        view.add_item(toggle_btn)
+
+        refresh_btn = Button(emoji="🔄", label="Refresh", style=ButtonStyle.gray)
+        refresh_btn.callback = render
+        view.add_item(refresh_btn)
+
+        if first:
+            await message.response.send_message(embed=embedVar, view=view)
+        else:
+            await interaction.edit_original_response(embed=embedVar, view=view)
+
+    async def toggle_reminders(interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        await interaction.response.defer()
+        await profile.refresh_from_db()
+        if not profile.reminders_enabled:
+            try:
+                dm_channel = await fetch_dm_channel(global_user)
+                await dm_channel.send(
+                    f"You have enabled reminders in {interaction.guild.name}. You can disable them in /vote or /battlepass in that server, or by saying `disable {interaction.guild.id}` here any time."
+                )
+            except Exception:
+                await interaction.followup.send(
+                    "Failed. Ensure you have DMs open by going to Server > Privacy Settings > Allow direct messages from server members.",
+                    ephemeral=True,
+                )
+                return
+        profile.reminders_enabled = not profile.reminders_enabled
+        await profile.save()
+        await interaction.followup.send(
+            f"Reminders are now {'enabled' if profile.reminders_enabled else 'disabled'}.",
+            ephemeral=True,
+        )
+        await render(interaction)
+
+    await render(message, first=True)
 
 
 async def stock_help(message):
@@ -11069,7 +11288,7 @@ async def catstore(message: discord.Interaction):
             # Battlepass quest progress — buy + (conditional) spree.
             try:
                 await progress(interaction, profile, "store_buy")
-                if total_cost >= 5000:
+                if total_cost >= 2500:
                     await progress(interaction, profile, "store_spree")
             except Exception:
                 logging.exception("catstore: BP progress (buy) failed")
@@ -17910,7 +18129,7 @@ async def leaderboards(
                 interactor = position[final_value]
                 if type == "Cattlepass":
                     if position[final_value] >= len(bp_season):
-                        lv_xp_req = 1500
+                        lv_xp_req = 6300
                     else:
                         lv_xp_req = bp_season[int(position[final_value]) - 1]["xp"]
                     interactor_perc = math.floor((100 / lv_xp_req) * position["progress"])
@@ -17919,7 +18138,7 @@ async def leaderboards(
                 messager = position[final_value]
                 if type == "Cattlepass":
                     if position[final_value] >= len(bp_season):
-                        lv_xp_req = 1500
+                        lv_xp_req = 6300
                     else:
                         lv_xp_req = bp_season[int(position[final_value]) - 1]["xp"]
                     messager_perc = math.floor((100 / lv_xp_req) * position["progress"])
@@ -17963,7 +18182,7 @@ async def leaderboards(
 
             if type == "Cattlepass":
                 if i[final_value] >= len(bp_season):
-                    lv_xp_req = 1500
+                    lv_xp_req = 6300
                 else:
                     lv_xp_req = bp_season[int(i[final_value]) - 1]["xp"]
                 prog_perc = math.floor((100 / lv_xp_req) * i["progress"])
@@ -18466,7 +18685,7 @@ async def do_vote(user: User, created_at: float):
         await channeley.send(
             "\n".join(
                 [
-                    "Thanks for voting! To claim your rewards, run `/battlepass` in every server you want.",
+                    "Thanks for voting! Your battlepass XP has been credited in every server you have a profile in — run `/battlepass` to see your new progress.",
                     f"You can vote again <t:{int(created_at) + 43200}:R>.",
                     "",
                     f":fire: **Streak:** {user.daily_catch_streak:,}{top_text} expires <t:{int(created_at) + extend_time * 3600}:R>{freeze_note}",
@@ -18481,6 +18700,22 @@ async def do_vote(user: User, created_at: float):
         pass
 
     await user.save()
+
+    # Auto-grant vote XP across every profile this user has, so they don't
+    # have to chase /battlepass server-by-server. progress("vote") is
+    # idempotent via vote_cooldown — profiles already claimed this cycle
+    # short-circuit; new profiles (created post-vote, within 12h) still get
+    # picked up by the existing gen_main fallback when /battlepass runs.
+    try:
+        profiles = await Profile.collect("user_id = $1", user.user_id)
+    except Exception:
+        logging.exception("do_vote: failed to collect profiles for user %s", user.user_id)
+        profiles = []
+    for profile in profiles:
+        try:
+            await progress(None, profile, "vote")
+        except Exception:
+            logging.exception("do_vote: auto-grant failed for guild %s", profile.guild_id)
 
 
 async def check_supporter(request):
@@ -18567,6 +18802,12 @@ async def setup(bot2):
     bot2.on_entitlement_delete = on_entitlement_delete
 
     if config.WEBHOOK_VERIFY:
+        # Port 8069 is exposed to the public internet (top.gg pushes votes
+        # here), so aiohttp.access fills the terminal with 404s from random
+        # port scanners. Mute the access channel below WARNING — 5xx still
+        # surfaces, and recieve_vote success is observable via /vote and
+        # /battlepass updates.
+        logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
         routes = [
             web.get("/supporter", check_supporter),
             web.post("/bakegg", bake_gg_reward),

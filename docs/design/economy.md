@@ -60,9 +60,9 @@ XP funnels into [battlepass](battlepass.md) levels. There are three XP sources a
 2. **Passive XP drips** — first catch of day (+50), 10-catch streak (+20), catnip level-up (+100 capped at 1000/season), prism boost owner (+20).
 3. **Achievement XP** — each ach with an `xp` field grants it on unlock; routed through `grant_achievement_xp` in `main.py`.
 
-Daily XP for an active player is on the order of **600–1500 XP**. Season 1 level requirements range 550–1000 XP, so one engaged session ≈ one battlepass level. Seasons 2+ requirements range 1100–6000 XP (see [battlepass.md XP cost curves](battlepass.md#level-rewards)), so the later levels require multiple sessions each.
+Daily XP for an active player is on the order of **600–1500 XP**. Season 1 level requirements range 550–1000 XP, so one engaged session ≈ one battlepass level. Seasons 2+ requirements range 1150–6300 XP (see [battlepass.md XP cost curves](battlepass.md#level-rewards)), so the later levels require multiple sessions each.
 
-**Design intent:** XP should feel earned, not gifted. The passive drips were added explicitly because the old "vote XP" slot was retired with self-hosting — passive drips fill that gap without re-introducing third-party-dependent rewards. Keep the dominant share with quests; passive drips are sweeteners.
+**Design intent:** XP should feel earned, not gifted. Passive drips were added when the vote slot was inactive on this self-hosted instance; they fill the gap for players on instances where `voting_enabled=0` (now an explicit opt-out; the default is `"1"`). Passive drips and vote XP coexist. Keep the dominant share with quests; passive drips are sweeteners, and vote XP is a bonus that is active on all standard-config instances.
 
 > **TODO(design):** there's no XP source for *opening* a pack yet. This was on the candidate list (idea #11) and was deliberately deferred — revisit if the pack drop rate from catches makes packs feel like a chore rather than a reward.
 

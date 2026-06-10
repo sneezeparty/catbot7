@@ -237,6 +237,7 @@ CREATE TABLE public.profile (
     season smallint DEFAULT 1,
     vote_reward smallint DEFAULT 0,
     vote_cooldown bigint DEFAULT 1,
+    vote_quest character varying(30) DEFAULT ''::character varying,
     catch_quest character varying(30) DEFAULT ''::character varying,
     catch_progress smallint DEFAULT 0,
     catch_cooldown bigint DEFAULT 1,

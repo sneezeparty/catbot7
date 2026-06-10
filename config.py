@@ -1,4 +1,18 @@
 import os
+from pathlib import Path
+
+# Optional .env loader. Lines like `key=value` are pushed into os.environ
+# before any reads below, so secrets can live in a gitignored project file
+# instead of being exported in your shell. Existing env vars always win,
+# so `voting_enabled=0 python bot.py` still overrides .env for one-offs.
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _key, _, _value = _line.partition("=")
+        os.environ.setdefault(_key.strip(), _value.strip().strip('"').strip("'"))
 
 # discord bot token
 TOKEN = os.environ["TOKEN"]
@@ -38,11 +52,12 @@ DONOR_CHANNEL_ID = int(os.environ["donor_channel_id"]) if os.environ.get("donor_
 # cat!rain commands here can be used without author check and will dm reciever a thanks message
 RAIN_CHANNEL_ID = int(os.environ["rain_channel_id"]) if os.environ.get("rain_channel_id") else None
 
-# Voting is permanently retired on this self-hosted instance. The flag is kept
-# so the gated /vote command + top.gg webhook + vote-replay loop can be flipped
-# back on without code surgery if you ever decide to re-list. Daily catch
-# streaks live in `user.daily_catch_streak` regardless of this setting.
-VOTING_ENABLED = os.environ.get("voting_enabled", "0") == "1"
+# top.gg voting: /vote, the vote battlepass quest, catch-message vote button,
+# webhook + vote-replay loop. On by default; set voting_enabled=0 to turn off.
+# Registering votes still needs top_gg_modern_token (polling) or webhook_verify
+# (webhook on port 8069). Daily catch streaks live in `user.daily_catch_streak`
+# regardless of this setting.
+VOTING_ENABLED = os.environ.get("voting_enabled", "1") == "1"
 
 # Cat Bot Store (Discord native monetization). When enabled, the /store
 # command registers, on_entitlement_* event handlers wire SKU ownership to

@@ -39,3 +39,17 @@
 2026-06-03 00:00  Updated: migrations-table: added row for migration 027 (last_job_time for mafia-level decay shield) (re: migrations/027_last_job_time.py)
 2026-06-03 00:00  Skipped: main.py (no env-var or gameplay-divergence changes assessed from pending)
 2026-06-03 00:00  Skipped: schema.sql (column additions covered by migration 027 row)
+2026-06-09 00:00  Skipped: config.py (no diff from HEAD — env-var rows webhook_verify, top_gg_modern_token, voting_enabled verified correct against current code)
+2026-06-09 00:00  Updated: gameplay-divergence: voting row updated — voting re-implemented as optional battlepass XP source, no longer described as "retired" (re: main.py)
+2026-06-09 00:00  Skipped: main.py _perks_roll_drop mafia_level gate — internal perk-pool filtering for sub-Lv4 players; operator-invisible, not divergence-level
+2026-06-09 00:00  Updated: env-vars: voting_enabled default changed from 0 to 1, description flipped to "set 0 to disable" (re: config.py)
+2026-06-09 00:00  Updated: gameplay-divergence: Voting row updated — "Off by default (voting_enabled=0)" replaced with "On by default; set voting_enabled=0 to disable" (re: config.py)
+2026-06-09 00:00  Updated: setup/config section: added .env file loader note — copy .env.example, config.py reads on startup, shell env still wins. Removed now-redundant venv/activate tip. (re: config.py)
+2026-06-09 00:01  Skipped: main.py (battlepass XP recalibration — Extra Rewards constant unified to 6,300 across display and grant paths; README cites no specific XP numbers, all three owned sections unaffected)
+2026-06-09 00:00  Updated: gameplay-divergence: voting row — vote XP now auto-grants across all profiles at vote time; removed "claimed via /battlepass" (re: main.py)
+2026-06-09 00:00  Skipped: main.py store_spree quest threshold 5000→2500 coins — pure tuning, not divergence-level
+2026-06-09 23:19  Skipped: main.py (vote button on catch messages now ~1-in-40 instead of every eligible catch; /battlepass vote line now a markdown link. Presentation-only tweaks; no catch-button cadence is cited in any README section I own. No env-var or migration changes.)
+2026-06-09 23:55  Updated: migrations-table: added row for migration 028 (vote_quest profile column for vote-slot substitute mechanic) (re: migrations/028_vote_substitute_slot.py)
+2026-06-09 23:55  Updated: gameplay-divergence: extended Voting row — vote slot now rolls 1/3 real vote / 2/3 misc substitute (re: migrations/028_vote_substitute_slot.py, main.py)
+2026-06-09 23:55  Skipped: schema.sql (vote_quest column addition already captured by migration 028 row)
+2026-06-09 23:55  Skipped: main.py (TOP_GG_VOTE_URL constant and _perks_roll_drop mafia_level gate — internal; no env-var or divergence-level changes beyond what the vote-substitute migration already covers)

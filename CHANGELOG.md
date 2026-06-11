@@ -101,6 +101,9 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
   > _draft_
 - Migration `028_vote_substitute_slot.py` adds `profile.vote_quest VARCHAR(30) DEFAULT '' NOT NULL`. Idempotent per-column gate. No backfill needed — empty string is the correct default (means "real vote quest"). `generate_quest("vote")`, `refresh_quests`, `progress`, and the `/battlepass` embed display all reference this column; without the migration the column is absent and `catpg.__getattr__` will raise on first access.
   > _draft_
+- Admin dashboard Top Players table on the per-server drill-down (`/activity/server/<id>`) now uses `class="editor-table leaderboard"` so the static-thead override applies. Previously the sticky `<thead>` slid up at scroll and covered row #1, making the rank column appear to start at 2. Same one-class fix already used on the `/activity` Top servers and Top catchers tables.
+- Pack-opening perk dispatch in `on_message` now resolves perk effect values by ID through a `perks_by_id` dict (`{p["id"]: p for p in perks_info}`) instead of hard-coded `perks_info[12]…[16]` indices. The literal indices broke silently any time `config/catnip.json` was reordered (e.g. migration 020's `timer_add` removal already shifted them). No behavior change for the current perk ordering.
+- Two `except: pass` swallows in `on_message` (catch-confirm send failure and `pointlaugh` reaction failure) now go through `logging.exception` with `channel=…, guild=…` context so a wave of these errors is visible in logs instead of disappearing.
 
 ## [0.6.6.060025052026]
 

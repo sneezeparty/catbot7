@@ -6748,7 +6748,11 @@ async def on_message(message: discord.Message):
                         await message.add_reaction(get_emoji("pointlaugh"))
                     pointlaugh_ratelimit[message.channel.id] = pointlaugh_ratelimit.get(message.channel.id, 0) + 1
                 except Exception:
-                    pass
+                    logging.exception(
+                        "pointlaugh react failed (channel=%s guild=%s)",
+                        message.channel.id,
+                        getattr(message.guild, "id", None),
+                    )
 
             # Catch-streak passive XP: a laughed-at miss breaks the streak.
             # Only resets if we'd actually have a streak going.
@@ -6968,6 +6972,7 @@ async def on_message(message: discord.Message):
                     else:
                         perks = user.perks
                     perks_info = catnip_list["perks"]
+                    perks_by_id = {p["id"]: p for p in perks_info}
                     user.pack_attempts -= 1
 
                     if len(perks) > 0:
@@ -7008,15 +7013,15 @@ async def on_message(message: discord.Message):
                         elif id == "triple_ach":
                             purr_all_triple = True
                         elif id == "rain_boost":
-                            rain_chance += _amp(perks_info[12]["values"][rarity])
+                            rain_chance += _amp(perks_by_id["rain_boost"]["values"][rarity])
                         elif id == "double_first":
-                            double_first += _amp(perks_info[13]["values"][rarity])
+                            double_first += _amp(perks_by_id["double_first"]["values"][rarity])
                         elif id == "combo":
-                            combo_per_stack += _amp(perks_info[14]["values"][rarity])
+                            combo_per_stack += _amp(perks_by_id["combo"]["values"][rarity])
                         elif id == "bp_xp":
-                            bp_xp_chance += _amp(perks_info[15]["values"][rarity])
+                            bp_xp_chance += _amp(perks_by_id["bp_xp"]["values"][rarity])
                         elif id == "respawn":
-                            respawn_chance += _amp(perks_info[16]["values"][rarity])
+                            respawn_chance += _amp(perks_by_id["respawn"]["values"][rarity])
 
                     for i in packs:
                         chance = random.random() * 100
@@ -7406,8 +7411,11 @@ async def on_message(message: discord.Message):
                             await result.delete(delay=delay)
 
                     except Exception:
-                        # Silently fail if we can't send the confirmation message (e.g. permission issues)
-                        pass
+                        logging.exception(
+                            "catch confirm send failed (channel=%s guild=%s)",
+                            message.channel.id,
+                            getattr(message.guild, "id", None),
+                        )
 
                 await asyncio.gather(delete_cat(), send_confirm())
 

@@ -261,12 +261,12 @@ vote_button_texts = [
 hints = [
     "Cat Bot is open source! <https://github.com/sneezeparty/catbot7>",
     "View all cats and rarities with /catalogue",
-    "Cat Bot's birthday is on the 21st of April",
+    "/catslots has an eGirl bonus round. yes that's a real sentence",
     "Unlike the normal one, Cat's /8ball isn't rigged",
     "/rate says /rate is 100% correct",
     "/casino is *surely* not rigged",
     "You probably shouldn't use a Discord bot for /remind-ers",
-    "Cat /Rain is an excellent way to support development!",
+    "catbot7 is a fork. the seventh cat is the friendliest cat",
     "Cat Bot was made later than its support server",
     "Cat Bot reached 100 servers 3 days after release",
     "Cat died for 2+ weeks bc the servers were flooded with water",
@@ -280,10 +280,9 @@ hints = [
     # RE-ENABLE WHEN VOTING IS PUBLIC: "Cat Bot has reached top #7 on top.gg in May 2025",
     # RE-ENABLE WHEN VOTING IS PUBLIC: "Cat Bot has reached top #5 on top.gg in September 2025",
     # RE-ENABLE WHEN VOTING IS PUBLIC: "Cat Bot has reached top #3 on top.gg in March 2026",
-    "Most Cat Bot features were made within 2 weeks",
+    "/catstore: launder cats into coins, no questions asked",
     "Cat Bot was initially made for only one server",
     "Cat Bot is made in Python with discord.py",
-    "Discord didn't verify Cat properly the first time",
     "Looking at Cat's code won't make you regret your life choices!",
     "Cats aren't shared between servers to make it more fair and fun",
     "Cat Bot can go offline! Don't panic if it does",
@@ -451,6 +450,23 @@ reactions_ratelimit = {}
 
 # sort of the same thing but for pointlaughs and per channel instead of peruser
 pointlaugh_ratelimit = {}
+
+# per-channel reaction-add cooldown (seconds since last add_reaction in that channel)
+# discord enforces a per-channel reaction bucket of ~1 PUT per 250ms; a chatty channel
+# triggering several easter-egg reactions back-to-back hits it and discord.py logspams 429
+# retries. this skips the add_reaction call (silently) when we've reacted in the same
+# channel within the last second. react_count / reactions_ratelimit still increment, so
+# the "silly" achievement and per-guild cap are unaffected.
+reaction_cooldown = {}
+REACTION_COOLDOWN_S = 1.0
+
+
+def _reaction_cooldown_ok(channel_id):
+    now = time.time()
+    if now - reaction_cooldown.get(channel_id, 0) < REACTION_COOLDOWN_S:
+        return False
+    reaction_cooldown[channel_id] = now
+    return True
 
 # cooldowns for some commands
 catchcooldown = {}
@@ -5887,9 +5903,10 @@ async def _safe_background_loop():
 
 # a loop for various maintenance which is ran every 5 minutes
 async def background_loop():
-    global pointlaugh_ratelimit, reactions_ratelimit, last_loop_time, loop_count, catchcooldown, temp_belated_storage, fakecooldown, last_vote_cursor
+    global pointlaugh_ratelimit, reactions_ratelimit, reaction_cooldown, last_loop_time, loop_count, catchcooldown, temp_belated_storage, fakecooldown, last_vote_cursor
     pointlaugh_ratelimit = {}
     reactions_ratelimit = {}
+    reaction_cooldown = {}
     catchcooldown = {}
     fakecooldown = {}
     await bot.change_presence(activity=discord.CustomActivity(name=f"Catting in {len(bot.guilds):,} servers"))
@@ -6025,6 +6042,13 @@ async def background_loop():
             await asyncio.sleep(0.2)
 
             view = View(timeout=VIEW_TIMEOUT)
+
+            view.add_item(Button(
+                label="Vote on top.gg",
+                style=ButtonStyle.url,
+                url=TOP_GG_VOTE_URL,
+                emoji=get_emoji("topgg"),
+            ))
 
             button = Button(label="Postpone", custom_id="vote")
             button.callback = postpone_reminder
@@ -6532,7 +6556,8 @@ async def on_message(message: discord.Message):
                     if not server:
                         server = await Server.get_or_create(server_id=message.guild.id)
                     if server.do_reactions and await check_channel_setupped(server, message.channel):
-                        await message.add_reaction(get_emoji("staring_cat"))
+                        if _reaction_cooldown_ok(message.channel.id):
+                            await message.add_reaction(get_emoji("staring_cat"))
                     react_count += 1
                     reactions_ratelimit[message.guild.id] = reactions_ratelimit.get(message.guild.id, 0) + 1
                     logging.debug("Reaction added: %s", "staring_cat")
@@ -6607,7 +6632,8 @@ async def on_message(message: discord.Message):
                 if not server:
                     server = await Server.get_or_create(server_id=message.guild.id)
                 if server.do_reactions and await check_channel_setupped(server, message.channel):
-                    await message.add_reaction(resolved_emoji)
+                    if _reaction_cooldown_ok(message.channel.id):
+                        await message.add_reaction(resolved_emoji)
                 react_count += 1
                 reactions_ratelimit[message.guild.id] = reactions_ratelimit.get(message.guild.id, 0) + 1
                 logging.debug("Reaction added: %s", reaction_name)
@@ -6639,7 +6665,8 @@ async def on_message(message: discord.Message):
             if not server:
                 server = await Server.get_or_create(server_id=message.guild.id)
             if server.do_reactions and await check_channel_setupped(server, message.channel):
-                await message.add_reaction(get_emoji("staring_cat"))
+                if _reaction_cooldown_ok(message.channel.id):
+                    await message.add_reaction(get_emoji("staring_cat"))
             react_count += 1
             reactions_ratelimit[message.guild.id] = reactions_ratelimit.get(message.guild.id, 0) + 1
             logging.debug("Reaction added: %s", "staring_cat")
@@ -17817,10 +17844,10 @@ You can stop. That's okay. Seriously.
             colored = int(bounties_complete / user.bounties * 10)
             desc += f"\n\n**Level {level}** - {change}"
             desc += f"\n{level} " + get_emoji("staring_square") * colored + "⬛" * (10 - colored) + f" {level + 1}"
-        if not level == 0 and not user.hibernation:
+        if not level == 0 and not user.hibernation and user.catnip_active > time.time():
             if user.catnip_active - int(time.time()) < 1800:
                 desc += f"\n\n**Hurry!** Levels down <t:{user.catnip_active}:R> ({duration}h total)"
-            elif user.catnip_active > time.time():
+            else:
                 desc += f"\n\nLevels down <t:{user.catnip_active}:R> ({duration}h total)"
 
         if user.catnip_level:

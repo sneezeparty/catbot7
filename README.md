@@ -32,7 +32,7 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 | Top-tier prices | Pre-rebalance Celestial = 3k coins, eGirl = ~4k | Celestial 21k (7×), Diamond 9k (5×), Platinum 4.8k (4×), Gold 1.8k (3×), Silver 600 (2×). Cat tier multipliers: Mythic 1.5×, Divine 4×, Real 5×, Ultimate 6×, eGirl 7×. Low-tier prices unchanged. |
 | Prism crafting | One of every cat type, no coin cost | Cat recipe unchanged, plus a per-profile coin tax: **5k × 2^N** for your Nth prism on this server, capped at 320k. |
 | Slots | `/slots` 3-reel | `/slots` plus `/catslots` 5×3 Vegas-style with 20 paylines and a per-line cap |
-| Stock market | Static order book at the initial price | Bot-owned market maker ticks prices off in-game metrics (prism count, active catnip, average battlepass level, etc.) |
+| Stock market | Static order book at the initial price | Simulated market with per-tick GBM noise + sector/market correlation + scheduled earnings, surprise headlines, crash/boom events, and dividend ex-div drops. Market trades fill instantly against the house at the bid/ask; limit orders rest in the book. Activity-derived fair value retained as a long-run mean-reversion anchor. |
 | Catnip perks | Time Manipulator and the legacy lineup | Snowballer, Battlepass Booster, Bait & Switch added. Time Manipulator removed entirely (migration 020 remaps stored perk indices). Voting Booster renamed to Loyalty Streak |
 | Catnip session length | Scales with level | Always 24h regardless of level |
 | Battlepass quest slots | 4 (vote, catch, misc, extra) | 5, with a new `challenge` slot for harder catch-condition quests |
@@ -125,8 +125,10 @@ A fresh `schema.sql` already includes every column, so migrations only matter wh
 | 026 | Reset `user.news_state` to `''` for all users — clears stale read-state from the hardcoded news list so the new `config/news.json`-driven articles show as unread for everyone. |
 | 027 | Add `profile.last_job_time` (`bigint DEFAULT 0`) — UNIX timestamp of the player's most recent committed job; shields mafia level from both decay systems for 24h after a job. Backfills from each profile's most recent resolved `jobinstance` row. |
 | 028 | Add `profile.vote_quest` (`VARCHAR(30) DEFAULT ''`) — tracks which misc-pool substitute quest (if any) is currently occupying the vote battlepass slot. Empty string means the slot is showing the real Top.gg vote quest. |
+| 029 | Add `server.name` (`VARCHAR(100) DEFAULT '' NOT NULL`) — cached guild display name populated by the snapshot loop / `on_guild_join`. Creates `public.metric_snapshot` (hourly-bucketed aggregate counters) used by the admin dashboard's Activity page for time-series deltas. Idempotent. No backfill. |
+| 030 | Stock Market 2.0 schema break. Creates `public.newsevent` (+ sequence) for the persisted news feed, cancels and refunds every live limit order (`order.time > 0` — coins for buys, shares for sells, with `c`/`C` activity-log rows), and deletes every market-maker order (`order.time = 0`). User holdings (`profile.stock_*`) and `pricehistory` are untouched. Bot must be stopped. Not safe to re-run (data mutation). |
 
-Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020`, which mutates data in place** and would double-remap if re-run; restore the pre-migration data before re-running it.
+Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020` and `030`, which mutate data in place** and would double-apply if re-run; restore the pre-migration data before re-running them.
 
 ## License
 

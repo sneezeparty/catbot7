@@ -3,14 +3,14 @@
 <section>
   {% set eyebrow = "db / order" %}
   {% set heading = "Order book" %}
-  {% set lede    = "Open stock market orders. Read-only." %}
+  {% set lede    = "Open stock-market limit orders. Read-only." %}
   {% include "partials/_section_header.html" %}
 
   {% set body %}
-    Read-only. Total open orders: <strong>{{ total }}</strong>.
-    Orders with <code>time = 0</code> are placed by the market-maker bot and are labelled
-    <strong>MM</strong>. They are recreated automatically on the next background-loop tick
-    (~5 min) if deleted — that is intentional.
+    Read-only. Total open limit orders: <strong>{{ total }}</strong>.
+    Every row here is a user-placed limit order (the simulated-market engine
+    doesn't write any orders — see <code>docs/design/economy.md</code>).
+    Orders expire 7 days after placement and refund automatically.
   {% endset %}
   {% include "partials/_help.html" %}
 
@@ -42,30 +42,18 @@
         <th>price</th>
         <th>user_id</th>
         <th>placed</th>
-        <th>note</th>
       </tr>
     </thead>
     <tbody>
       {% for o in rows %}
-        <tr {% if o.time == MM_TIME and mm_user_id and o.user_id == mm_user_id %}class="muted"{% endif %}>
+        <tr>
           <td class="numeric">{{ o.id }}</td>
           <td><span class="name">{{ o.ticker }}</span></td>
           <td>{{ "BUY" if o.type_buy else "SELL" }}</td>
           <td class="numeric">{{ o.quantity }}</td>
           <td class="numeric">{{ o.price }}</td>
           <td><span class="name">{{ unames.get(o.user_id, o.user_id) }}</span><span class="id-sub">{{ o.user_id }}</span></td>
-          <td>
-            {% if o.time == MM_TIME %}
-              <span class="muted">—</span>
-            {% else %}
-              <span class="muted">{{ o.time|fmt_ts }}</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if o.time == MM_TIME and mm_user_id and o.user_id == mm_user_id %}
-              <span class="muted">MM</span>
-            {% endif %}
-          </td>
+          <td><span class="muted">{{ o.time|fmt_ts }}</span></td>
         </tr>
       {% endfor %}
     </tbody>

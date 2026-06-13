@@ -162,36 +162,74 @@ Catnip is the late-game money sink: cats go in, perks come out. See [catnip.md](
 
 A fake market with 5 tickers (PRSM, CTNP, PASS, ACHS, RAIN). Stocks are pure speculation — you buy in coin, sell back to coin. Stocks exist for engagement, not progression.
 
-### Activity-driven market maker
+### Simulated market
 
-On self-hosted instances with a small player base (~20 profiles), the original order-book design had no liquidity: prices sat at the 40-coin initial value forever because the legacy 10k-share upstream sell absorbed all buy demand before any fair-price ask could match.
+The activity-driven market maker that preceded this (every 5 min, bot-owned bid/ask at a fair price derived from in-game metrics) is gone. It produced near-zero price movement on a small instance — the fair price barely budged tick to tick, so the displayed price drifted only when someone happened to trade. Players said it was boring; it was right.
 
-The fix is a **bot-owned market maker** (MM) that runs each background-loop tick (~every 5 min). Each tick it:
+The replacement is a **simulated market**: a geometric-Brownian-motion price model with sector correlation, scheduled and surprise events, market-wide crashes/booms, and a gentle mean-reversion anchor. The bot is no longer a counterparty with finite inventory; market trades fill instantly against "the house," which has unlimited virtual capacity. The bid/ask spread is the friction. Limit orders still rest in the order book, match user-to-user first, and are auto-filled against the house once the price ticks through them.
 
-1. Cancels its previous bid/ask for each ticker (refetching each order via `get_or_none` before deletion to detect races with `resolve_orders` — if an order is already gone a user trade consumed it, skip silently).
-2. Derives a **fair price** from an in-game activity signal specific to that ticker.
-3. Posts fresh bid/ask orders at `fair * (1 ± spread)`.
-4. Writes a new `PriceHistory` row at the fair price so charts always have data even with zero user trades.
+**Tick cadence.** One `_run_stock_tick` runs each `background_loop` cycle (~`MAIN_LOOP_INTERVAL` seconds, default 300, so ≈288 ticks/day). Each tick produces a new price per ticker and writes one `pricehistory` row per ticker.
 
-**Activity signals per ticker** (all queried at tick time):
+**Per-tick log-return formula:**
 
-| Ticker | Metric |
-| ------ | ------ |
-| PRSM | `Prism.count()` — total prisms outstanding |
-| CTNP | `Profile.count("catnip_active > now")` — active catnip sessions |
-| PASS | `AVG(battlepass) WHERE battlepass > 0` — avg level among started battlepasses |
-| ACHS | `AVG(jsonb_array_length(unlocked_aches)) WHERE …` — avg achievements per active profile |
-| RAIN | `User.sum("rain_minutes_bought")` — cumulative rain minutes purchased |
+```
+log_return = drift
+           + ticker_shock              # N(0, σ_ticker)
+           + sector_beta · sector_shock # N(0, σ_sector), one draw per sector per tick
+           + market_beta · market_shock # N(0, σ_market), one draw per tick
+           + mean_reversion             # -λ · log(price / fair_value)
+           + event_impulse              # sum of newsevent rows firing this tick
 
-**Fair-price formula:** `clamp(base * ((metric + eps) / (baseline + eps)) ** alpha, floor, ceiling)`. The power-law (exponent `alpha`) keeps the price sublinear — doubling activity does not double price. `eps` prevents division blow-up when the metric is zero. All parameters are in `config/tuning.json["stock_market"]` and hot-reload on `cat!restart`.
+new_price = clamp(round(price · exp(log_return)), floor, ceiling)
+```
 
-**MM order identity:** MM orders use `user_id=<bot profile> AND time=0`. User orders always have `time > 0`. The 7-day stale-order sweep (`Order.filter("time > 0 AND ...")`) skips MM orders by design — never broaden that filter.
+**Sectors.** Three buckets, declared in `config/tuning.json["stock_market"]["tickers"][T]["sector"]`:
 
-**Bot inventory as the MM capacity cap:** the sell side only posts what the bot currently holds; the buy side only posts what the bot can afford. Over time the bot accumulates coins from user buys and shares from user sells, which feeds back into MM capacity. No schema changes were required — the existing `order` and `pricehistory` tables already support it.
+| Sector | Tickers |
+| ------ | ------- |
+| `catch_engine` | PRSM, RAIN |
+| `progression` | PASS, ACHS |
+| `consumable` | CTNP |
 
-**Legacy cleanup:** the first MM tick after deploy cancels the upstream-style `_init_stock_orders` order (10k shares @ 40, `time=0`) and returns the shares to the bot's inventory. Re-running is a no-op.
+Sector shocks are drawn once per tick and applied to every member of the sector with that member's `sector_beta`. Market shocks apply to every ticker scaled by its `market_beta`. So "a good day for `catch_engine`" lifts PRSM and RAIN together; "a bad day for the market" dings everyone.
 
-**Design intent:** prices are now correlated with actual in-game activity, not a random walk. The goal is that a server where people actively use prisms, catnip, and the battlepass sees meaningfully different ticker prices than an empty server. The stock loop should still **not** become the primary coin source — if MM spread or order quantity are too generous, tighten `spread` and `mm_order_quantity` in `tuning.json` rather than changing the fair-price formula.
+**Mean reversion is a long-run anchor, not the price.** `_compute_fair_price(ticker)` is retained — same activity-signal power-law it always was (`base · ((metric + eps) / (baseline + eps)) ^ alpha`, per-ticker `base`/`baseline`/`alpha` in tuning). It feeds the `-λ · log(price/fair)` term in the formula. With default `λ ≈ 0.005`, the noise dominates day-to-day and reversion only matters over weeks. A server with high catch activity still sees a higher fair value for PRSM/RAIN, which over time biases their prices upward; in the short run the noise + events are what the player feels.
+
+**Events live in `newsevent`.** The new table (migration 030):
+
+```
+newsevent (
+  id           serial pk,
+  time         bigint,             -- when shown in the feed (announce time for earnings)
+  fires_at     bigint,             -- when the impulse hits the price
+  ticker       varchar(10) NULL,   -- NULL for market-wide
+  event_type   text,               -- earnings | surprise | crash | boom | dividend | system
+  headline     text,
+  impulse_pct  real,               -- signed log-return delta applied at fires_at
+  applied      bool
+)
+```
+
+Four kinds (plus `system` for the migration-seed rows):
+
+- **Earnings** — every ticker schedules its next earnings event every ~`earnings_interval_seconds` (default 3 days, ±25% jitter). The row is written at schedule time with `time = fires_at - earnings_announce_lead_seconds` (default 24h) so the news feed (which filters `time <= now`) doesn't surface it until the announce window opens. At `fires_at` the tick draws `impulse_pct ~ N(0, σ_earnings)` (default σ=0.08), updates the row to `applied=true`, and applies the impulse this tick. Magnitude is hidden in the headline until fire.
+- **Surprise** — per-tick per-ticker roll at `surprise_chance_per_tick` (default 0.001 ≈ 1.4/day across all 5 tickers). Hit writes `applied=false` with `fires_at=now` and `impulse_pct ~ N(0, σ_surprise)`; consumed in the same tick.
+- **Crash / Boom** — per-tick global rolls at `crash_chance_per_tick` / `boom_chance_per_tick` (defaults 0.00035 each ≈ once every ~8 days each). On hit, write a `ticker=NULL` market-wide row with `impulse_pct` drawn from `[crash_impulse_range]` / `[boom_impulse_range]` (defaults ±[0.08, 0.15]). Consumed by every ticker this tick.
+- **Dividend** — when `wait_and_do_stock` pays out, it writes a dividend row with `impulse_pct = STOCK_DIVIDEND_EX_DIV_IMPULSE` (default -0.015). The next tick consumes it as a small ex-div price drop — real cashflow leaving the company. The Jeremy `stock_dividend_boost` job perk path is **unchanged**; it adds a per-holder bonus on top of the bulk payout, just like before.
+
+The tick aggregates every unapplied row with `fires_at <= now` per ticker, applying market-wide rows to all tickers exactly once and marking them `applied=true` at the end. Earnings rows that just fired get a sign-aware headline updated in place.
+
+**Trading model.**
+
+- **Market Buy / Market Sell** — `execute_market_trade(profile, ticker, side, qty)`. Atomic: refetches the profile under a transaction (catpg's `get_or_create(connection=conn, …)` takes an `ON CONFLICT DO UPDATE` row-level lock that holds for the transaction's lifetime), validates coins/shares, debits/credits, writes a `b`/`s` PortfolioHistory row at the fill price. Buys fill at `get_stock_ask(ticker)` = `round(mid · (1 + spread/2))` with a 1-coin minimum gap; sells at `get_stock_bid(ticker)` = `round(mid · (1 - spread/2))` with the same minimum. House has infinite virtual capacity — no per-row inventory.
+- **Limit Buy / Limit Sell** — `place_limit_order(profile, ticker, side, qty, price)`. Same escrow + Order row as before. The existing `resolve_orders` user-vs-user matcher runs first; whatever survives rests in the book.
+- **House sweep** — `_sweep_crossed_limits(ticker)` runs at the end of each per-ticker tick. Resting buys with `price >= ask` fill at `min(order.price, ask)` (overpriced buys get the difference refunded). Resting sells with `price <= bid` fill at `max(order.price, bid)`. Limits still expire after 7 days via the existing `background_loop` sweep.
+
+**Why this stays "not the primary coin source."** Bid/ask spread (default 2%) plus the dividend ex-div drop are the structural drags. Crashes/booms cancel each other on expectation. Drift is set tiny per ticker. Aggregate player P&L over many ticks is approximately the spread cost — same intent as the old MM design (stocks are engagement, not progression), just with movement that's actually interesting to watch.
+
+**Tunables.** Everything is in `config/tuning.json["stock_market"]` and hot-reloads on `cat!restart`. Headline keys: `spread`, `price_floor`, `price_ceiling`, `mean_reversion_lambda`, `sigma_market`, `sigma_sector`, `earnings_*`, `sigma_earnings`, `surprise_chance_per_tick`, `sigma_surprise`, `crash_chance_per_tick`, `crash_impulse_range`, `boom_chance_per_tick`, `boom_impulse_range`, `dividend_ex_div_impulse`. Per-ticker: `base`, `baseline`, `alpha` (the fair-value anchor), `drift`, `sigma_ticker`, `sector`, `sector_beta`, `market_beta`.
+
+The `mm_order_quantity` key remains in the file for back-compat but is unused by the v2 engine.
 
 ## Trades & gifts
 

@@ -13,10 +13,11 @@
   {% endif %}
 
   {% set body %}
-    Articles show in <code>/news</code> newest-first. <code>emoji</code> is a literal emoji (🎉) or an
-    uploaded app-emoji name (e.g. <code>goldpack</code>). In the body, write <code>[[name]]</code> to drop an
-    app-emoji inline, and normal Discord markdown otherwise. Order is the read-tracking order, so new posts
-    are <strong>appended</strong> — deleting one keeps everyone's read state aligned automatically.
+    Articles show in <code>/news</code> newest-first. <code>emoji</code> accepts a literal emoji (🎉),
+    a Discord shortcode (<code>:cat:</code> → 🐱), or an uploaded app-emoji name (e.g. <code>goldpack</code>).
+    In the body, write <code>[[name]]</code> to drop an app-emoji inline, and normal Discord markdown otherwise.
+    Order is the read-tracking order, so new posts are <strong>appended</strong> — deleting one keeps everyone's
+    read state aligned automatically.
   {% endset %}
   {% include "partials/_help.html" %}
 
@@ -62,7 +63,7 @@
   {# ===================== current articles ===================== #}
   <h2 class="section">Published <span class="heading-count">{{ articles|length }}</span></h2>
   {% if articles %}
-    <table class="editor-table">
+    <table class="editor-table leaderboard">
       <thead><tr><th>#</th><th>emoji</th><th>title</th><th>date</th><th>preview</th><th></th></tr></thead>
       <tbody>
         {% for art in articles %}

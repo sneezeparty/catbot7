@@ -258,9 +258,11 @@ async def index(request):
             recency = [(r["day"], int(r["n"])) for r in rows]
 
             # --- top servers / top users ---
-            # guild_id=0 is the stock-market-maker pseudo-profile (the bot's
-            # own user_id), not a real guild — exclude it from both rollups so
-            # the #1 row isn't an empty/contaminated entry.
+            # guild_id=0 is the bot's own legacy pseudo-profile (the user_id
+            # is the bot's, left over from the old activity-driven market
+            # maker that owned bid/ask orders). The simulated-market engine
+            # no longer uses it, but the row persists and would contaminate
+            # rollups — exclude from both.
             rows = await conn.fetch(
                 """
                 SELECT guild_id,

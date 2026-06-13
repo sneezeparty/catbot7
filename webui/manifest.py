@@ -161,7 +161,6 @@ SECTIONS: dict[str, dict] = {
         "templates": ["db_order.html"],
         "data_sources": [
             'order.id, order.user_id, order.time, order.ticker, order.type_buy, order.quantity, order.price',
-            "profile (guild_id=0 row) — resolves the market-maker user_id for annotation",
         ],
     },
     # ---------------------------------------------------- Manage (EDITABLE)

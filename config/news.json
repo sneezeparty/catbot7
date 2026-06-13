@@ -1,3 +1,15 @@
 {
-  "articles": []
+  "articles": [
+    {
+      "emoji": ":cat:",
+      "title": "This... is the news.",
+      "body": "It's all good.",
+      "date": 1781308800
+    },
+    {
+      "emoji": ":coin:",
+      "title": "STOCK MARKET VOLATILITY IS VOLATILE",
+      "body": "Buy /stocks.  Sell /stocks.  Make coins, or maybe lose them??"
+    }
+  ]
 }

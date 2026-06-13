@@ -49,8 +49,9 @@ from PIL import Image
 import config
 import graph
 import msg2img
+import stock_news
 from catpg import RawSQL, pool, transaction
-from database import Channel, JobInstance, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User, _coerce_array
+from database import Channel, JobInstance, NewsEvent, Order, PortfolioHistory, PriceHistory, Prism, Profile, Reminder, Reward, Server, User, _coerce_array
 
 try:
     import exportbackup  # type: ignore
@@ -350,6 +351,26 @@ PACK_COIN_VARIANT_CHANCE = config.tuning.get("pack_coin_variant_chance", 0.5)
 PACK_COIN_RATIO_WOODEN = config.tuning.get("pack_coin_ratio_wooden", 0.5)
 PACK_COIN_RATIO_CELESTIAL = config.tuning.get("pack_coin_ratio_celestial", 0.2)
 STOCK_MARKET = config.tuning.get("stock_market", {"enabled": False})
+# Stock-market v2 named tunables. Re-read on every reload so cat!restart picks
+# up changes to config/tuning.json without a process restart. Defaults are
+# conservative — sigma values are per-tick log-return σ, not per-day.
+STOCK_SPREAD = float(STOCK_MARKET.get("spread", 0.02))
+STOCK_PRICE_FLOOR = int(STOCK_MARKET.get("price_floor", 5))
+STOCK_PRICE_CEILING = int(STOCK_MARKET.get("price_ceiling", 500))
+STOCK_SIGMA_SECTOR = float(STOCK_MARKET.get("sigma_sector", 0.006))
+STOCK_SIGMA_MARKET = float(STOCK_MARKET.get("sigma_market", 0.004))
+STOCK_MEAN_REVERSION_LAMBDA = float(STOCK_MARKET.get("mean_reversion_lambda", 0.005))
+STOCK_EARNINGS_INTERVAL = int(STOCK_MARKET.get("earnings_interval_seconds", 259200))
+STOCK_EARNINGS_JITTER = float(STOCK_MARKET.get("earnings_jitter_pct", 0.25))
+STOCK_EARNINGS_ANNOUNCE_LEAD = int(STOCK_MARKET.get("earnings_announce_lead_seconds", 86400))
+STOCK_SIGMA_EARNINGS = float(STOCK_MARKET.get("sigma_earnings", 0.08))
+STOCK_SURPRISE_CHANCE = float(STOCK_MARKET.get("surprise_chance_per_tick", 0.005))
+STOCK_SIGMA_SURPRISE = float(STOCK_MARKET.get("sigma_surprise", 0.04))
+STOCK_CRASH_CHANCE = float(STOCK_MARKET.get("crash_chance_per_tick", 0.00025))
+STOCK_CRASH_IMPULSE_RANGE = tuple(STOCK_MARKET.get("crash_impulse_range", [-0.30, -0.12]))
+STOCK_BOOM_CHANCE = float(STOCK_MARKET.get("boom_chance_per_tick", 0.00025))
+STOCK_BOOM_IMPULSE_RANGE = tuple(STOCK_MARKET.get("boom_impulse_range", [0.12, 0.30]))
+STOCK_DIVIDEND_EX_DIV_IMPULSE = float(STOCK_MARKET.get("dividend_ex_div_impulse", -0.015))
 
 # Per-rarity season gate: rarities listed here only spawn when the current
 # season is >= the value. Used to defer a new rarity's debut to a specific
@@ -436,6 +457,10 @@ rain_shill = ""
 
 # top.gg vote URL for this bot
 TOP_GG_VOTE_URL = "https://top.gg/bot/1503024098412855458/vote"
+
+# catbot7 support / hangout discord invite — surfaced as an occasional
+# button on catch confirmations.
+CAT_DISCORD_INVITE = "https://discord.com/invite/GAv9umz5RB"
 
 # timeout for views
 # higher one means buttons work for longer but uses more ram to keep track of them
@@ -697,6 +722,15 @@ last_loop_time = 0
 
 def get_emoji(name):
     global emojis
+    # Accept Discord-style :shortcode: syntax (so :cat: from the News editor
+    # resolves to 🐱). Try unicode-shortcode first; if no match, drop the
+    # colons and fall through to the app-emoji / unicode lookups below so
+    # ":goldpack:" still resolves to the uploaded `goldpack` app emoji.
+    if isinstance(name, str) and len(name) >= 3 and name.startswith(":") and name.endswith(":"):
+        unicode_try = emoji.emojize(name, language="alias")
+        if unicode_try != name:
+            return unicode_try
+        name = name[1:-1]
     if name in emojis.keys():
         return emojis[name]
     elif name in emoji.EMOJI_DATA:
@@ -785,6 +819,26 @@ async def get_stock_price(ticker: str) -> int:
     return stock_price
 
 
+async def get_stock_bid(ticker: str) -> int:
+    """Price a market sell fills at. Mid * (1 - spread/2), with a 1-coin
+    minimum spread so a market buy/sell round-trip always costs at least 2."""
+    mid = await get_stock_price(ticker)
+    bid = max(STOCK_PRICE_FLOOR, round(mid * (1 - STOCK_SPREAD / 2)))
+    if bid >= mid:
+        bid = max(STOCK_PRICE_FLOOR, mid - 1)
+    return bid
+
+
+async def get_stock_ask(ticker: str) -> int:
+    """Price a market buy fills at. Mid * (1 + spread/2), with a 1-coin
+    minimum spread."""
+    mid = await get_stock_price(ticker)
+    ask = min(STOCK_PRICE_CEILING, round(mid * (1 + STOCK_SPREAD / 2)))
+    if ask <= mid:
+        ask = min(STOCK_PRICE_CEILING, mid + 1)
+    return ask
+
+
 async def _fair_price_metric(ticker: str) -> float:
     """Per-ticker in-game activity signal. Each branch returns a non-negative
     float; zero is fine (the smoothing +eps in _compute_fair_price guards
@@ -805,7 +859,13 @@ async def _fair_price_metric(ticker: str) -> float:
 
 async def _compute_fair_price(ticker: str) -> int:
     """Power-law smoothed price from an in-game activity metric. Clamped to
-    [floor, ceiling] from config. Always returns a positive int >= 1."""
+    [floor, ceiling] from config. Always returns a positive int >= 1.
+
+    In stock v2 this is the long-run anchor that the mean-reversion term in
+    `_run_stock_tick` pulls toward — it is NOT the displayed price. Day-to-day
+    movement is dominated by drift + ticker/sector/market shocks + events;
+    mean reversion (λ ≈ 0.005) is only loud enough to matter over weeks.
+    """
     cfg = STOCK_MARKET.get("tickers", {}).get(ticker)
     if not cfg:
         return 40
@@ -819,6 +879,247 @@ async def _compute_fair_price(ticker: str) -> int:
     fair = base * ((metric + eps) / (baseline + eps)) ** alpha
     fair = max(floor, min(ceiling, round(fair)))
     return max(1, int(fair))
+
+
+# ---------------------------------------------------------------------------
+# Stock price simulation engine (stock market v2)
+# ---------------------------------------------------------------------------
+# A single `_run_stock_tick()` runs from background_loop every MAIN_LOOP_INTERVAL
+# seconds. Each tick produces one log-return per ticker:
+#
+#   log_return = drift
+#              + ticker_shock                    # N(0, sigma_ticker), per-ticker
+#              + sector_beta * sector_shock      # N(0, sigma_sector), shared in sector
+#              + market_beta * market_shock      # N(0, sigma_market), shared across all
+#              + mean_reversion                  # -lambda * log(price / fair_value)
+#              + event_impulse                   # 0 unless newsevent fires this tick
+#
+# Events live in the `newsevent` table. Earnings are pre-scheduled and applied
+# once `fires_at <= now`; surprise/crash/boom roll inline and apply this tick;
+# dividend ex-div impulses are written by `wait_and_do_stock` and consumed on
+# the next tick. After applying impulses we mark the consumed rows applied=true.
+
+def _ticker_cfg(ticker: str) -> dict:
+    return STOCK_MARKET.get("tickers", {}).get(ticker, {})
+
+
+async def _schedule_earnings_if_needed(ticker: str, now: int) -> None:
+    """Ensure each ticker has at most one unapplied earnings row in the
+    future. If none exists, schedule the next one — written with `time` set
+    to the announce moment so the news feed (which filters `time <= now`)
+    only surfaces it once we're within the announce window."""
+    existing = await NewsEvent.get_or_none(ticker=ticker, event_type="earnings", applied=False)
+    if existing:
+        return
+    jitter = 1.0 + random.uniform(-STOCK_EARNINGS_JITTER, STOCK_EARNINGS_JITTER)
+    fires_at = now + int(STOCK_EARNINGS_INTERVAL * jitter)
+    announce_at = max(now, fires_at - STOCK_EARNINGS_ANNOUNCE_LEAD)
+    # Pre-write the announce headline; we relabel it on fire.
+    headline = stock_news.pick_headline(ticker, "earnings_announced", 0.0)
+    await NewsEvent.create(
+        time=announce_at,
+        fires_at=fires_at,
+        ticker=ticker,
+        event_type="earnings",
+        headline=headline,
+        impulse_pct=0.0,
+        applied=False,
+    )
+
+
+async def _roll_surprise(ticker: str, now: int) -> None:
+    """Per-tick, per-ticker surprise roll. Hits write an applied=true row
+    immediately — the impulse is consumed in the same tick by the sweep."""
+    if random.random() >= STOCK_SURPRISE_CHANCE:
+        return
+    impulse = random.gauss(0, STOCK_SIGMA_SURPRISE)
+    headline = stock_news.pick_headline(ticker, "surprise", impulse)
+    await NewsEvent.create(
+        time=now,
+        fires_at=now,
+        ticker=ticker,
+        event_type="surprise",
+        headline=headline,
+        impulse_pct=float(impulse),
+        applied=False,
+    )
+
+
+async def _roll_crash_or_boom(now: int) -> None:
+    """One roll per tick for each of crash and boom; both can independently
+    fire in the same tick (it's a market, things happen). Market-wide rows
+    have ticker=NULL."""
+    if random.random() < STOCK_CRASH_CHANCE:
+        lo, hi = STOCK_CRASH_IMPULSE_RANGE
+        impulse = random.uniform(lo, hi)
+        await NewsEvent.create(
+            time=now,
+            fires_at=now,
+            ticker=None,
+            event_type="crash",
+            headline=stock_news.pick_headline(None, "crash", impulse),
+            impulse_pct=float(impulse),
+            applied=False,
+        )
+    if random.random() < STOCK_BOOM_CHANCE:
+        lo, hi = STOCK_BOOM_IMPULSE_RANGE
+        impulse = random.uniform(lo, hi)
+        await NewsEvent.create(
+            time=now,
+            fires_at=now,
+            ticker=None,
+            event_type="boom",
+            headline=stock_news.pick_headline(None, "boom", impulse),
+            impulse_pct=float(impulse),
+            applied=False,
+        )
+
+
+async def _consume_due_events(tickers: list[str], now: int) -> dict[str, float]:
+    """Aggregate every unapplied event row with `fires_at <= now` into a
+    per-ticker impulse, marking each row applied=true (and finalising earnings
+    impulse_pct / headline on fire). Market-wide rows (ticker IS NULL) apply
+    to all tickers — they are marked applied=true ONCE, not per-ticker.
+
+    Returns {ticker: sum_of_log_return_impulses}.
+    """
+    impulses: dict[str, float] = {t: 0.0 for t in tickers}
+
+    rows = await pool.fetch(
+        "SELECT id, ticker, event_type, impulse_pct FROM newsevent "
+        "WHERE applied = false AND fires_at <= $1",
+        now,
+    )
+
+    for row in rows:
+        evt_id = row["id"]
+        evt_ticker = row["ticker"]
+        evt_type = row["event_type"]
+        impulse = float(row["impulse_pct"] or 0.0)
+
+        if evt_type == "earnings" and impulse == 0.0:
+            # Fire-time draw for earnings: pick the magnitude now and update
+            # the row's headline to the realised-direction template.
+            impulse = random.gauss(0, STOCK_SIGMA_EARNINGS)
+            new_headline = stock_news.pick_headline(evt_ticker, "earnings", impulse)
+            await pool.execute(
+                "UPDATE newsevent SET applied = true, impulse_pct = $1, "
+                "headline = $2, time = $3 WHERE id = $4",
+                float(impulse), new_headline, now, evt_id,
+            )
+        else:
+            await pool.execute(
+                "UPDATE newsevent SET applied = true WHERE id = $1",
+                evt_id,
+            )
+
+        if evt_ticker is None:
+            for t in tickers:
+                impulses[t] = impulses.get(t, 0.0) + impulse
+        elif evt_ticker in impulses:
+            impulses[evt_ticker] = impulses.get(evt_ticker, 0.0) + impulse
+
+    return impulses
+
+
+async def _run_stock_tick() -> None:
+    """One simulation step. Idempotent-ish — re-running it just produces more
+    pricehistory rows; the background_loop guard keeps it on its own cadence."""
+    if not STOCK_MARKET.get("enabled"):
+        return
+
+    tickers = [s["ticker"] for s in stock_data]
+    if not tickers:
+        return
+
+    now = int(time.time())
+
+    # 1) ensure each ticker has a future scheduled earnings event
+    for ticker in tickers:
+        try:
+            await _schedule_earnings_if_needed(ticker, now)
+        except Exception:
+            logging.exception("earnings scheduling failed for %s", ticker)
+
+    # 2) roll per-ticker surprise and one market-wide crash/boom pair
+    for ticker in tickers:
+        try:
+            await _roll_surprise(ticker, now)
+        except Exception:
+            logging.exception("surprise roll failed for %s", ticker)
+    try:
+        await _roll_crash_or_boom(now)
+    except Exception:
+        logging.exception("crash/boom roll failed")
+
+    # 3) consume every due event into per-ticker impulses
+    try:
+        event_impulses = await _consume_due_events(tickers, now)
+    except Exception:
+        logging.exception("event consumption failed")
+        event_impulses = {t: 0.0 for t in tickers}
+
+    # 4) draw the per-tick market shock and one shock per sector
+    market_shock = random.gauss(0, STOCK_SIGMA_MARKET)
+    sectors_seen: set[str] = set()
+    for ticker in tickers:
+        sec = _ticker_cfg(ticker).get("sector")
+        if sec:
+            sectors_seen.add(sec)
+    sector_shocks = {s: random.gauss(0, STOCK_SIGMA_SECTOR) for s in sectors_seen}
+
+    # 5) per-ticker formula → new price, append to pricehistory
+    for ticker in tickers:
+        try:
+            cfg = _ticker_cfg(ticker)
+            drift = float(cfg.get("drift", 0.0))
+            sigma_t = float(cfg.get("sigma_ticker", 0.01))
+            sector = cfg.get("sector")
+            sector_beta = float(cfg.get("sector_beta", 1.0))
+            market_beta = float(cfg.get("market_beta", 1.0))
+
+            current_price = await get_stock_price(ticker)
+            fair = await _compute_fair_price(ticker)
+
+            ticker_shock = random.gauss(0, sigma_t)
+            sec_component = sector_beta * sector_shocks.get(sector, 0.0) if sector else 0.0
+            mkt_component = market_beta * market_shock
+
+            try:
+                reversion = -STOCK_MEAN_REVERSION_LAMBDA * math.log(current_price / max(1, fair))
+            except (ValueError, ZeroDivisionError):
+                reversion = 0.0
+
+            event_imp = event_impulses.get(ticker, 0.0)
+
+            log_return = drift + ticker_shock + sec_component + mkt_component + reversion + event_imp
+
+            try:
+                raw = current_price * math.exp(log_return)
+            except OverflowError:
+                raw = STOCK_PRICE_CEILING
+
+            new_price = max(STOCK_PRICE_FLOOR, min(STOCK_PRICE_CEILING, int(round(raw))))
+            # Guarantee at least 1 — defense against any tuning that floors to 0.
+            new_price = max(1, new_price)
+
+            await PriceHistory.create(ticker=ticker, price=new_price, time=now)
+            temp_stock_prices[ticker] = new_price
+            logging.debug(
+                "stock tick %s: %d → %d (log_r=%.4f event=%.4f)",
+                ticker, current_price, new_price, log_return, event_imp,
+            )
+
+            # Now the bid/ask have moved with the price. Any resting limit
+            # order that the new spread has crossed gets filled against the
+            # house. Wrapped per-ticker so one bad row can't poison sibling
+            # tickers' sweeps.
+            try:
+                await _sweep_crossed_limits(ticker)
+            except Exception:
+                logging.exception("limit sweep failed for %s", ticker)
+        except Exception:
+            logging.exception("stock tick failed for %s", ticker)
 
 
 # ---------------------------------------------------------------------------
@@ -4025,6 +4326,17 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             user.rain_minutes += active_level_data["amount"]
         else:
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
+        # Optional "extra_reward" stack — a level can grant a second reward on
+        # top of the primary. Currently used by S3 L40 (Celestial pack + 1m rain).
+        if active_level_data.get("extra_reward"):
+            extra = active_level_data["extra_reward"]
+            extra_amt = active_level_data.get("extra_amount", 1)
+            if extra in cattypes:
+                user[f"cat_{extra}"] += extra_amt
+            elif extra == "Rain":
+                user.rain_minutes += extra_amt
+            else:
+                user[f"pack_{extra.lower()}"] += 1
         bonus_pack_name, _ = grant_bonus_pack(user)
         await user.save()
         if active_level_data["reward"] in cattypes:
@@ -4040,6 +4352,15 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             description = (
                 f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
             )
+        if active_level_data.get("extra_reward"):
+            extra = active_level_data["extra_reward"]
+            extra_amt = active_level_data.get("extra_amount", 1)
+            if extra == "Rain":
+                description += f"\nPlus ☔ {extra_amt} rain minute{'s' if extra_amt != 1 else ''}!"
+            elif extra in cattypes:
+                description += f"\nPlus {get_emoji(extra.lower() + 'cat')} {extra_amt} {extra}!"
+            else:
+                description += f"\nPlus a {get_emoji(extra.lower() + 'pack')} {extra} pack!"
         embeds.append(
             discord.Embed(
                 title=f"Level {user.battlepass} Complete!",
@@ -4803,6 +5124,17 @@ async def progress(
                 user.rain_minutes += active_level_data["amount"]
             else:
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
+            # Optional "extra_reward" stack — same shape as the primary. See
+            # grant_achievement_xp for the matching block.
+            if active_level_data.get("extra_reward"):
+                extra = active_level_data["extra_reward"]
+                extra_amt = active_level_data.get("extra_amount", 1)
+                if extra in cattypes:
+                    user[f"cat_{extra}"] += extra_amt
+                elif extra == "Rain":
+                    user.rain_minutes += extra_amt
+                else:
+                    user[f"pack_{extra.lower()}"] += 1
             bonus_pack_name, _ = grant_bonus_pack(user)
             await user.save()
             if active_level_data["reward"] in cattypes:
@@ -4819,6 +5151,15 @@ async def progress(
                     description = (
                         f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
                     )
+                if active_level_data.get("extra_reward"):
+                    extra = active_level_data["extra_reward"]
+                    extra_amt = active_level_data.get("extra_amount", 1)
+                    if extra == "Rain":
+                        description += f"\nPlus ☔ {extra_amt} rain minute{'s' if extra_amt != 1 else ''}!"
+                    elif extra in cattypes:
+                        description += f"\nPlus {get_emoji(extra.lower() + 'cat')} {extra_amt} {extra}!"
+                    else:
+                        description += f"\nPlus a {get_emoji(extra.lower() + 'pack')} {extra} pack!"
                 title = f"Level {user.battlepass} Complete!"
             else:
                 description = f"You got {cat_emojis}!"
@@ -5855,6 +6196,25 @@ async def wait_and_do_stock(stock):
                 await fp.save()
         except Exception:
             logging.exception("stock_dividend_boost per-holder bonus failed; bulk payout still applied")
+
+        # Stock v2: write a dividend headline into the news feed AND queue a
+        # small ex-div price drop for the next tick — applied=false with
+        # fires_at=now means `_consume_due_events` picks it up on the next
+        # tick and applies STOCK_DIVIDEND_EX_DIV_IMPULSE to the log-return.
+        # Real cashflow leaves the "company"; the price reflects it.
+        try:
+            now_ts = int(time.time())
+            await NewsEvent.create(
+                time=now_ts,
+                fires_at=now_ts,
+                ticker=stock.ticker,
+                event_type="dividend",
+                headline=stock_news.pick_headline(stock.ticker, "dividend", 0.0),
+                impulse_pct=float(STOCK_DIVIDEND_EX_DIV_IMPULSE),
+                applied=False,
+            )
+        except Exception:
+            logging.exception("dividend newsevent insert failed; payout still applied")
     await refresh_stock_rewards(stock.ticker)
 
 
@@ -5981,12 +6341,12 @@ async def background_loop():
             stock.active = True
             await stock.save()
 
-    # stock market maker tick — keeps the order book liquid on a small instance
-    # by maintaining bot-owned bid/ask orders at the activity-derived fair price.
+    # stock market v2: one simulated tick per background_loop cycle
+    # (~MAIN_LOOP_INTERVAL seconds). See _run_stock_tick.
     try:
-        await _run_stock_market_maker()
+        await _run_stock_tick()
     except Exception:
-        logging.exception("stock market maker tick failed")
+        logging.exception("stock tick failed")
 
     # cancel old orders
     async for order in Order.filter("time > 0 AND time < $1", time.time() - 3600 * 24 * 7):
@@ -6298,11 +6658,6 @@ async def on_ready():
         ]
     )
 
-    # Stock init is N stocks × 2 DB queries. Spawn it so on_ready returns
-    # promptly even if a query stalls — bot responsiveness doesn't hinge on
-    # the stock market being primed.
-    bot.loop.create_task(_init_stock_orders())
-
     # Cat Bot Store reconciliation. Discord entitlement events can be missed
     # while the bot is offline or while a shard is resuming. A one-shot pass
     # of bot.entitlements() at startup brings the DB in line with truth.
@@ -6355,110 +6710,6 @@ async def _store_reconcile_entitlements() -> None:
         )
     except Exception:
         logging.exception("store reconcile failed")
-
-
-async def _init_stock_orders():
-    try:
-        uuh = await Profile.get_or_create(user_id=bot.user.id, guild_id=0)
-        for stock in stock_data:
-            total_stocks = await Profile.sum(f"stock_{stock['ticker'].lower()}")
-            total_orders = await Order.count("ticker = $1", stock["ticker"])
-            if total_stocks == 0 and total_orders == 0:
-                await Order.create(
-                    user_id=uuh.id,
-                    time=0,
-                    ticker=stock["ticker"],
-                    type_buy=False,
-                    quantity=stock["amount"],
-                    price=stock["init_price"],
-                )
-    except Exception:
-        logging.exception("initial stock orders setup failed")
-
-
-async def _run_stock_market_maker() -> None:
-    """Background-loop tick that maintains a bot-owned bid/ask spread at the
-    fair price for each ticker. Without this, a small instance has no
-    liquidity and prices never move off the initial 40. The standing legacy
-    10k-share sell at price 40 from _init_stock_orders gets cancelled on the
-    first tick (its shares are returned to the bot's inventory) and replaced
-    with fresh fair-price-anchored orders each cycle.
-
-    Identified as MM orders by `user_id=<bot profile> AND time=0`. The 7-day
-    cleanup sweep (`Order.filter("time > 0 AND ...")`) skips them by design.
-    """
-    if not STOCK_MARKET.get("enabled"):
-        return
-
-    spread = STOCK_MARKET.get("spread", 0.05)
-    mm_qty = STOCK_MARKET.get("mm_order_quantity", 100)
-    floor = STOCK_MARKET.get("price_floor", 1)
-    ceiling = STOCK_MARKET.get("price_ceiling", 1000)
-
-    bot_profile = await Profile.get_or_create(user_id=bot.user.id, guild_id=0)
-
-    for stock in stock_data:
-        ticker = stock["ticker"]
-        try:
-            # Cancel existing MM orders for this ticker and refund whatever
-            # they were holding back into the bot's inventory. Refetch each
-            # order before deleting to detect races with resolve_orders.
-            existing = await Order.collect(
-                "user_id = $1 AND time = 0 AND ticker = $2",
-                bot_profile.id,
-                ticker,
-            )
-            for mm_order in existing:
-                live = await Order.get_or_none(id=mm_order.id)
-                if not live:
-                    continue
-                if live.type_buy:
-                    bot_profile.coins += live.quantity * live.price
-                else:
-                    bot_profile[f"stock_{ticker.lower()}"] += live.quantity
-                await live.delete()
-            await bot_profile.save()
-
-            fair = await _compute_fair_price(ticker)
-            bid = max(floor, round(fair * (1 - spread)))
-            ask = min(ceiling, round(fair * (1 + spread)))
-            if bid >= ask:
-                ask = bid + 1  # never let the bot self-cross
-
-            # Sell side: only post what we actually have.
-            ask_qty = min(mm_qty, bot_profile[f"stock_{ticker.lower()}"])
-            if ask_qty > 0:
-                bot_profile[f"stock_{ticker.lower()}"] -= ask_qty
-                await Order.create(
-                    user_id=bot_profile.id,
-                    time=0,
-                    ticker=ticker,
-                    type_buy=False,
-                    quantity=ask_qty,
-                    price=ask,
-                )
-
-            # Buy side: only post what we can afford.
-            bid_cost = mm_qty * bid
-            bid_qty = mm_qty if bot_profile.coins >= bid_cost else bot_profile.coins // bid
-            if bid_qty > 0:
-                bot_profile.coins -= bid_qty * bid
-                await Order.create(
-                    user_id=bot_profile.id,
-                    time=0,
-                    ticker=ticker,
-                    type_buy=True,
-                    quantity=bid_qty,
-                    price=bid,
-                )
-            await bot_profile.save()
-
-            # Record fair price so charts have data even without user trades.
-            await PriceHistory.create(ticker=ticker, price=fair, time=int(time.time()))
-            temp_stock_prices[ticker] = fair
-            logging.debug("stock MM tick: %s fair=%d bid=%d ask=%d", ticker, fair, bid, ask)
-        except Exception:
-            logging.exception("stock MM tick failed for %s", ticker)
 
 
 # this is all the code which is ran on every message sent
@@ -7396,6 +7647,15 @@ async def on_message(message: discord.Message):
                             url=TOP_GG_VOTE_URL,
                             emoji=get_emoji("topgg"),
                         ))
+
+                # Occasional catbot7 discord invite. ~1 in 50 so it shows up
+                # less often than the vote nag and doesn't crowd it.
+                if random.randint(1, 50) == 1:
+                    buttons.append(Button(
+                        label="join the catbot7 discord server if you want to i guess idk",
+                        style=ButtonStyle.url,
+                        url=CAT_DISCORD_INVITE,
+                    ))
 
                 if buttons:
                     view = View(timeout=VIEW_TIMEOUT)
@@ -10555,53 +10815,127 @@ async def vote(message: discord.Interaction):
     await render(message, first=True)
 
 
-async def stock_help(message):
-    text = """Let's break this down!
+_STOCK_HELP_PAGE_1 = """**📈 Cat Bot Stock Market — page 1/3: the basics**
 
-At the top is the name of the stock. Each stock has a 4 letter "ticker" its identified by.
-This is also where the reward will be displayed if there is one upcoming, more on them a bit later.
+There are **5 stocks** representing Cat Bot mechanics — Prisms (PRSM), Catnip (CTNP), Cattlepass (PASS), Achievements (ACHS), Rain (RAIN). Prices are **global** — the whole market sees the same number — but the shares you own are **per-server**.
 
-Below that is the price graph over the last 3 days.
-**Stock price** is determined by the last coin amount the stocks were bought for (will be explained shortly).
+**Market vs Limit**
+- 🟢 **Market Buy / Market Sell** fills instantly against the house. Buys execute at the **ask** price; sells execute at the **bid** price. Most people should use this most of the time.
+- ⚪ **Limit Buy / Limit Sell** lets you pick the price. The order rests in the book until either another player matches it, or the simulated price ticks through your limit (then the house fills it). Limits expire after 7 days.
 
-After this you can view the open sell and buy orders. Let's explain this with an example:
+**Bid / Ask spread**
+The gap between bid and ask is the only friction on a market trade. Buy at the ask, sell at the bid — round-tripping costs you the spread (a couple of coins per share at current settings).
 
-- You create a buy order for 5 stocks priced at 40 coins. This means you spend 200 coins hoping to buy 5 stocks.
-- After you create your order its placed into the *Buy Orders* list.
-- Then, all of the orders try to cancel out - if there is a sell order for the same (or less) amount of coins as yours in the *Sell Orders* list, it will fulfill your order.
-- If such a match isn't found or wasn't enough to fully fulfill your order, then your order will stay in the *Buy Orders* list until someone creates a matching *Sell Order*.
-- Whenever an exchange such as this happens, this is set to be the **stock price**, as displayed on the graph and in overviews.
-- This proccess is symmetrical for buy and sell orders."""
+Coins come in and out via **Deposit** (a 🪙 100 Wooden pack → 🪙 100 coins, no fee) and **Withdraw** (🪙 coins → Wooden packs, 25% fee). Press *Continue* to see how prices move."""
 
+_STOCK_HELP_PAGE_2 = """**📈 Stock market — page 2/3: how prices move**
+
+Prices update every ~5 minutes. Each update is a combination of:
+
+1. **Drift** — a tiny per-tick bias for each ticker.
+2. **Random noise** — the bulk of normal day-to-day movement. Some tickers are more volatile (RAIN > CTNP > PRSM > PASS > ACHS).
+3. **Sector correlation** — PRSM and RAIN share a *catch_engine* sector; PASS and ACHS share *progression*; CTNP is *consumable*. A bad day for the sector dings everything in it together.
+4. **Market correlation** — every ticker gets a small dose of "is the whole market up or down today."
+5. **Mean reversion** — a gentle pull toward the **fair value** shown on each ticker's page. Fair value is computed from in-game activity (e.g. how many prisms exist, how many cats are battlepass-active). This is the long-run anchor, *not* the displayed price.
+6. **Events** — earnings, surprises, crashes, booms. See page 3.
+
+There is no "right" price — it's a simulation. Read the news feed before you trade."""
+
+_STOCK_HELP_PAGE_3 = """**📈 Stock market — page 3/3: events, dividends, tips**
+
+**📰 News & events**
+- **Earnings** are announced 24h in advance ("📰 PRSM earnings tomorrow") and fire as a one-shot ±8% (typical) move. Direction is hidden until the moment it fires.
+- **Surprises** are unannounced ±4% moves on a single ticker. About 1–2 per day across the whole market.
+- **🚨 Crashes / 🎉 Booms** are rare market-wide events that hit every ticker at once. Roughly once a week each.
+- **💸 Dividends** are global cash payouts to every holder of a ticker (the ⭐ pill on the detail page). The chance/amount may be hidden. A dividend payout drops the price slightly (ex-div), like a real stock.
+
+**Tips**
+- Use the **News Feed** button to see what just happened and what's about to happen.
+- The **Quick Stats** section on a ticker page shows its volatility class and next scheduled event.
+- Your **avg cost** on the portfolio page is approximate — it averages over your historical buys without tracking lots properly. Treat unrealized P&L as a vibe, not an audit.
+- Limit orders below the current price are your tool to "buy the dip" automatically — they rest until the price comes to you."""
+
+
+def _stock_help_view(page: int) -> View:
     view = View(timeout=VIEW_TIMEOUT)
-    button = Button(label="Continue")
-    button.callback = rewards_help
-    view.add_item(button)
-    await message.response.send_message(text, view=view, ephemeral=True)
+    if page > 1:
+        back = Button(label="Back", style=ButtonStyle.gray, emoji="⬅️")
+        back.callback = _stock_help_page_2 if page == 3 else _stock_help_page_1
+        view.add_item(back)
+    if page < 3:
+        cont = Button(label="Continue", style=ButtonStyle.blurple)
+        cont.callback = _stock_help_page_2 if page == 1 else _stock_help_page_3
+        view.add_item(cont)
+    return view
+
+
+async def _stock_help_page_1(interaction):
+    # First entry to help comes via the "Help" button on a ticker page (fresh
+    # interaction, response not yet sent). Subsequent presses come from
+    # Back/Continue buttons on a previously-sent ephemeral — edit_message
+    # there. Try/except keeps both paths working without splitting the
+    # function signature.
+    try:
+        await interaction.response.send_message(
+            _STOCK_HELP_PAGE_1, view=_stock_help_view(1), ephemeral=True
+        )
+    except discord.InteractionResponded:
+        await interaction.response.edit_message(content=_STOCK_HELP_PAGE_1, view=_stock_help_view(1))
+
+
+async def _stock_help_page_2(interaction):
+    try:
+        await interaction.response.edit_message(content=_STOCK_HELP_PAGE_2, view=_stock_help_view(2))
+    except (discord.InteractionResponded, discord.HTTPException):
+        await interaction.response.send_message(_STOCK_HELP_PAGE_2, view=_stock_help_view(2), ephemeral=True)
+
+
+async def _stock_help_page_3(interaction):
+    try:
+        await interaction.response.edit_message(content=_STOCK_HELP_PAGE_3, view=_stock_help_view(3))
+    except (discord.InteractionResponded, discord.HTTPException):
+        await interaction.response.send_message(_STOCK_HELP_PAGE_3, view=_stock_help_view(3), ephemeral=True)
+
+
+async def stock_help(message):
+    await _stock_help_page_1(message)
 
 
 async def rewards_help(message):
-    text = """Rewards are random events which happen every couple of days. You will know of when an award is about to be given out **48 hours** in advance to prepare and buy the stock if you want it.
-Rewards have a *random* chance to give you a *random* amount of :coin: **coins** per *stock* you own.
-For example, if the reward is "50% chance to get :coin: 10/stock" and you have 5 of that stock, then when the time comes you will either get 50 or 0 coins added to your balance.
+    text = """**💸 Dividends (the ⭐ pill on a ticker)**
 
-These rewards are global and equal for everyone, and whether you get the reward or not is also the same for everyone (if your chance failed, everyone else's did as well!)
-To spice it up, sometimes the chance percentage or the reward amount will be randomly hidden. Be more careful when trading such a stock.
-The reward can also sometimes be negative but I'm sure you don't have to worry about that :)"""
-    await message.response.send_message(text, ephemeral=True)
+Dividends are random global cash payouts to every holder of a ticker. They schedule themselves every couple of days. You'll see a "💸 X% dividend of 🪙 Y/share <relative time>" line on the ticker page when one is coming up — that means there's an **X%** chance that every share of that ticker pays out **Y coins** to its holder when the time hits.
+
+The chance and the per-share amount are *random*, and the outcome is the same for everyone — if the chance fails, it fails for the whole market at once. To spice it up, sometimes either the chance or the amount is **hidden** until the moment it fires.
+
+The amount can also be negative on rare unlucky cycles. You've been warned.
+
+When a dividend pays out, the stock's price drops a little (the ex-dividend drop) — real cash left the company, so the stock is worth slightly less. This is configured and small (~1.5% by default), but you'll see it on the chart right after a payout.
+
+Holding dividends? The **Stock Dividend Boost** job perk adds a per-holder bonus on top of the global payout."""
+    try:
+        await message.response.send_message(text, ephemeral=True)
+    except discord.InteractionResponded:
+        await message.followup.send(text, ephemeral=True)
 
 
 async def portfolio_help(message):
-    text = """Welcome to your portfolio!
+    text = """**📊 Portfolio**
 
-First of all comes your combined portfolio value. This is a sum of all of your stocks priced at their current **stock price**, plus your current coin balance. You can also see your lifetime portfolio growth percentage and cancel your open orders.
+The top of the page shows your **total portfolio value** (coins + shares × current price), today's change (last 24h on your current holdings), and lifetime growth % (current value vs. all-time net deposits).
 
-Next, the portfolio value from before is broken down. You can see how much of each stock you have, how much they are worth, and how many :coin: **coins** you have left.
+The breakdown below shows each ticker you own:
+- **Quantity** and current 🪙 value.
+- **Avg cost** — weighted average of every share you've ever bought of this ticker. This is approximate (it doesn't subtract cost basis when you sell), so treat it as a guide, not an audit.
+- **P&L %** — current price vs your avg cost. 📈 means you're up on paper.
 
-What follows are your open orders. These are orders you created which haven't been fulfilled yet. In other words, they are currently sitting in the *Buy/Sell Orders* lists.
+**Open orders** lists every limit order you have resting in the book. They expire 7 days after they were placed and refund automatically. You can cancel orders that are at least 12 hours old via the *Cancel orders...* button.
 
-Lastly, there is your portfolio history. This is a history of everything which happened to your portfolio, including rewards, deposits, withdrawals, as well as buy and sell orders."""
-    await message.response.send_message(text, ephemeral=True)
+**Portfolio history** records the last ~13 events on your book — deposits, withdrawals, buy/sell orders, dividend payouts, and cancellations."""
+    try:
+        await message.response.send_message(text, ephemeral=True)
+    except discord.InteractionResponded:
+        await message.followup.send(text, ephemeral=True)
 
 
 async def view_portfolio(interaction, person, refresh=False, hidden=None):
@@ -10613,19 +10947,47 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
 
     view = LayoutView(timeout=VIEW_TIMEOUT)
 
-    portfolio_value = profile.coins
-    share_strs = [f"🪙 {profile.coins:,}"]
+    # v2: per-holding rows with avg cost + unrealized P&L; portfolio_value
+    # is sum-of-(shares × current price) + coin balance. portfolio_value_yday
+    # uses *current* shares × 24h-ago price (matches the main page's "today's
+    # change" semantics — it's the move on the user's current book).
+    now_ts = int(time.time())
+    portfolio_value = int(profile.coins or 0)
+    portfolio_value_yday = int(profile.coins or 0)
+    share_lines = [f"🪙 **{int(profile.coins or 0):,}** coins"]
 
     for stock in stock_data:
-        stock_price = await get_stock_price(stock["ticker"])
+        ticker = stock["ticker"]
         emoji = get_emoji(stock["emoji"])
-        amount_owned = profile[f"stock_{stock['ticker'].lower()}"]
-        item_value = stock_price * amount_owned
+        amount_owned = int(profile[f"stock_{ticker.lower()}"] or 0)
+        cur_price = await get_stock_price(ticker)
+        past_price = await _stock_price_at(ticker, now_ts - 86400)
+        item_value = cur_price * amount_owned
         portfolio_value += item_value
-        if amount_owned > 0:
-            share_strs.append(f"{emoji} {amount_owned:,}x (🪙 *{item_value:,}*)")
+        portfolio_value_yday += (past_price if past_price is not None else cur_price) * amount_owned
+        if amount_owned <= 0:
+            continue
+        avg_cost = await _compute_avg_cost(profile.id, ticker)
+        if avg_cost is not None and avg_cost > 0:
+            pnl_pct = (cur_price / avg_cost - 1.0) * 100.0
+            pnl_emoji = _change_emoji(pnl_pct)
+            share_lines.append(
+                f"{emoji} **{amount_owned:,}x** {ticker} · 🪙 *{item_value:,}* · "
+                f"avg 🪙 {avg_cost:,.1f} → cur 🪙 {cur_price:,} {pnl_emoji} {pnl_pct:+.1f}%"
+            )
+        else:
+            share_lines.append(
+                f"{emoji} **{amount_owned:,}x** {ticker} · 🪙 *{item_value:,}* · "
+                f"cur 🪙 {cur_price:,}"
+            )
 
-    shares_display = "\n".join(share_strs)
+    if portfolio_value_yday > 0:
+        day_pct = (portfolio_value / portfolio_value_yday - 1.0) * 100.0
+    else:
+        day_pct = None
+    day_delta = portfolio_value - portfolio_value_yday
+
+    shares_display = "\n".join(share_lines)
 
     open_orders = []
     async for order in Order.filter("user_id = $1", profile.id):
@@ -10660,7 +11022,15 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
     growth_emoji = "📈" if value_diff >= 0 else "📉"
     emoji_prefix = (user.emoji + " ") if user.emoji else ""
 
-    first_lines = (f"## {emoji_prefix}{person}", f"### 🪙 {portfolio_value:,}", f"{growth_emoji} {value_diff:+.2f}% *(Lifetime)*")
+    today_line = (
+        f"{_change_emoji(day_pct)} {_format_pct(day_pct)} today ({day_delta:+,})"
+    )
+    first_lines = (
+        f"## {emoji_prefix}{person}",
+        f"### 🪙 {portfolio_value:,}",
+        today_line,
+        f"{growth_emoji} {value_diff:+.2f}% *(Lifetime)*",
+    )
 
     async def refresh_portfolio(interaction):
         await view_portfolio(interaction, person, refresh=True, hidden=False)
@@ -10754,6 +11124,464 @@ async def the_order_canceller(interaction, choices):
         await order.delete()
     await profile.save()
     await interaction.edit_original_response(content="Orders cancelled!", view=None)
+
+
+# ---------------------------------------------------------------------------
+# Stock market v2: read-only stats helpers (day%/7d%/ATH/ATL/avg cost/etc.)
+# ---------------------------------------------------------------------------
+# These power the new /stocks UI. Each one is a single SQL aggregation so the
+# main page and ticker detail can render without pulling history into Python.
+
+
+async def _stock_price_at(ticker: str, when: int) -> int | None:
+    """Latest pricehistory price at or before `when`. None if there's no row.
+    Used for the day/7d % change widgets."""
+    val = await pool.fetchval(
+        "SELECT price FROM pricehistory WHERE ticker = $1 AND time <= $2 "
+        "ORDER BY time DESC LIMIT 1",
+        ticker, int(when),
+    )
+    return int(val) if val is not None else None
+
+
+async def _stock_change_pct(ticker: str, window_seconds: int) -> float | None:
+    """Percent change from `now - window_seconds` to the latest tick. Returns
+    None if either anchor is missing (e.g., brand-new ticker)."""
+    now = int(time.time())
+    current = await get_stock_price(ticker)
+    past = await _stock_price_at(ticker, now - window_seconds)
+    if past is None or past <= 0 or current <= 0:
+        return None
+    return (current / past - 1.0) * 100.0
+
+
+async def _stock_extremes(ticker: str) -> tuple[int | None, int | None]:
+    """(all_time_high, all_time_low) from pricehistory. Both None if empty."""
+    row = await pool.fetchrow(
+        "SELECT MAX(price) AS hi, MIN(price) AS lo FROM pricehistory WHERE ticker = $1",
+        ticker,
+    )
+    if not row:
+        return None, None
+    hi = row["hi"]
+    lo = row["lo"]
+    return (int(hi) if hi is not None else None, int(lo) if lo is not None else None)
+
+
+async def _compute_avg_cost(profile_id: int, ticker: str) -> float | None:
+    """Weighted-average buy price for a (profile, ticker) pair, from every
+    `b`-typed portfoliohistory row. Returns None if the user has never bought
+    this ticker.
+
+    TODO: this is an *approximation* — it averages over every historical buy
+    without subtracting cost basis on sells. A user who bought 10 at 40 and
+    later sold 5 then bought 5 more at 80 will show avg cost 60, not the
+    correct lot-tracked value. For a display-only "unrealized P&L" hint this
+    is fine; a proper portfolio system would need lot tracking which is out
+    of scope here.
+    """
+    row = await pool.fetchrow(
+        "SELECT SUM(quantity)::bigint AS qty, "
+        "SUM(quantity::bigint * price::bigint)::bigint AS cost "
+        "FROM portfoliohistory WHERE user_id = $1 AND ticker = $2 AND type = 'b'",
+        profile_id, ticker,
+    )
+    if not row or not row["qty"]:
+        return None
+    qty = int(row["qty"])
+    if qty <= 0:
+        return None
+    cost = int(row["cost"] or 0)
+    return cost / qty
+
+
+def _change_emoji(pct: float | None) -> str:
+    """Color-coded daily/period change emoji. Components V2 containers don't
+    do colored embed borders, so we emoji-prefix the change line instead."""
+    if pct is None:
+        return "➖"
+    if pct >= 0.05:
+        return "📈"
+    if pct <= -0.05:
+        return "📉"
+    return "➖"
+
+
+def _format_pct(pct: float | None) -> str:
+    if pct is None:
+        return "—"
+    return f"{pct:+.1f}%"
+
+
+def _volatility_label(sigma_ticker: float) -> str:
+    """Bucket the per-tick σ into a low/med/high human label for the Quick
+    Stats section. Bands are derived from the default tuning (0.0011–0.0020)."""
+    if sigma_ticker < 0.0013:
+        return "low"
+    if sigma_ticker < 0.0018:
+        return "med"
+    return "high"
+
+
+async def _next_scheduled_event(ticker: str) -> dict | None:
+    """The earliest unapplied earnings event for this ticker whose `time`
+    (announce moment) is in the past — i.e., one the news feed is already
+    surfacing. Returns {fires_at, headline} or None.
+
+    Used for the "📰 Earnings in 18h" hint on the main page + ticker detail.
+    """
+    now = int(time.time())
+    row = await pool.fetchrow(
+        "SELECT fires_at, headline FROM newsevent "
+        "WHERE ticker = $1 AND event_type = 'earnings' AND applied = false "
+        "AND time <= $2 ORDER BY fires_at ASC LIMIT 1",
+        ticker, now,
+    )
+    if not row:
+        return None
+    return {"fires_at": int(row["fires_at"]), "headline": str(row["headline"])}
+
+
+async def _recent_news_for_ticker(ticker: str, limit: int = 3) -> list[dict]:
+    """Last N applied newsevent rows for this ticker (or market-wide). Used
+    by the ticker detail page's news pane."""
+    rows = await pool.fetch(
+        "SELECT time, ticker, event_type, headline, impulse_pct FROM newsevent "
+        "WHERE applied = true AND (ticker = $1 OR ticker IS NULL) "
+        "ORDER BY time DESC LIMIT $2",
+        ticker, int(limit),
+    )
+    return [dict(r) for r in rows]
+
+
+async def _recent_news_global(limit: int = 25) -> list[dict]:
+    """Reverse-chrono applied newsevent rows for the global feed. Includes
+    every ticker and market-wide rows."""
+    rows = await pool.fetch(
+        "SELECT time, ticker, event_type, headline, impulse_pct FROM newsevent "
+        "WHERE applied = true ORDER BY time DESC LIMIT $1",
+        int(limit),
+    )
+    return [dict(r) for r in rows]
+
+
+async def _upcoming_earnings(within_seconds: int = 48 * 3600) -> list[dict]:
+    """Announced-but-not-yet-fired earnings landing within `within_seconds`.
+    Note at the top of the News Feed page."""
+    now = int(time.time())
+    rows = await pool.fetch(
+        "SELECT ticker, fires_at, headline FROM newsevent "
+        "WHERE event_type = 'earnings' AND applied = false "
+        "AND time <= $1 AND fires_at <= $2 ORDER BY fires_at ASC",
+        now, now + int(within_seconds),
+    )
+    return [dict(r) for r in rows]
+
+
+_EVENT_TYPE_ICON = {
+    "earnings": "📰",
+    "surprise": "⚡",
+    "crash": "🚨",
+    "boom": "🎉",
+    "dividend": "💸",
+    "system": "ℹ️",
+}
+
+
+def _event_icon(event_type: str) -> str:
+    return _EVENT_TYPE_ICON.get(event_type, "📌")
+
+
+# ---------------------------------------------------------------------------
+# Stock market v2: trade execution
+# ---------------------------------------------------------------------------
+# Two paths from the UI:
+#   - execute_market_trade — instant fill against the house (bid/ask spread is
+#     the friction). Atomic via `transaction()` + FOR UPDATE on the profile row.
+#   - place_limit_order   — escrow + insert into `order`, then try user-vs-user
+#     match via `resolve_orders` (unchanged). Anything that survives that pass
+#     rests in the book and is picked up by `_sweep_crossed_limits` after each
+#     price tick crosses through it.
+#
+# Caller contract: pass a refreshed profile so we have user_id/guild_id, but
+# the helpers refetch under FOR UPDATE so any concurrent change is observed.
+
+
+class TradeError(Exception):
+    """Raised for user-facing validation failures (no coins, no shares, etc.).
+    The message is shown verbatim in the trade modal toast."""
+
+
+async def execute_market_trade(profile, ticker: str, side: str, qty: int) -> tuple[int, int, int]:
+    """Instant market trade against the house. Returns (filled_qty, fill_price,
+    total_coins). Raises TradeError on validation failure.
+
+    `profile` is used for its (user_id, guild_id) — we relock the row inside the
+    transaction so rapid double-clicks can't double-spend. The house has
+    effectively infinite virtual capacity; the bid/ask spread is the only
+    friction (no per-row inventory).
+    """
+    side = side.lower()
+    if side not in ("buy", "sell"):
+        raise TradeError("internal: side must be 'buy' or 'sell'")
+    qty = int(qty)
+    if qty <= 0:
+        raise TradeError("quantity must be a positive integer")
+
+    ticker_upper = ticker.upper()
+    if ticker_upper not in {s["ticker"] for s in stock_data}:
+        raise TradeError(f"unknown ticker {ticker}")
+
+    stock_col = f"stock_{ticker_upper.lower()}"
+
+    # Probed outside the transaction (cached on config), so we know whether to
+    # write to the recap counters at all.
+    recap_present = await _recap_columns_present()
+
+    async with transaction() as conn:
+        p = await Profile.get_or_create(
+            connection=conn,
+            user_id=int(profile.user_id),
+            guild_id=int(profile.guild_id),
+        )
+
+        if side == "buy":
+            fill_price = await get_stock_ask(ticker_upper)
+            total = qty * fill_price
+            if int(p.coins or 0) < total:
+                raise TradeError(
+                    f"not enough coins — need 🪙 {total:,}, have 🪙 {int(p.coins or 0):,}"
+                )
+            p.coins = int(p.coins or 0) - total
+            p[stock_col] = int(p[stock_col] or 0) + qty
+            if recap_present:
+                _bump(p, "stock_coins_spent", total)
+            type_code = "b"
+        else:
+            fill_price = await get_stock_bid(ticker_upper)
+            held = int(p[stock_col] or 0)
+            if held < qty:
+                raise TradeError(
+                    f"not enough shares — need {qty:,}x {ticker_upper}, have {held:,}"
+                )
+            p[stock_col] = held - qty
+            total = qty * fill_price
+            p.coins = int(p.coins or 0) + total
+            if recap_present:
+                _bump(p, "coins_earned", total)
+                _bump(p, "stock_coins_earned", total)
+            type_code = "s"
+
+        await p.save()
+
+    # PortfolioHistory + ach trigger are outside the transaction — neither is
+    # load-bearing for correctness and both can swallow individual failures
+    # without re-entering the trade math.
+    now_ts = int(time.time())
+    try:
+        await PortfolioHistory.create(
+            user_id=p.id,
+            ticker=ticker_upper,
+            type=type_code,
+            quantity=qty,
+            price=fill_price,
+            time=now_ts,
+        )
+    except Exception:
+        logging.exception("portfoliohistory write failed for market %s on %s", side, ticker_upper)
+
+    return qty, fill_price, total
+
+
+async def place_limit_order(profile, ticker: str, side: str, qty: int, price: int) -> tuple[Order, int]:
+    """Escrow + create + immediately try user-vs-user match. The new house-side
+    sweep runs from `_run_stock_tick` after the price moves — it doesn't fire
+    inside this call. Returns (order, remaining_qty). If remaining_qty == 0
+    the order was fully filled in `resolve_orders` and the order row is gone.
+    """
+    side = side.lower()
+    if side not in ("buy", "sell"):
+        raise TradeError("internal: side must be 'buy' or 'sell'")
+    qty = int(qty)
+    price = int(price)
+    if qty <= 0:
+        raise TradeError("quantity must be a positive integer")
+    if price <= 0:
+        raise TradeError("price must be a positive integer")
+
+    ticker_upper = ticker.upper()
+    if ticker_upper not in {s["ticker"] for s in stock_data}:
+        raise TradeError(f"unknown ticker {ticker}")
+
+    stock_col = f"stock_{ticker_upper.lower()}"
+    recap_present = await _recap_columns_present()
+
+    # Open-orders cap matches the legacy OrderModal limit so spam-clickers
+    # can't fill the book.
+    if await Order.count("user_id = $1", profile.id) >= 25:
+        raise TradeError("too many open orders (max 25). cancel some first.")
+
+    async with transaction() as conn:
+        p = await Profile.get_or_create(
+            connection=conn,
+            user_id=int(profile.user_id),
+            guild_id=int(profile.guild_id),
+        )
+
+        if side == "buy":
+            total = qty * price
+            if int(p.coins or 0) < total:
+                raise TradeError(
+                    f"not enough coins — need 🪙 {total:,}, have 🪙 {int(p.coins or 0):,}"
+                )
+            p.coins = int(p.coins or 0) - total
+            if recap_present:
+                _bump(p, "stock_coins_spent", total)
+        else:
+            held = int(p[stock_col] or 0)
+            if held < qty:
+                raise TradeError(
+                    f"not enough shares — need {qty:,}x {ticker_upper}, have {held:,}"
+                )
+            p[stock_col] = held - qty
+
+        await p.save()
+        profile_id = p.id
+
+    now_ts = int(time.time())
+    order = await Order.create(
+        user_id=profile_id,
+        ticker=ticker_upper,
+        type_buy=(side == "buy"),
+        quantity=qty,
+        price=price,
+        time=now_ts,
+    )
+    # Legacy PortfolioHistory contract: a `b`/`s` row at placement records the
+    # *intent* (limit price). The fill against another user / the house happens
+    # silently and `view_portfolio` displays the placement row. Matches the
+    # behaviour of the pre-v2 OrderModal so the user-visible activity log
+    # doesn't regress.
+    try:
+        await PortfolioHistory.create(
+            user_id=profile_id,
+            ticker=ticker_upper,
+            type="b" if side == "buy" else "s",
+            quantity=qty,
+            price=price,
+            time=now_ts,
+        )
+    except Exception:
+        logging.exception("portfoliohistory write failed for limit %s on %s", side, ticker_upper)
+
+    # First match against any crossing user orders. Whatever survives rests in
+    # the book and is picked up by `_sweep_crossed_limits` next price tick.
+    remaining = await resolve_orders(order)
+    return order, remaining
+
+
+async def _sweep_crossed_limits(ticker: str) -> int:
+    """Run after the price tick: fill every resting limit order on `ticker`
+    that the new bid/ask has crossed, against the house.
+
+    Buy orders with price >= ask fill at min(order.price, ask) — if the user
+    overpaid, the difference is refunded to their coin balance. Sell orders
+    with price <= bid fill at max(order.price, bid).
+
+    The legacy `time = 0` MM rows are gone (migration 030 cleared them), so we
+    don't need to skip them here.
+
+    Returns the count of orders fully filled.
+    """
+    if not STOCK_MARKET.get("enabled"):
+        return 0
+
+    bid = await get_stock_bid(ticker)
+    ask = await get_stock_ask(ticker)
+    recap_present = await _recap_columns_present()
+    now_ts = int(time.time())
+    fully_filled = 0
+
+    # Match buys (highest-priced first — those crossed the most)
+    async for order in Order.filter(
+        "ticker = $1 AND type_buy = true AND price >= $2 ORDER BY price DESC, time ASC",
+        ticker, ask,
+    ):
+        fill_price = min(int(order.price), int(ask))
+        refund_per_share = int(order.price) - fill_price
+        qty = int(order.quantity)
+
+        profile = await Profile.get_or_none(id=order.user_id)
+        if profile is None:
+            # Owner profile vanished — orphan the order to keep the loop clean.
+            await order.delete()
+            continue
+
+        profile[f"stock_{ticker.lower()}"] = int(profile[f"stock_{ticker.lower()}"] or 0) + qty
+        if refund_per_share > 0:
+            refund_total = refund_per_share * qty
+            profile.coins = int(profile.coins or 0) + refund_total
+            if recap_present:
+                # The original escrow was counted as spent; refund the diff.
+                _bump(profile, "stock_coins_spent", -refund_total)
+        await profile.save()
+
+        await PortfolioHistory.create(
+            user_id=profile.id,
+            ticker=ticker,
+            type="b",
+            quantity=qty,
+            price=fill_price,
+            time=now_ts,
+        )
+
+        await order.delete()
+        fully_filled += 1
+
+    # Match sells (lowest-priced first — those crossed the most)
+    async for order in Order.filter(
+        "ticker = $1 AND type_buy = false AND price <= $2 ORDER BY price ASC, time ASC",
+        ticker, bid,
+    ):
+        fill_price = max(int(order.price), int(bid))
+        qty = int(order.quantity)
+
+        profile = await Profile.get_or_none(id=order.user_id)
+        if profile is None:
+            await order.delete()
+            continue
+
+        proceeds = fill_price * qty
+        profile.coins = int(profile.coins or 0) + proceeds
+        if recap_present:
+            _bump(profile, "coins_earned", proceeds)
+            _bump(profile, "stock_coins_earned", proceeds)
+        await profile.save()
+
+        await PortfolioHistory.create(
+            user_id=profile.id,
+            ticker=ticker,
+            type="s",
+            quantity=qty,
+            price=fill_price,
+            time=now_ts,
+        )
+
+        await order.delete()
+        fully_filled += 1
+
+    if fully_filled:
+        # The new fill is now the latest trade — record it on the chart at the
+        # mid so the price line moves through this tick's actual transactions
+        # rather than just the simulated price.
+        try:
+            mid = await get_stock_price(ticker)
+            await PriceHistory.create(ticker=ticker, price=mid, time=now_ts)
+            temp_stock_prices[ticker] = mid
+        except Exception:
+            logging.exception("post-sweep pricehistory write failed for %s", ticker)
+
+    return fully_filled
 
 
 async def resolve_orders(order: Order):
@@ -10968,8 +11796,13 @@ async def stocks(message: discord.Interaction):
             await interaction.response.send_message(f"📤 You withdrew {packs} wooden packs! 🪙 -{packs * COIN_PER_PACK} coins.", ephemeral=True)
 
     class OrderModal(Modal):
+        """Limit-order modal: takes quantity + price, escrows, places, then
+        runs user-vs-user matching. Anything that survives rests in the book
+        and will be auto-filled by `_sweep_crossed_limits` once the price
+        ticks through it."""
+
         def __init__(self, ticker, type, recommended_price, max_shares=None):
-            super().__init__(title=f"{type.capitalize()}ing {ticker}")
+            super().__init__(title=f"Limit {type.capitalize()} {ticker}")
 
             self.ticker = ticker
             self.type = type
@@ -10988,7 +11821,7 @@ async def stocks(message: discord.Interaction):
             self.price = TextInput(
                 label="Price per share",
                 placeholder=f"Recommended: {recommended_price}",
-                default=recommended_price,
+                default=str(recommended_price),
                 min_length=1,
                 max_length=6,
                 required=True,
@@ -10998,166 +11831,320 @@ async def stocks(message: discord.Interaction):
 
         async def on_submit(self, interaction: discord.Interaction):
             await profile.refresh_from_db()
-            # price checking
             try:
                 price = int(self.price.value)
                 if price <= 0:
-                    raise Exception
+                    raise ValueError
             except Exception:
-                await interaction.response.send_message("your price looks funny (it must be a positive integer)", ephemeral=True)
+                await interaction.response.send_message(
+                    "your price looks funny (it must be a positive integer)", ephemeral=True
+                )
                 return
-
-            # quantity checking
             try:
                 quantity = int(self.quantity.value)
                 if quantity <= 0:
-                    raise Exception
+                    raise ValueError
             except Exception:
-                await interaction.response.send_message("your quantity looks funny (it must be a positive integer)", ephemeral=True)
+                await interaction.response.send_message(
+                    "your quantity looks funny (it must be a positive integer)", ephemeral=True
+                )
                 return
 
-            # open orders checking
-            if await Order.count("user_id = $1", profile.id) > 25:
-                await interaction.response.send_message("you have too many open orders. please cancel some before placing new ones.", ephemeral=True)
+            try:
+                order, remaining = await place_limit_order(
+                    profile, self.ticker, self.type, quantity, price
+                )
+            except TradeError as e:
+                await interaction.response.send_message(str(e), ephemeral=True)
                 return
 
-            if self.type == "sell" and quantity > profile[f"stock_{self.ticker.lower()}"]:
-                await interaction.response.send_message("you don't have enough shares", ephemeral=True)
-                return
-
-            if self.type == "buy" and quantity * price > profile.coins:
-                await interaction.response.send_message("you don't have enough coins", ephemeral=True)
-                return
-
-            if self.type == "buy":
-                profile.coins -= quantity * price
-                _bump(profile, "stock_coins_spent", quantity * price)
-            if self.type == "sell":
-                profile[f"stock_{self.ticker.lower()}"] -= quantity
-            await profile.save()
-
-            curr_time = int(time.time())
-            order = await Order.create(
-                user_id=profile.id,
-                ticker=self.ticker,
-                type_buy=self.type == "buy",
-                quantity=quantity,
-                price=price,
-                time=curr_time,
+            side_emoji = "🟢" if self.type == "buy" else "🔴"
+            msg = f"{side_emoji} Limit {self.type} placed: {quantity:,}x **{self.ticker}** @ 🪙 {price:,}"
+            if remaining == 0:
+                msg += "\n✅ Filled immediately."
+            elif remaining < quantity:
+                msg += f"\n✅ Partially filled. {remaining:,}/{quantity:,} shares resting in the book."
+            else:
+                msg += "\n📖 Resting in the book — will auto-fill when the price crosses your limit."
+            await interaction.response.send_message(msg, ephemeral=True)
+            await achemb(
+                interaction, "buy_stock" if self.type == "buy" else "sell_stock", "followup"
             )
-            await PortfolioHistory.create(
-                user_id=profile.id,
-                ticker=self.ticker,
-                type="b" if self.type == "buy" else "s",
-                quantity=quantity,
-                price=price,
-                time=curr_time,
+
+    class MarketModal(Modal):
+        """Market-order modal: takes quantity only and fills instantly against
+        the house at the current bid/ask."""
+
+        def __init__(self, ticker, type, fill_price_hint, max_shares):
+            super().__init__(title=f"Market {type.capitalize()} {ticker}")
+            self.ticker = ticker
+            self.type = type
+            placeholder = (
+                f"Shares to buy at ~🪙 {fill_price_hint:,} each"
+                if type == "buy"
+                else f"Shares to sell at ~🪙 {fill_price_hint:,} each"
             )
-            await interaction.response.send_message(f"☑️ Order to {self.type} {quantity} shares of {self.ticker} placed!", ephemeral=True)
-            remaining_quantity = await resolve_orders(order)
-            if remaining_quantity == 0:
-                await interaction.followup.send("✅ Order fully fulfilled!", ephemeral=True)
-            elif remaining_quantity != quantity:
-                await interaction.followup.send(f"✅ Order partially fulfilled. {remaining_quantity}/{self.quantity} shares remaining", ephemeral=True)
-            await achemb(interaction, "buy_stock" if self.type == "buy" else "sell_stock", "followup")
+            self.quantity = TextInput(
+                label=f"Quantity (you have {max_shares:,})",
+                placeholder=placeholder,
+                min_length=1,
+                max_length=6,
+                required=True,
+                style=discord.TextStyle.short,
+            )
+            self.add_item(self.quantity)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            await profile.refresh_from_db()
+            try:
+                quantity = int(self.quantity.value)
+                if quantity <= 0:
+                    raise ValueError
+            except Exception:
+                await interaction.response.send_message(
+                    "your quantity looks funny (it must be a positive integer)", ephemeral=True
+                )
+                return
+
+            try:
+                filled, fill_price, total = await execute_market_trade(
+                    profile, self.ticker, self.type, quantity
+                )
+            except TradeError as e:
+                await interaction.response.send_message(str(e), ephemeral=True)
+                return
+
+            side_label = "Bought" if self.type == "buy" else "Sold"
+            await interaction.response.send_message(
+                f"✅ {side_label} {filled:,}x **{self.ticker}** at 🪙 {fill_price:,} each (total 🪙 {total:,})",
+                ephemeral=True,
+            )
+            await achemb(
+                interaction, "buy_stock" if self.type == "buy" else "sell_stock", "followup"
+            )
 
     async def buy_stock(interaction):
-        profile = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
+        # Limit Buy — falls back to old recommended-price logic (lowest
+        # outstanding sell, or 40). We still surface it so the modal default
+        # is a useful starting price.
+        profile_inner = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
         ticker = interaction.data["custom_id"].split("_")[0]
         try:
             recommended_price = await Order.min("price", "ticker = $1 AND type_buy = $2", ticker, False)
             if not recommended_price:
-                recommended_price = 40
+                recommended_price = await get_stock_ask(ticker)
         except Exception:
             recommended_price = 40
-        await interaction.response.send_modal(OrderModal(ticker, "buy", recommended_price, profile.coins))
+        await interaction.response.send_modal(OrderModal(ticker, "buy", recommended_price, profile_inner.coins))
 
     async def sell_stock(interaction):
-        profile = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
+        profile_inner = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
         ticker = interaction.data["custom_id"].split("_")[0]
         try:
             recommended_price = await Order.max("price", "ticker = $1 AND type_buy = $2", ticker, True)
             if not recommended_price:
-                recommended_price = 40
+                recommended_price = await get_stock_bid(ticker)
         except Exception:
             recommended_price = 40
-        await interaction.response.send_modal(OrderModal(ticker, "sell", recommended_price, profile[f"stock_{ticker.lower()}"]))
+        await interaction.response.send_modal(OrderModal(ticker, "sell", recommended_price, profile_inner[f"stock_{ticker.lower()}"]))
+
+    async def market_buy_stock(interaction):
+        ticker = interaction.data["custom_id"].split("_")[0]
+        profile_inner = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
+        ask = await get_stock_ask(ticker)
+        await interaction.response.send_modal(
+            MarketModal(ticker, "buy", ask, int(profile_inner.coins or 0))
+        )
+
+    async def market_sell_stock(interaction):
+        ticker = interaction.data["custom_id"].split("_")[0]
+        profile_inner = await Profile.get_or_create(user_id=interaction.user.id, guild_id=message.guild.id)
+        bid = await get_stock_bid(ticker)
+        held = int(profile_inner[f"stock_{ticker.lower()}"] or 0)
+        await interaction.response.send_modal(
+            MarketModal(ticker, "sell", bid, held)
+        )
 
     async def view_stock(interaction):
         await interaction.response.defer()
         view = LayoutView(timeout=VIEW_TIMEOUT)
 
         stock_ticker = interaction.data["custom_id"]
-        for i in stock_data:
-            if i["ticker"] == stock_ticker:
-                stock = i
-                break
+        stock = next((s for s in stock_data if s["ticker"] == stock_ticker), None)
+        if stock is None:
+            await interaction.followup.send("Unknown ticker.", ephemeral=True)
+            return
 
+        # ~48–72h window for the chart, same as before.
         data = []
-        async for i in PriceHistory.filter("ticker = $1 AND time > $2", stock_ticker, int(time.time() - 3600 * 49)):
+        async for i in PriceHistory.filter(
+            "ticker = $1 AND time > $2", stock_ticker, int(time.time() - 3600 * 72)
+        ):
             data.append((i.time, i.price))
-
         buffer = await bot.loop.run_in_executor(None, graph.make_graph, data, 10, 3)
         file = discord.File(fp=buffer, filename="output.png")
 
+        # Live prices + movement
+        mid_price = await get_stock_price(stock_ticker)
+        bid_price = await get_stock_bid(stock_ticker)
+        ask_price = await get_stock_ask(stock_ticker)
+        day_pct = await _stock_change_pct(stock_ticker, 86400)
+        week_pct = await _stock_change_pct(stock_ticker, 7 * 86400)
+        ath, atl = await _stock_extremes(stock_ticker)
+
+        # Header lines
+        header_line2 = (
+            f"# 🪙 {mid_price:,}  ·  bid 🪙 {bid_price:,} / ask 🪙 {ask_price:,}"
+        )
+        header_line3 = (
+            f"{_change_emoji(day_pct)} {_format_pct(day_pct)} today · "
+            f"{_change_emoji(week_pct)} {_format_pct(week_pct)} 7d · "
+            f"ATH 🪙 {ath:,} · ATL 🪙 {atl:,}"
+            if ath is not None and atl is not None
+            else f"{_change_emoji(day_pct)} {_format_pct(day_pct)} today · "
+                 f"{_change_emoji(week_pct)} {_format_pct(week_pct)} 7d"
+        )
+
+        # Active dividend pill (kept from v1, still valid surface area)
         reward = await Reward.get_or_create(ticker=stock["ticker"])
         reward_suffix = ""
         if reward and reward.active:
-            reward_suffix = f"\n⭐ {reward.chance if not reward.chance_hidden else '???'}% to get 🪙 {reward.amount if not reward.amount_hidden else '???'}/stock <t:{reward.end_time}:R>"
+            reward_suffix = (
+                f"\n💸 {reward.chance if not reward.chance_hidden else '???'}% "
+                f"dividend of 🪙 {reward.amount if not reward.amount_hidden else '???'}/share "
+                f"<t:{reward.end_time}:R>"
+            )
 
         container = Container(
             f"## {get_emoji(stock['emoji'])} {stock['name']} ({stock['ticker']}){reward_suffix}",
+            header_line2,
+            header_line3,
             "===",
             discord.ui.MediaGallery(discord.MediaGalleryItem(file)),
             "===",
         )
 
-        button = Button(label="Buy", style=ButtonStyle.green, custom_id=stock_ticker + "_buy")
-        button.callback = buy_stock
-        top_3 = await Order.collect_limit(
-            ["price", RawSQL("SUM(quantity) as total_quantity")],
-            "type_buy = $1 AND ticker = $2 GROUP BY price ORDER BY price DESC LIMIT 5",
-            True,
-            stock_ticker,
-            add_primary_key=False,
-        )
-        container.add_item(
-            Section(
-                "### Buy Orders",
-                "\n".join([f"🪙 **{item.price:,}** - *{item.total_quantity:,}x*" for item in top_3]) if top_3 else "No buy orders",
-                button,
-            )
-        )
+        # Quick stats
+        cfg = _ticker_cfg(stock_ticker)
+        sector = cfg.get("sector", "—")
+        sigma_label = _volatility_label(float(cfg.get("sigma_ticker", 0.001)))
+        fair = await _compute_fair_price(stock_ticker)
+        evt = await _next_scheduled_event(stock_ticker)
+        if evt:
+            evt_line = f"📰 Earnings <t:{evt['fires_at']}:R>"
+        else:
+            evt_line = "📰 No earnings scheduled within the announce window"
+        container.add_item(TextDisplay(
+            "### Quick stats\n"
+            f"Sector: **{sector}** · Volatility: **{sigma_label}**\n"
+            f"Fair value (long-run anchor): 🪙 {fair:,}\n"
+            f"{evt_line}"
+        ))
 
-        button = Button(label="Sell", style=ButtonStyle.red, custom_id=stock_ticker + "_sell")
-        button.callback = sell_stock
-        top_3 = await Order.collect_limit(
-            ["price", RawSQL("SUM(quantity) as total_quantity")],
-            "type_buy = $1 AND ticker = $2 GROUP BY price ORDER BY price ASC LIMIT 5",
-            False,
-            stock_ticker,
-            add_primary_key=False,
+        # Your position
+        profile_inner = await Profile.get_or_create(
+            user_id=interaction.user.id, guild_id=message.guild.id
         )
+        held = int(profile_inner[f"stock_{stock_ticker.lower()}"] or 0)
+        avg_cost = await _compute_avg_cost(profile_inner.id, stock_ticker)
+        if held <= 0:
+            pos_lines = "You don't own any **" + stock_ticker + "** yet."
+        else:
+            cur_val = mid_price * held
+            if avg_cost is not None:
+                cost_basis = int(round(avg_cost * held))
+                pnl = cur_val - cost_basis
+                pnl_pct = (mid_price / avg_cost - 1.0) * 100.0
+                pos_lines = (
+                    f"Shares: **{held:,}x**\n"
+                    f"Avg cost: 🪙 {avg_cost:,.1f} (basis 🪙 {cost_basis:,})\n"
+                    f"Current value: 🪙 {cur_val:,}\n"
+                    f"{_change_emoji(pnl_pct)} Unrealized P&L: "
+                    f"{pnl:+,} ({pnl_pct:+.1f}%)"
+                )
+            else:
+                pos_lines = (
+                    f"Shares: **{held:,}x**\n"
+                    f"Current value: 🪙 {cur_val:,}\n"
+                    "_(avg cost unavailable — earlier holdings predate v2)_"
+                )
+        container.add_item(TextDisplay("### Your position\n" + pos_lines))
+
+        # News for this ticker
+        ticker_news = await _recent_news_for_ticker(stock_ticker, limit=3)
+        if ticker_news:
+            news_lines = []
+            for n in ticker_news:
+                head = n["headline"]
+                if len(head) > 90:
+                    head = head[:87] + "…"
+                news_lines.append(
+                    f"{_event_icon(n['event_type'])} {head} <t:{int(n['time'])}:R>"
+                )
+            container.add_item(TextDisplay("### Recent news\n" + "\n".join(news_lines)))
+        else:
+            container.add_item(TextDisplay("### Recent news\n_No news for this ticker yet._"))
+
+        # Order-book preview (single line + button — full depth on the order
+        # book sub-page).
+        buys_n = await Order.count(
+            "ticker = $1 AND type_buy = $2", stock_ticker, True
+        )
+        sells_n = await Order.count(
+            "ticker = $1 AND type_buy = $2", stock_ticker, False
+        )
+        book_btn = Button(
+            label="View Order Book",
+            style=ButtonStyle.gray,
+            emoji="📖",
+            custom_id=stock_ticker + "_book",
+        )
+        book_btn.callback = view_order_book
         container.add_item(
             Section(
-                "### Sell Orders",
-                "\n".join([f"🪙 **{item.price:,}** - *{item.total_quantity:,}x*" for item in top_3]) if top_3 else "No sell orders",
-                button,
+                "### Order book",
+                f"**{buys_n:,}** resting buy orders · **{sells_n:,}** resting sell orders",
+                book_btn,
             )
         )
 
         view.add_item(container)
 
+        # Trade buttons — market is loud, limit is gray and de-emphasised.
+        market_buy_btn = Button(
+            label="Market Buy", style=ButtonStyle.green, emoji="🟢",
+            custom_id=stock_ticker + "_marketbuy",
+        )
+        market_buy_btn.callback = market_buy_stock
+        market_sell_btn = Button(
+            label="Market Sell", style=ButtonStyle.red, emoji="🔴",
+            custom_id=stock_ticker + "_marketsell",
+        )
+        market_sell_btn.callback = market_sell_stock
+        limit_buy_btn = Button(
+            label="Limit Buy", style=ButtonStyle.gray,
+            custom_id=stock_ticker + "_limitbuy",
+        )
+        limit_buy_btn.callback = buy_stock
+        limit_sell_btn = Button(
+            label="Limit Sell", style=ButtonStyle.gray,
+            custom_id=stock_ticker + "_limitsell",
+        )
+        limit_sell_btn.callback = sell_stock
+
         back_button = Button(style=ButtonStyle.gray, emoji="⬅️")
         back_button.callback = go_back
-
-        refresh_button = Button(label="Refresh", style=ButtonStyle.gray, emoji="🔄", custom_id=stock_ticker)
+        refresh_button = Button(
+            label="Refresh", style=ButtonStyle.gray, emoji="🔄",
+            custom_id=stock_ticker,
+        )
         refresh_button.callback = view_stock
-
         help_button = Button(label="Help", style=ButtonStyle.gray, emoji="💡")
         help_button.callback = stock_help
 
         container.add_item(Separator())
+        container.add_item(ActionRow(market_buy_btn, market_sell_btn))
+        container.add_item(ActionRow(limit_buy_btn, limit_sell_btn))
         container.add_item(ActionRow(back_button, refresh_button, help_button))
 
         await interaction.edit_original_response(view=view, attachments=[file])
@@ -11167,85 +12154,208 @@ async def stocks(message: discord.Interaction):
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
 
-        portfolio_value = profile.coins
-        share_strs = [f"🪙 {profile.coins:,}"]
+        # Current portfolio value + value 24h ago using *current* shares — the
+        # daily delta describes how the user's actual book moved today, which
+        # is what "Today's change" means in a real brokerage UI.
+        now_ts = int(time.time())
+        portfolio_value = int(profile.coins or 0)
+        portfolio_value_yesterday = int(profile.coins or 0)
+        for s in stock_data:
+            held = int(profile[f"stock_{s['ticker'].lower()}"] or 0)
+            if held <= 0:
+                continue
+            cur = await get_stock_price(s["ticker"])
+            past = await _stock_price_at(s["ticker"], now_ts - 86400)
+            portfolio_value += cur * held
+            portfolio_value_yesterday += (past if past is not None else cur) * held
 
-        for stock in stock_data:
-            stock_price = await get_stock_price(stock["ticker"])
-            emoji = get_emoji(stock["emoji"])
-            amount_owned = profile[f"stock_{stock['ticker'].lower()}"]
-            item_value = stock_price * amount_owned
-            portfolio_value += item_value
-            if amount_owned > 0:
-                share_strs.append(f"{emoji} {amount_owned:,}x (🪙 *{item_value:,}*)")
-
-        deposits = await PortfolioHistory.sum("price", "user_id = $1 AND type = $2", profile.id, "d")
-        deposits -= await PortfolioHistory.sum("price", "user_id = $1 AND type = $2", profile.id, "w")
+        if portfolio_value_yesterday > 0:
+            day_pct = (portfolio_value / portfolio_value_yesterday - 1.0) * 100.0
+        else:
+            day_pct = None
+        day_delta = portfolio_value - portfolio_value_yesterday
 
         container = Container(
             "## 📈 Stock Market",
-            "Buy stocks representing Cat Bot mechanics.\nEarn rewards if they perform well!",
+            f"**Portfolio:** 🪙 {portfolio_value:,}  ·  "
+            f"{_change_emoji(day_pct)} {_format_pct(day_pct)} today "
+            f"({day_delta:+,})",
             "===",
         )
 
+        # Per-ticker rows
         for item in stock_data:
-            button = Button(label="View", style=ButtonStyle.blurple, custom_id=item["ticker"])
+            ticker = item["ticker"]
+            price = await get_stock_price(ticker)
+            day_pct_t = await _stock_change_pct(ticker, 86400)
+            amount_owned = int(profile[f"stock_{ticker.lower()}"] or 0)
+            own_line = (
+                f"You own: **{amount_owned:,}x** (🪙 {amount_owned * price:,})"
+                if amount_owned > 0
+                else "You own: —"
+            )
 
+            # Upcoming-event line takes priority; fall back to last news.
+            evt = await _next_scheduled_event(ticker)
+            if evt:
+                fires_at = evt["fires_at"]
+                hint = f"📰 Earnings <t:{fires_at}:R>"
+            else:
+                recent = await _recent_news_for_ticker(ticker, limit=1)
+                if recent:
+                    head = recent[0]["headline"]
+                    if len(head) > 90:
+                        head = head[:87] + "…"
+                    hint = f"{_event_icon(recent[0]['event_type'])} {head}"
+                else:
+                    hint = "—"
+
+            button = Button(label="View", style=ButtonStyle.blurple, custom_id=ticker)
             button.callback = view_stock
-
-            price = await get_stock_price(item["ticker"])
-
-            reward = await Reward.get_or_create(ticker=item["ticker"])
-            reward_suffix = ""
-            if reward and reward.active:
-                reward_suffix = f"\n⭐ {reward.chance if not reward.chance_hidden else '???'}% to get 🪙 {reward.amount if not reward.amount_hidden else '???'}/stock <t:{reward.end_time}:R>"
-
-            to_buy = await Order.sum("quantity", "ticker = $1 AND type_buy = $2", item["ticker"], True)
-            to_sell = await Order.sum("quantity", "ticker = $1 AND type_buy = $2", item["ticker"], False)
-
             container.add_item(
                 Section(
-                    f"### {get_emoji(item['emoji'])} {item['ticker']} - 🪙 {price:,}",
-                    f"*{to_buy:,}* wanted, *{to_sell:,}* offered{reward_suffix}",
+                    f"### {get_emoji(item['emoji'])} {ticker} — 🪙 {price:,}  "
+                    f"{_change_emoji(day_pct_t)} {_format_pct(day_pct_t)}",
+                    f"{own_line}\n{hint}",
                     button,
                 )
             )
 
-        row = ActionRow()
+        # Recent News teaser (last 3 headlines) — full feed lives behind the
+        # News Feed button below.
+        news = await _recent_news_global(limit=3)
+        if news:
+            news_lines = []
+            for n in news:
+                tkr_badge = n["ticker"] or "🌐"
+                head = n["headline"]
+                if len(head) > 80:
+                    head = head[:77] + "…"
+                news_lines.append(
+                    f"{_event_icon(n['event_type'])} `{tkr_badge:<4s}` {head} "
+                    f"<t:{int(n['time'])}:R>"
+                )
+            container.add_item(Separator())
+            container.add_item(
+                TextDisplay("### 📰 Recent News\n" + "\n".join(news_lines))
+            )
 
-        button = Button(label="Deposit", style=ButtonStyle.green)
-        button.callback = deposit
-        row.add_item(button)
-
-        button = Button(label="Withdraw", style=ButtonStyle.red)
-        button.callback = withdraw
-        row.add_item(button)
-
-        button = Button(label="Your Portfolio", style=ButtonStyle.blurple)
-        button.callback = view_user_portfolio
-        row.add_item(button)
+        row1 = ActionRow()
+        row1.add_item(_btn("Deposit", ButtonStyle.green, deposit))
+        row1.add_item(_btn("Withdraw", ButtonStyle.red, withdraw))
+        row2 = ActionRow()
+        row2.add_item(_btn("Your Portfolio", ButtonStyle.blurple, view_user_portfolio))
+        row2.add_item(_btn("News Feed", ButtonStyle.gray, view_news_feed, emoji="📰"))
 
         container.add_item(Separator())
-        container.add_item(row)
+        container.add_item(row1)
+        container.add_item(row2)
         view.add_item(container)
         return view
 
+    def _btn(label, style, callback, emoji=None, custom_id=None):
+        b = Button(label=label, style=style, emoji=emoji, custom_id=custom_id)
+        b.callback = callback
+        return b
+
     async def view_user_portfolio(interaction):
         await view_portfolio(interaction, interaction.user, refresh=False, hidden=True)
+
+    async def view_news_feed(interaction):
+        await interaction.response.defer()
+        view2 = LayoutView(timeout=VIEW_TIMEOUT)
+        container = Container("## 📰 News Feed", "===")
+
+        upcoming = await _upcoming_earnings(within_seconds=48 * 3600)
+        if upcoming:
+            up_lines = []
+            for u in upcoming:
+                up_lines.append(
+                    f"📰 **{u['ticker']}** earnings <t:{int(u['fires_at'])}:R>"
+                )
+            container.add_item(
+                TextDisplay("### Upcoming earnings (next 48h)\n" + "\n".join(up_lines))
+            )
+            container.add_item(Separator())
+
+        rows = await _recent_news_global(limit=25)
+        if not rows:
+            container.add_item(
+                TextDisplay("_No news yet. Check back after the next price tick._")
+            )
+        else:
+            lines = []
+            for n in rows:
+                tkr_badge = n["ticker"] or "🌐"
+                impulse = float(n["impulse_pct"] or 0.0)
+                if impulse:
+                    impulse_str = f" `{impulse * 100:+.1f}%`"
+                else:
+                    impulse_str = ""
+                lines.append(
+                    f"{_event_icon(n['event_type'])} `{tkr_badge:<4s}` {n['headline']}{impulse_str} "
+                    f"<t:{int(n['time'])}:R>"
+                )
+            # Discord text component cap is generous, but split if we approach it.
+            chunk = "\n".join(lines)
+            container.add_item(TextDisplay(chunk))
+
+        container.add_item(Separator())
+        back_btn = Button(style=ButtonStyle.gray, emoji="⬅️")
+        back_btn.callback = go_back
+        refresh_btn = Button(label="Refresh", style=ButtonStyle.gray, emoji="🔄")
+        refresh_btn.callback = view_news_feed
+        container.add_item(ActionRow(back_btn, refresh_btn))
+        view2.add_item(container)
+        await interaction.edit_original_response(view=view2, attachments=[])
+
+    async def view_order_book(interaction):
+        """Full depth for one ticker — 10 deep on each side."""
+        await interaction.response.defer()
+        ticker = interaction.data["custom_id"].split("_")[0]
+        view2 = LayoutView(timeout=VIEW_TIMEOUT)
+        bid = await get_stock_bid(ticker)
+        ask = await get_stock_ask(ticker)
+        mid = await get_stock_price(ticker)
+        container = Container(
+            f"## 📖 {ticker} Order Book",
+            f"mid 🪙 {mid:,} · bid 🪙 {bid:,} / ask 🪙 {ask:,}",
+            "===",
+        )
+
+        buys = await Order.collect_limit(
+            ["price", RawSQL("SUM(quantity) as total_quantity")],
+            "type_buy = $1 AND ticker = $2 GROUP BY price ORDER BY price DESC LIMIT 10",
+            True, ticker, add_primary_key=False,
+        )
+        sells = await Order.collect_limit(
+            ["price", RawSQL("SUM(quantity) as total_quantity")],
+            "type_buy = $1 AND ticker = $2 GROUP BY price ORDER BY price ASC LIMIT 10",
+            False, ticker, add_primary_key=False,
+        )
+        buy_lines = (
+            "\n".join(f"🟢 🪙 **{i.price:,}** — *{i.total_quantity:,}x*" for i in buys)
+            or "_No resting buy orders._"
+        )
+        sell_lines = (
+            "\n".join(f"🔴 🪙 **{i.price:,}** — *{i.total_quantity:,}x*" for i in sells)
+            or "_No resting sell orders._"
+        )
+        container.add_item(TextDisplay("### Buy side\n" + buy_lines))
+        container.add_item(TextDisplay("### Sell side\n" + sell_lines))
+
+        container.add_item(Separator())
+        ticker_back_btn = Button(style=ButtonStyle.gray, emoji="⬅️", custom_id=ticker)
+        ticker_back_btn.callback = view_stock
+        container.add_item(ActionRow(ticker_back_btn))
+        view2.add_item(container)
+        await interaction.edit_original_response(view=view2, attachments=[])
 
     async def go_back(interaction):
         await interaction.response.defer()
         await interaction.edit_original_response(view=await main_page(), attachments=[])
 
     await message.response.send_message(view=await main_page(), ephemeral=True)
-
-    if not profile.seen_deposit:
-        text = f"""Welcome!
-
-**Cat Bot Stock Market** is a recreation of real-life stock market made to be as simple as possible while still being functional. There are 5 stocks you can trade with other Cat Bot users *globally*. To sell and buy stocks you use :coin: **coins**, which you can get by depositing {get_emoji("goldpack")} __Packs__. You can withdraw :coin: **coins** back into __Packs__ with a 25% fee.
-
-Select any stock and click `💡 Help` to learn more, or click `Deposit` to start."""
-        await message.followup.send(text, ephemeral=True)
 
 
 @bot.tree.command(description="buy and sell cats with the cat mafia")
@@ -11778,6 +12888,16 @@ async def catstore(message: discord.Interaction):
         except Exception:
             logging.exception("catstore: rain ach wiring failed")
 
+        # Battlepass quest progress — buy + (conditional) spree. Mirrors the
+        # cat- and pack-buy paths so a rain purchase counts the same toward
+        # `store_buy` and the 2500+ `store_spree` quest.
+        try:
+            await progress(interaction, profile, "store_buy")
+            if price >= 2500:
+                await progress(interaction, profile, "store_spree")
+        except Exception:
+            logging.exception("catstore: BP progress (rain buy) failed")
+
         # Re-render so the new (higher) next-block price shows up.
         await gen_rain(interaction, use_followup=False)
 
@@ -11864,6 +12984,16 @@ async def catstore(message: discord.Interaction):
                     await achemb(interaction, "catstore_pack_collector", "followup")
             except Exception:
                 logging.exception("catstore: pack ach wiring failed")
+
+            # Battlepass quest progress — buy + (conditional) spree. Mirrors
+            # the cat-buy path so a pack purchase counts the same as a cat
+            # purchase toward `store_buy` and the 2500+ `store_spree` quest.
+            try:
+                await progress(interaction, profile, "store_buy")
+                if total_cost >= 2500:
+                    await progress(interaction, profile, "store_spree")
+            except Exception:
+                logging.exception("catstore: BP progress (pack buy) failed")
 
             await gen_packs(interaction, use_followup=False)
 
@@ -17585,6 +18715,8 @@ You can stop. That's okay. Seriously.
 
         if not user_perks:
             full_desc = "You have no perks!"
+        if int(getattr(user, "perks_suspended_until", 0) or 0) > int(time.time()):
+            full_desc = f"🚓 The Cat Police have your perks. They come back <t:{int(user.perks_suspended_until)}:R>.\n\n" + full_desc
         myview = LayoutView(timeout=VIEW_TIMEOUT)
         perk_embed = Container("# Your Perks", full_desc)
         myview.add_item(perk_embed)
@@ -17785,6 +18917,8 @@ You can stop. That's okay. Seriously.
                 desc += f"\n{get_emoji('catnip')} Mafia level protected by a recent job — safe until <t:{safe_until}:R>.\n"
             else:
                 desc += "\n⚠️ Do a `/jobs` to protect your mafia level from the catnip timer.\n"
+            if int(getattr(user, "perks_suspended_until", 0) or 0) > int(time.time()):
+                desc += f"\n🚓 The Cat Police have your perks. They come back <t:{int(user.perks_suspended_until)}:R>.\n"
 
         if user.catnip_level > 0 and user.catnip_level < 11:
 

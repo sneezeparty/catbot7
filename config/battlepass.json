@@ -553,7 +553,9 @@
       {
         "xp": 6300,
         "reward": "Celestial",
-        "amount": 1
+        "amount": 1,
+        "extra_reward": "Rain",
+        "extra_amount": 1
       }
     ],
     "4": [

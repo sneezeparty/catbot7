@@ -131,8 +131,8 @@ async def index(request):
             prism_history = [(r["month"], int(r["n"])) for r in history]
 
             # Top catchers, summing across (user, guild) profiles. Skip the
-            # guild_id=0 stock-market-maker pseudo-profile (bot's own user_id;
-            # not a real player).
+            # guild_id=0 bot pseudo-profile (left over from the old stock
+            # market-maker; not a real player).
             top = await conn.fetch(
                 """
                 SELECT user_id, SUM(total_catches)::bigint AS catches

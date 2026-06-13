@@ -559,6 +559,32 @@ ALTER TABLE public.pricehistory_id_seq OWNER TO cat_bot;
 ALTER SEQUENCE public.pricehistory_id_seq OWNED BY public.pricehistory.id;
 
 
+CREATE TABLE public.newsevent (
+    id integer NOT NULL,
+    time bigint NOT NULL,
+    fires_at bigint NOT NULL,
+    ticker character varying(10),
+    event_type text NOT NULL,
+    headline text NOT NULL,
+    impulse_pct real DEFAULT 0 NOT NULL,
+    applied boolean DEFAULT false NOT NULL
+);
+
+ALTER TABLE public.newsevent OWNER TO cat_bot;
+
+CREATE SEQUENCE public.newsevent_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER TABLE public.newsevent_id_seq OWNER TO cat_bot;
+
+ALTER SEQUENCE public.newsevent_id_seq OWNED BY public.newsevent.id;
+
+
 CREATE TABLE public.jobinstance (
     id bigint NOT NULL,
     template_id text DEFAULT ''::text NOT NULL,
@@ -615,6 +641,8 @@ ALTER TABLE ONLY public.pricehistory ALTER COLUMN id SET DEFAULT nextval('public
 
 ALTER TABLE ONLY public.portfoliohistory ALTER COLUMN id SET DEFAULT nextval('public.portfoliohistory_id_seq'::regclass);
 
+ALTER TABLE ONLY public.newsevent ALTER COLUMN id SET DEFAULT nextval('public.newsevent_id_seq'::regclass);
+
 ALTER TABLE ONLY public.jobinstance ALTER COLUMN id SET DEFAULT nextval('public.jobinstance_id_seq'::regclass);
 
 
@@ -648,6 +676,9 @@ ALTER TABLE ONLY public.portfoliohistory
 ALTER TABLE ONLY public.reward
     ADD CONSTRAINT reward_pkey PRIMARY KEY (ticker);
 
+ALTER TABLE ONLY public.newsevent
+    ADD CONSTRAINT newsevent_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY public.jobinstance
     ADD CONSTRAINT jobinstance_pkey PRIMARY KEY (id);
 
@@ -677,6 +708,8 @@ CREATE INDEX idx_yet_to_spawn ON public.channel (yet_to_spawn);
 CREATE INDEX jobinstance_active ON public.jobinstance (user_id, guild_id, state);
 
 CREATE INDEX jobinstance_expiry ON public.jobinstance (expires_at) WHERE state = 'offered';
+
+CREATE INDEX newsevent_time_desc ON public.newsevent USING btree (time DESC);
 
 
 CREATE TABLE public.metric_snapshot (

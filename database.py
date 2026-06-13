@@ -162,5 +162,9 @@ class Reward(catpg.Model):
     _primary_key = "ticker"
 
 
+class NewsEvent(catpg.Model):
+    pass
+
+
 class JobInstance(catpg.Model):
     pass

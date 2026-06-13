@@ -1,8 +1,9 @@
 """Stock market order book — read-only viewer.
 
-Displays open orders (all tickers) with market-maker orders clearly labelled.
-MM orders are identified by time = 0; they are recreated automatically by the
-background loop every ~5 min if deleted.
+Displays open limit orders across every ticker. The simulated-market engine
+(see docs/design/economy.md → "Simulated market") doesn't write market-maker
+rows anymore — every row is a user-placed limit order. Migration 030 cleared
+the legacy `time = 0` MM rows; this page won't see any.
 """
 
 import aiohttp_jinja2
@@ -10,17 +11,11 @@ from aiohttp import web
 
 from webui import names, state
 
-# The bot's own profile row uses guild_id=0 / user_id=bot.user.id.
-# We surface the bot's profile id in the template so admins can see which
-# user_id belongs to the MM without having to know the bot snowflake.
-_MM_TIME_SENTINEL = 0
-
 
 async def index(request):
     pool = state.get_pool()
     rows = []
     total = 0
-    mm_user_id = None
     by_ticker = []
     if pool is not None:
         async with pool.acquire() as conn:
@@ -37,12 +32,6 @@ async def index(request):
                 "  COUNT(*) FILTER (WHERE NOT type_buy) AS sell_count "
                 'FROM "order" GROUP BY ticker ORDER BY ticker'
             )
-            # Resolve the bot's profile id so the template can annotate MM rows.
-            mm_row = await conn.fetchrow(
-                'SELECT id FROM profile WHERE guild_id = 0 LIMIT 1'
-            )
-            if mm_row:
-                mm_user_id = mm_row["id"]
     unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
     return aiohttp_jinja2.render_template(
         "db_order.html",
@@ -53,8 +42,6 @@ async def index(request):
             "rows": rows,
             "total": total,
             "by_ticker": by_ticker,
-            "mm_user_id": mm_user_id,
-            "MM_TIME": _MM_TIME_SENTINEL,
             "unames": unames,
         },
     )

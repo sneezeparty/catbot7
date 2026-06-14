@@ -712,6 +712,38 @@ CREATE INDEX jobinstance_expiry ON public.jobinstance (expires_at) WHERE state =
 CREATE INDEX newsevent_time_desc ON public.newsevent USING btree (time DESC);
 
 
+CREATE TABLE public.announcement (
+    id integer NOT NULL,
+    created_at bigint NOT NULL,
+    sent_at bigint DEFAULT 0 NOT NULL,
+    body text NOT NULL,
+    status text DEFAULT 'pending' NOT NULL,
+    one_per_server boolean DEFAULT true NOT NULL,
+    target_count integer DEFAULT 0 NOT NULL,
+    sent_count integer DEFAULT 0 NOT NULL,
+    failed_count integer DEFAULT 0 NOT NULL,
+    skipped_count integer DEFAULT 0 NOT NULL,
+    error text DEFAULT '' NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE SEQUENCE public.announcement_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER TABLE public.announcement_id_seq OWNER TO cat_bot;
+
+ALTER SEQUENCE public.announcement_id_seq OWNED BY public.announcement.id;
+
+ALTER TABLE ONLY public.announcement ALTER COLUMN id SET DEFAULT nextval('public.announcement_id_seq'::regclass);
+
+ALTER TABLE public.announcement OWNER TO cat_bot;
+
+
 CREATE TABLE public.metric_snapshot (
     bucket_time bigint NOT NULL,
     guild_count integer DEFAULT 0 NOT NULL,

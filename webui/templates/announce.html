@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  {% set eyebrow = "manage" %}
+  {% set heading = "Announcements" %}
+  {% set lede    = "Broadcast to every setupped catch channel. Live on confirm — no restart." %}
+  {% include "partials/_section_header.html" %}
+
+  {% if saved == "launched" %}
+    <div class="flash flash-ok">Broadcast started — id #{{ saved_id }}. Refresh to see counts.</div>
+  {% elif saved == "invalid" %}
+    <div class="flash flash-err">Nothing sent — body was empty or over {{ message_limit }} characters.</div>
+  {% endif %}
+
+  {% set body %}
+    Discord <strong>markdown</strong> works (<code>**bold**</code>, <code>*italic*</code>, <code>__underline__</code>, <code>&gt; quote</code>, <code>[link](url)</code>).
+    The <code>[[name]]</code> emoji shortcuts work in <code>/news</code> only — here we send the raw body straight to Discord, so type the actual emoji you want.
+    The message limit is <strong>{{ message_limit }}</strong> characters (Discord's hard cap).
+    <strong>One channel per server</strong> deduplicates guilds with multiple setupped channels — leave it on unless you want every channel in a server to hear it.
+  {% endset %}
+  {% include "partials/_help.html" %}
+
+  {# ===================== compose form ===================== #}
+  <article class="card" style="margin-bottom:var(--sp-6)">
+    <h2>Compose</h2>
+    <form method="post" action="/announce/preview" class="announce-form">
+      <label>Body
+        <textarea name="body" id="announce-body" rows="10" maxlength="{{ message_limit }}"
+                  placeholder="What's the news? Markdown supported.">{{ body }}</textarea>
+      </label>
+      <div class="announce-charcount" id="announce-charcount">{{ body|length }} / {{ message_limit }}</div>
+
+      <label style="display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-3)">
+        <input type="checkbox" name="one_per_server" value="1" {% if one_per_server %}checked{% endif %}>
+        <span>Only send to one channel per server (dedupes guilds with multiple setupped channels)</span>
+      </label>
+
+      <div class="news-form-actions" style="margin-top:var(--sp-4)">
+        <button class="btn btn-primary" type="submit">Preview</button>
+      </div>
+    </form>
+  </article>
+
+  {# ===================== preview / confirm ===================== #}
+  {% if preview %}
+    <article class="card" style="margin-bottom:var(--sp-6)">
+      <h2>Confirm broadcast</h2>
+
+      {% if preview.error %}
+        <div class="flash flash-err">{{ preview.error }}</div>
+      {% else %}
+        <div class="muted" style="margin-bottom:var(--sp-2);font-size:var(--fs-sm)">
+          {{ preview.char_count }} / {{ message_limit }} chars · estimated channels:
+          <strong>{{ preview.target_estimate }}</strong>
+          <span class="muted">(actual sent count can be lower due to uncached channels{% if one_per_server %} and per-guild dedupe{% endif %})</span>
+        </div>
+        <pre class="announce-preview">{{ preview.body }}</pre>
+        <form method="post" action="/announce/send">
+          <input type="hidden" name="body" value="{{ preview.body }}">
+          {% if one_per_server %}<input type="hidden" name="one_per_server" value="1">{% endif %}
+          <button class="btn btn-danger" type="submit"
+                  onclick="return confirm('Broadcast to ~{{ preview.target_estimate }} channels now? This cannot be undone.');">
+            Send now to ~{{ preview.target_estimate }} channels
+          </button>
+        </form>
+      {% endif %}
+    </article>
+  {% endif %}
+
+  {# ===================== history ===================== #}
+  <h2 class="section">Recent broadcasts <span class="heading-count">{{ history|length }}</span></h2>
+  {% if history %}
+    <table class="editor-table leaderboard">
+      <thead>
+        <tr>
+          <th>#</th><th>created</th><th>sent</th><th>status</th><th>counts</th><th>dedupe</th><th>preview</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in history %}
+          <tr>
+            <td class="numeric">{{ h.id }}</td>
+            <td><span class="muted">{{ fmt_ts(h.created_at) }}</span></td>
+            <td><span class="muted">{{ fmt_ts(h.sent_at) }}</span></td>
+            <td><span class="status-pill status-{{ h.status }}">{{ h.status }}</span></td>
+            <td>
+              <span class="name">{{ h.sent_count }} / {{ h.target_count }}</span>
+              <div class="muted" style="font-size:var(--fs-2xs)">
+                skipped {{ h.skipped_count }} · failed {{ h.failed_count }}
+                {% if h.error %}<br><span style="color:var(--crimson)">{{ h.error|truncate(80) }}</span>{% endif %}
+              </div>
+            </td>
+            <td>
+              {% if h.one_per_server %}
+                <span class="flag flag-on">1/server</span>
+              {% else %}
+                <span class="flag flag-off">all chans</span>
+              {% endif %}
+            </td>
+            <td><span class="muted">{{ h.body|truncate(80) }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">No broadcasts yet — compose one above.</p>
+  {% endif %}
+</section>
+
+<script>
+  (function () {
+    var ta = document.getElementById('announce-body');
+    var counter = document.getElementById('announce-charcount');
+    var limit = {{ message_limit }};
+    if (!ta || !counter) return;
+    function update() {
+      var n = ta.value.length;
+      counter.textContent = n + ' / ' + limit;
+      if (n > limit) counter.classList.add('over');
+      else counter.classList.remove('over');
+    }
+    ta.addEventListener('input', update);
+    update();
+  })();
+</script>
+{% endblock %}

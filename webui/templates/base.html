@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,0..100;1,9..144,300..700,0..100&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 
-  <link rel="stylesheet" href="/static/app.css?v=7">
+  <link rel="stylesheet" href="/static/app.css?v=8">
   <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
   <script src="/static/htmx-config.js?v=5" defer></script>
@@ -34,7 +34,8 @@
     ("order_table",    "/db/order",    "Orders",     "⇅")
   ] %}
   {% set manage = [
-    ("news",           "/news",        "News",       "📰")
+    ("news",           "/news",        "News",          "📰"),
+    ("announce",       "/announce",    "Announcements", "📣")
   ] %}
   <aside class="sidebar" aria-label="Sections">
     <div class="sidebar-brand">

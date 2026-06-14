@@ -3,9 +3,11 @@
 Maintained by the `webui-sync` subagent (see .claude/agents/webui-sync.md).
 Hand edits are allowed but the agent may overwrite them on next sync.
 
-The webui is a **read-only activity dashboard with one exception: the News
-editor** (section `news`), which edits `config/news.json`. Every other section
-is read-only. Each section maps to its *data sources* (the tables, columns, and
+The webui is a **read-only activity dashboard with two exceptions: the News
+editor** (section `news`, edits `config/news.json`) **and the Announcements
+broadcaster** (section `announce`, writes the `announcement` table and spawns
+a background broadcast task on the bot's loop). Every other section is
+read-only. Each section maps to its *data sources* (the tables, columns, and
 helper functions its read queries depend on), so the sync agent can tell when a
 schema/model change would break a dashboard query.
 
@@ -164,8 +166,12 @@ SECTIONS: dict[str, dict] = {
         ],
     },
     # ---------------------------------------------------- Manage (EDITABLE)
-    # The ONE sanctioned write surface on the dashboard. Edits config/news.json,
-    # the data source for main.py's /news command (get_news() reads it live).
+    # The TWO sanctioned write surfaces on the dashboard.
+    # 1) News — edits config/news.json, the data source for main.py's /news
+    #    command (get_news() reads it live).
+    # 2) Announce — writes the `announcement` table and spawns
+    #    broadcast_announcement() on the bot's asyncio loop, which calls
+    #    ch_obj.send() against every cached setupped channel.
     "news": {
         "source": ["config/news.json"],
         "routes": [
@@ -178,6 +184,21 @@ SECTIONS: dict[str, dict] = {
             "main.py: get_news() / render_news_body() consume this; /news renders it",
             'delete also splices "user".news_state (positional read-state) via the pool',
             "webui/io_locks.py: atomic_write_json — safe writes",
+        ],
+    },
+    "announce": {
+        "source": ["db:announcement", "live"],
+        "routes": [
+            "GET /announce",
+            "POST /announce/preview", "POST /announce/send",
+        ],
+        "templates": ["announce.html"],
+        "data_sources": [
+            "announcement.id, created_at, sent_at, body, status, one_per_server, "
+            "target_count, sent_count, failed_count, skipped_count, error",
+            "channel.channel_id — broadcast target list (bot.get_channel resolves to cached discord channels)",
+            "main.py: no direct dependency; broadcast runs in webui/announce_sender.py "
+            "using bot.get_channel() and ch_obj.send() on the bot's asyncio loop",
         ],
     },
 }

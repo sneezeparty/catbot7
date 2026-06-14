@@ -6,6 +6,7 @@ from webui.routes import (
     activity,
     activity_server,
     activity_user,
+    announce,
     channel_table,
     commands,
     dashboard,
@@ -36,5 +37,6 @@ def register(app: web.Application) -> None:
     user_table.register(app)
     prism_table.register(app)
     order_table.register(app)
-    # Manage (the one editable section)
+    # Manage (the two editable sections)
     news.register(app)
+    announce.register(app)

@@ -882,6 +882,64 @@ input.numeric {
 .news-btn-row input { flex: 1; }
 .news-form-actions { display: flex; gap: var(--sp-3); align-items: center; }
 
+/* =================================== announcement editor + preview ==== */
+.announce-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--ink-1);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  min-height: 14em;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  resize: vertical;
+}
+.announce-form textarea:focus { outline: none; border-color: var(--amber); box-shadow: var(--ring-focus); }
+.announce-form label {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--paper-soft);
+}
+.announce-charcount {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--paper-muted);
+  margin-top: var(--sp-1);
+}
+.announce-charcount.over { color: var(--crimson); }
+
+.announce-preview {
+  white-space: pre-wrap;
+  background: #2b2d31;            /* discord-ish dark */
+  color: #dcddde;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-2);
+  padding: var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  margin: var(--sp-3) 0;
+  max-height: 24em;
+  overflow-y: auto;
+}
+
+.status-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px var(--sp-3);
+  font-size: var(--fs-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line-hi);
+}
+.status-pending { color: var(--paper-muted); background: var(--ink-3); }
+.status-sending { color: var(--amber);       background: rgba(230, 173, 85, 0.12); border-color: rgba(230, 173, 85, 0.3); }
+.status-sent    { color: var(--moss);        background: var(--moss-bg); border-color: rgba(125, 186, 110, 0.3); }
+.status-failed  { color: var(--crimson);     background: rgba(220, 100, 100, 0.10); border-color: rgba(220, 100, 100, 0.3); }
+
 /* read-only on/off badge for boolean DB flags */
 .flag {
   display: inline-block;

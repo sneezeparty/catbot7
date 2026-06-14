@@ -186,7 +186,7 @@
       "id": "combo",
       "exclusive": false,
       "name": "Snowballer",
-      "desc": "Each consecutive catch builds a stack (cap **30**). **percent%** chance per stack of doubling on catch. Stack resets after 5 minutes idle.",
+      "desc": "Each catch builds a stack (cap **30**). **percent%** per stack to double. Resets after 5 min idle.",
       "weight": 8,
       "values": [
         0.5,

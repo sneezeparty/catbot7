@@ -39,7 +39,7 @@ A self-hosted Discord bot about catching cats. Spawns appear in setupped channel
 | Passive XP | None | XP drips on first catch of the UTC day, every 10-catch streak, every catnip level-up, and for prism owners when their prism boosts someone else's catch |
 | Sub-1 pack fail | Always 3 Fine cats | Cascades to a tier-lower pack first, with a 3-Fine-cat floor |
 | Profile card | None | `/catprofile [user]` shows a compact at-a-glance embed: mafia level/rank, cattlepass progress, cat count and collection value, prisms, coins, achievements, catch streak, pig high score, and cookies. Supports viewing other players. |
-| Season warning + recap | None | Bot posts a "season ends tomorrow" embed to every setupped channel on the last day of the month, listing what the reset wipes vs keeps. On the 1st it follows up with a per-server season recap leaderboard (top coins earned, roulette, stocks). Per-server opt-out via `/settings` (`server.season_announcements`). |
+| Season warning + recap | None | Bot posts a "season ends tomorrow" embed to every setupped channel on the last day of the month, listing what the reset wipes vs keeps. On the 1st it follows up with a per-server recap leaderboard (top coins earned, roulette, stocks), a 🏆 Champions embed naming the top-3 in coins/cats/heists, then a "Season N starts now" greeting. Per-server opt-out via `/settings` (`server.season_announcements`); trophy awards always land regardless of the opt-out. |
 
 Design docs for each system live in `docs/design/`.
 

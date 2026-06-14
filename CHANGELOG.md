@@ -6,6 +6,19 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 
 ## [Unreleased]
 
+### Added
+- **Season-start greeting embed.** On the 1st of each month, right after the existing Season Recap and 🏆 Champions embeds, Cat Bot now posts a third embed welcoming players to the fresh season. It lists the new season's level count (read from `config/battlepass.json`), reminds players of the 🪙 100-coin season starting allowance, nudges them that their `/battlepass` quests have rerolled, and reassures them their `/catprofile` medals, stocks, prisms, cats, achievements, and streaks all stayed with them. Dedup is independent of the recap/warning markers (new `season_intro.txt`), so the greeting fires at most once per season even across restarts. Honors the existing per-server `season_announcements` opt-out.
+
+### Changed
+- **Battlepass L1–30 curve flatten extended from Season 2 to Seasons 3–17.** Every future season now uses the same block-of-3 ramp Season 2 got: 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800 XP per level instead of the prior 1,150 → 2,050 ramp. Cumulative cost to L30 drops 48,000 → 40,500 XP (−16%); cumulative cost to L40 drops 92,100 → 84,600 XP (−8% — L31–40 tail untouched, same `2500…6300` shape as Season 2). Brings the cadence the S2 returning-veteran cohort just played onto every future season; the casual / fresh / engaged player projections that informed S2's flatten now hold for S3 onward.
+
+### Fixed
+- **Season Trophies are now awarded regardless of the per-server `season_announcements` opt-out.** Previously, opting a server out of channel noise also forfeited the top-3 players' permanent `/catprofile` medals for that season — earning the trophy and announcing it were coupled. They're now decoupled: `_award_season_trophies` is hoisted out of the broadcast loop and runs for every guild that has snapshot data, while the recap embed + Champions embed remain gated on opt-in. The award helper's existing per-`(season, category, rank)` idempotency guard keeps repeat invocations safe.
+- **`/catnip` reroll menu no longer crashes for players holding the Snowballer perk.** The perk's description ("Each consecutive catch builds a stack…") was 127 characters at every rarity, exceeding Discord's 100-char limit on Select-option descriptions, so the moment the reroll Select tried to render with Snowballer in the player's inventory, the whole view edit failed with a 400 Bad Request. Description tightened to "Each catch builds a stack (cap **30**). **percent%** per stack to double. Resets after 5 min idle." — caps at 87 characters worst-case across all five rarities.
+
+### Internal
+- Removed a dead-code guard in `refresh_quests` (`if current_date.day < start_date.day: full_months_passed -= 1`). The season epoch is `datetime.datetime(2026, 4, 1)` so `start_date.day` is always `1`; the comparison can never be true. Zero behavior change, one less surprise for the next reader.
+
 ## [0.6.18.16273113062026]
 
 ### Added

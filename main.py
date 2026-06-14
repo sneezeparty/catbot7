@@ -696,6 +696,14 @@ try:
 except (FileNotFoundError, ValueError):
     last_season_recapped = -1
 
+# Season-intro dedup: records the new season we last broadcast a "Season N starts
+# now" greeting for. Fires once per season on the 1st (right after the recap).
+try:
+    with open("season_intro.txt", "r", encoding="utf-8") as f:
+        last_season_introed = int(f.read().strip())
+except (FileNotFoundError, ValueError):
+    last_season_introed = -1
+
 # d.py doesnt cache app emojis so we do it on our own yippe
 emojis = {}
 # Coalesces concurrent fetch_application_emojis() calls — on_connect and
@@ -4849,8 +4857,6 @@ async def refresh_quests(user):
     start_date = datetime.datetime(2026, 4, 1)
     current_date = discord.utils.utcnow() + datetime.timedelta(hours=4)
     full_months_passed = (current_date.year - start_date.year) * 12 + (current_date.month - start_date.month)
-    if current_date.day < start_date.day:
-        full_months_passed -= 1
     if user.season != full_months_passed:
         user.bp_history = user.bp_history + f"{user.season},{user.battlepass},{user.progress};"
         user.battlepass = 0
@@ -5648,6 +5654,60 @@ async def _broadcast_season_warning() -> int:
     return sent
 
 
+def _build_season_intro_embed(new_season: int) -> discord.Embed:
+    """The 'Season N starts now' greeting, broadcast on the 1st alongside the
+    recap. Pairs with _build_season_warning_embed: the warning lists what's
+    about to be wiped, this welcomes the player to the fresh season."""
+    try:
+        next_levels = len(config.battle["seasons"][str(new_season)])
+    except Exception:
+        next_levels = None
+    levels_line = f"• 📜 **{next_levels} levels** of packs, rare cats, and rain minutes to climb.\n" if next_levels else ""
+    return discord.Embed(
+        title=f"🆕 Season {new_season} starts now!",
+        color=Colors.brown,
+        description=(
+            f"The Cattlepass has reset and **Season {new_season}** is live.\n\n"
+            + levels_line
+            + f"• 🪙 You start with **{SEASON_STARTING_COINS:,}** coins — go spend them.\n"
+            "• ⏱️ Your `/battlepass` quests have rerolled — check the catch, misc, extra, and challenge slots.\n"
+            "• 🏆 Your `/catprofile` medals, stocks, prisms, cats, achievements, and streaks all stayed with you.\n\n"
+            "Good hunting!"
+        ),
+    )
+
+
+async def _broadcast_season_intro() -> int:
+    """Post the new-season greeting to every setupped channel whose server
+    hasn't opted out. Mirrors _broadcast_season_warning, runs on the 1st right
+    after _broadcast_season_recap so players see: who just won → fresh season
+    starts now."""
+    current_season, _ = _season_announcement_status()
+    embed = _build_season_intro_embed(current_season)
+    server_optin: dict[int, bool] = {}
+    sent = 0
+    try:
+        async for ch in Channel.all():
+            try:
+                ch_obj = bot.get_channel(int(ch.channel_id))
+                if ch_obj is None or ch_obj.guild is None:
+                    continue
+                gid = ch_obj.guild.id
+                if gid not in server_optin:
+                    server = await Server.get_or_create(server_id=gid)
+                    server_optin[gid] = _season_announce_enabled(server)
+                if not server_optin[gid]:
+                    continue
+                await ch_obj.send(embed=embed)
+                sent += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+    except Exception:
+        logging.exception("season intro broadcast failed")
+    return sent
+
+
 # ---- Season recap leaderboard (posts the just-ended season's winners) ----
 # The season wipe is lazy per-player, so a live query on the 1st would miss the
 # most-active players (they log in first and get reset). Instead we SNAPSHOT
@@ -5925,8 +5985,18 @@ async def _broadcast_season_recap() -> int:
             trophy_embeds[gid] = trophy_emb
             guild_data[gid] = gdata
 
+    # Award trophies for every guild whose snapshot has trophy-category data,
+    # independent of the per-server announcement opt-in. A server can opt out
+    # of channel noise; that shouldn't cost its players their permanent
+    # /catprofile medals. _award_season_trophies is idempotent (existing-entry
+    # check at the rank level) so a restart mid-loop is safe.
+    for gid, gdata in guild_data.items():
+        try:
+            await _award_season_trophies(just_ended, gid, gdata)
+        except Exception:
+            logging.exception("season trophy award failed for guild %s", gid)
+
     server_optin: dict[int, bool] = {}
-    awarded_guilds: set[int] = set()
     sent = 0
     try:
         async for ch in Channel.all():
@@ -5942,14 +6012,6 @@ async def _broadcast_season_recap() -> int:
                     server_optin[gid] = _season_announce_enabled(server)
                 if not server_optin[gid]:
                     continue
-                # Award trophies once per guild, gated on opt-in so opted-out
-                # servers neither announce nor award.
-                if gid in trophy_embeds and gid not in awarded_guilds:
-                    try:
-                        await _award_season_trophies(just_ended, gid, guild_data[gid])
-                    except Exception:
-                        logging.exception("season trophy award failed for guild %s", gid)
-                    awarded_guilds.add(gid)
                 await ch_obj.send(embed=embeds[gid])
                 if gid in trophy_embeds:
                     try:
@@ -5977,7 +6039,7 @@ async def _season_announcement_loop():
     broadcast swallows per-channel errors and won't raise, so a mid-broadcast
     process death is the only double-send risk (rare, and a duplicate warning
     beats no warning)."""
-    global last_season_warned, last_season_recapped
+    global last_season_warned, last_season_recapped, last_season_introed
     while not bot.is_closed():
         try:
             await asyncio.sleep(SEASON_ANNOUNCE_INTERVAL)
@@ -6011,6 +6073,19 @@ async def _season_announcement_loop():
                 except Exception:
                     logging.exception("failed to persist season_recap marker")
                 logging.info("season recap broadcast to %d channels (season %d)", count, just_ended)
+
+            # Season intro: independent dedup on current_season so the greeting
+            # fires once per fresh season on the 1st. Runs after the recap so
+            # players see "S{N-1} champions" → "S{N} starts now" in that order.
+            if now_local.day == 1 and current_season != last_season_introed:
+                count = await _broadcast_season_intro()
+                last_season_introed = current_season
+                try:
+                    with open("season_intro.txt", "w", encoding="utf-8") as f:
+                        f.write(str(current_season))
+                except Exception:
+                    logging.exception("failed to persist season_intro marker")
+                logging.info("season intro broadcast to %d channels (season %d)", count, current_season)
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -76,6 +76,41 @@
     </article>
   </div>
 
+  {# ============================ load ============================ #}
+  {% if load %}
+  <h2 class="section">Load</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Activity rate, computed from the last two hourly <code>metric_snapshot</code> buckets.
+    The "24h avg" footer is the rolling rate across the past
+    {% if load_window_hours %}{{ load_window_hours }}{% else %}~24{% endif %} hour{{ "s" if (load_window_hours or 24) != 1 else "" }}.
+  </p>
+  <div class="stat-row load-row">
+    {% for col in load_metrics_order %}
+      {% set m = load[col] %}
+      {% if m %}
+        <article class="stat-tile">
+          <span class="stat-eyebrow">{{ m.eyebrow }}</span>
+          <span class="stat-value">{{ "%.1f"|format(m.last_per_min) }}<span class="metric-unit"> /min</span></span>
+          <span class="stat-sub mono-soft">{{ "{:,}".format(m.last_per_hr|round|int) }} / hr</span>
+          {% if m.have_avg %}
+            <span class="stat-foot">
+              24h avg: <strong class="mono-soft">{{ "%.1f"|format(m.avg_per_min) }}/min</strong>
+              · {{ "{:,}".format(m.avg_per_hr|round|int) }}/hr
+            </span>
+          {% else %}
+            <span class="stat-foot">no 24h history yet</span>
+          {% endif %}
+        </article>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <p class="muted" style="font-size:var(--fs-xs);margin-top:calc(-1 * var(--sp-4));margin-bottom:var(--sp-6)">
+    Note: <code>metric_snapshot</code> aggregates event counters hourly. Raw button-click
+    rates (cookies/coffees/etc.) aren't summed there today — these tiles use the
+    next-best signals (event-level deltas) for activity volume.
+  </p>
+  {% endif %}
+
   {# ============================ totals ============================ #}
   <h2 class="section">By the numbers</h2>
   <div class="stat-row">

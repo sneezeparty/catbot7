@@ -4,6 +4,9 @@ import aiohttp_jinja2
 from aiohttp import web
 
 from webui import names, state
+from webui.pagination import make_pager, parse_page
+
+PER_PAGE = 50
 
 # Field groupings for the read-only detail view.
 INT_FIELDS = [
@@ -43,17 +46,38 @@ STR_FIELDS = [
 async def index(request):
     pool = state.get_pool()
     rows = []
+    total = 0
     q = request.query.get("q", "").strip()
+    page = parse_page(request)
+    offset = (page - 1) * PER_PAGE
     if pool is not None and q:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                'SELECT * FROM "user" WHERE CAST(user_id AS TEXT) LIKE $1 OR username ILIKE $2 ORDER BY user_id LIMIT 100',
+            total = await conn.fetchval(
+                'SELECT COUNT(*) FROM "user" WHERE CAST(user_id AS TEXT) LIKE $1 OR username ILIKE $2',
                 f"%{q}%", f"%{q}%",
+            ) or 0
+            rows = await conn.fetch(
+                'SELECT * FROM "user" WHERE CAST(user_id AS TEXT) LIKE $1 OR username ILIKE $2 '
+                'ORDER BY user_id LIMIT $3 OFFSET $4',
+                f"%{q}%", f"%{q}%", PER_PAGE, offset,
             )
     elif pool is not None:
         async with pool.acquire() as conn:
-            rows = await conn.fetch('SELECT * FROM "user" ORDER BY total_votes DESC NULLS LAST LIMIT 50')
+            total = await conn.fetchval('SELECT COUNT(*) FROM "user"') or 0
+            rows = await conn.fetch(
+                'SELECT * FROM "user" ORDER BY total_votes DESC NULLS LAST LIMIT $1 OFFSET $2',
+                PER_PAGE, offset,
+            )
     unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
+    pager = make_pager(
+        request,
+        page=page,
+        per_page=PER_PAGE,
+        total=int(total),
+        base_path="/db/user",
+        params={"q": q},
+        target="#pager-user",
+    )
     return aiohttp_jinja2.render_template(
         "db_user.html",
         request,
@@ -63,6 +87,7 @@ async def index(request):
             "rows": rows,
             "q": q,
             "unames": unames,
+            "pager": pager,
         },
     )
 

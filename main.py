@@ -5488,6 +5488,12 @@ async def _metrics_snapshot_tick():
                     break
 
             # 2) Compute the snapshot row.
+            # Bot's own profile/user/prism/job rows accumulate from
+            # gift/sacrifice/etc. but the bot isn't a real player, so exclude
+            # its user_id from every aggregate that feeds the dashboard's
+            # Load section + counters. bot_user_id is 0 before on_ready so
+            # the predicate degrades to a no-op (Discord ids are never 0).
+            bot_user_id = int(bot.user.id) if bot.user else 0
             agg = await conn.fetchrow(
                 """
                 SELECT
@@ -5505,11 +5511,16 @@ async def _metrics_snapshot_tick():
                                       THEN user_id END)      AS a30,
                   COUNT(*)                                   AS profile_count
                 FROM profile
+                WHERE user_id <> $4
                 """,
-                now_ts - 86400, week_start, month_start,
+                now_ts - 86400, week_start, month_start, bot_user_id,
             )
-            user_count = await conn.fetchval('SELECT COUNT(*) FROM "user"')
-            prism_count = await conn.fetchval("SELECT COUNT(*) FROM prism")
+            user_count = await conn.fetchval(
+                'SELECT COUNT(*) FROM "user" WHERE user_id <> $1', bot_user_id
+            )
+            prism_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM prism WHERE user_id <> $1", bot_user_id
+            )
             live_spawns = await conn.fetchval(
                 "SELECT COUNT(*) FROM channel WHERE cat <> 0"
             )
@@ -5517,7 +5528,9 @@ async def _metrics_snapshot_tick():
                 "SELECT COUNT(*) FROM channel WHERE rain_should_end > $1", now_ts,
             )
             pending_jobs = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobinstance WHERE state IN ('offered','committed')"
+                "SELECT COUNT(*) FROM jobinstance "
+                "WHERE state IN ('offered','committed') AND user_id <> $1",
+                bot_user_id,
             )
 
             # 3) Upsert (no-op on conflict).
@@ -8414,7 +8427,11 @@ def format_timedelta(start_timestamp, end_timestamp):
     return f"{days}d {hours}h {minutes}m {seconds}s"
 
 
-@bot.tree.command(description="View various info and stats about the bot")
+# /info is intentionally NOT registered as a slash command — the system /
+# tech / global-stats payload it returns (OS, Python ver, RAM, guild count,
+# DB row counts, etc.) is considered too revealing for end users. The body
+# below is kept in-place so re-enabling is a one-line change: restore the
+# `@bot.tree.command(...)` decorator and `cat!restart` to re-sync.
 async def info(message: discord.Interaction):
     embed = discord.Embed(title="Cat Bot Info", color=Colors.brown)
     try:
@@ -10997,7 +11014,7 @@ Holding dividends? The **Stock Dividend Boost** job perk adds a per-holder bonus
 async def portfolio_help(message):
     text = """**📊 Portfolio**
 
-The top of the page shows your **total portfolio value** (coins + shares × current price), today's change (last 24h on your current holdings), and lifetime growth % (current value vs. all-time net deposits).
+The top of the page shows your **total portfolio value** (coins + shares × current price), today's change (last 24h on your current holdings), and unrealized **P&L on holdings** (current share value vs. weighted avg buy cost, summed across positions you still hold).
 
 The breakdown below shows each ticker you own:
 - **Quantity** and current 🪙 value.
@@ -11030,6 +11047,8 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
     portfolio_value = int(profile.coins or 0)
     portfolio_value_yday = int(profile.coins or 0)
     share_lines = [f"🪙 **{int(profile.coins or 0):,}** coins"]
+    cost_basis_total = 0.0
+    pnl_basis_value = 0
 
     for stock in stock_data:
         ticker = stock["ticker"]
@@ -11050,6 +11069,8 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
                 f"{emoji} **{amount_owned:,}x** {ticker} · 🪙 *{item_value:,}* · "
                 f"avg 🪙 {avg_cost:,.1f} → cur 🪙 {cur_price:,} {pnl_emoji} {pnl_pct:+.1f}%"
             )
+            cost_basis_total += avg_cost * amount_owned
+            pnl_basis_value += item_value
         else:
             share_lines.append(
                 f"{emoji} **{amount_owned:,}x** {ticker} · 🪙 *{item_value:,}* · "
@@ -11087,14 +11108,22 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
         elif history.type == "C":
             portfolio_history.append(f":x: Cancelled SELL, refunded {history.quantity:,}x {history.ticker} shares <t:{history.time}:R>")
 
-    deposits = await PortfolioHistory.sum("price", "user_id = $1 AND type = $2", profile.id, "d")
-    deposits -= await PortfolioHistory.sum("price", "user_id = $1 AND type = $2", profile.id, "w")
+    # Unrealized P&L on currently-held shares: sum of (cur_price − avg_cost) ×
+    # shares across positions where _compute_avg_cost returned a basis. Realized
+    # gains from past sells are dropped (no lot tracking), so this matches the
+    # per-row "+X%" pnl already shown above. The previous "lifetime growth"
+    # divided wallet+shares by net pack→coin conversions, which produced
+    # absurd ratios for users who rarely use the deposit/withdraw flow.
+    if cost_basis_total > 0:
+        pnl_pct = (pnl_basis_value / cost_basis_total - 1.0) * 100.0
+        pnl_delta = pnl_basis_value - int(round(cost_basis_total))
+        pnl_line = (
+            f"{_change_emoji(pnl_pct)} {_format_pct(pnl_pct)} P&L on holdings "
+            f"({pnl_delta:+,})"
+        )
+    else:
+        pnl_line = "➖ no open positions"
 
-    try:
-        value_diff = (portfolio_value / deposits - 1) * 100
-    except ZeroDivisionError:
-        value_diff = 0
-    growth_emoji = "📈" if value_diff >= 0 else "📉"
     emoji_prefix = (user.emoji + " ") if user.emoji else ""
 
     today_line = (
@@ -11104,7 +11133,7 @@ async def view_portfolio(interaction, person, refresh=False, hidden=None):
         f"## {emoji_prefix}{person}",
         f"### 🪙 {portfolio_value:,}",
         today_line,
-        f"{growth_emoji} {value_diff:+.2f}% *(Lifetime)*",
+        pnl_line,
     )
 
     async def refresh_portfolio(interaction):

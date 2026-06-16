@@ -3,7 +3,7 @@
 <section>
   {% set eyebrow = "db / prism" %}
   {% set heading = "Prisms" %}
-  {% set lede    = "Top 200 prisms by catches boosted, plus a guild leaderboard." %}
+  {% set lede    = "Prisms ranked by catches boosted, paginated, plus a guild leaderboard." %}
   {% include "partials/_section_header.html" %}
 
   {% set body %}
@@ -21,22 +21,26 @@
     </tbody>
   </table>
 
-  <h2 class="section">Recent / most-boosted prisms <span class="heading-count">{{ rows|length }}</span></h2>
-  <table class="editor-table">
-    <thead><tr><th>id</th><th>name</th><th>owner</th><th>guild</th><th>creator</th><th>created</th><th>boosted</th></tr></thead>
-    <tbody>
-      {% for p in rows %}
-        <tr>
-          <td class="numeric">{{ p.id }}</td>
-          <td>{{ p.name }}</td>
-          <td><span class="name">{{ unames.get(p.user_id, p.user_id) }}</span><span class="id-sub">{{ p.user_id }}</span></td>
-          <td><span class="name">{{ guild_name(p.guild_id) }}</span><span class="id-sub">{{ p.guild_id }}</span></td>
-          <td><span class="name">{{ unames.get(p.creator, p.creator) }}</span><span class="id-sub">{{ p.creator }}</span></td>
-          <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
-          <td class="numeric">{{ p.catches_boosted }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div id="pager-prism" class="paginated-block">
+    <h2 class="section">Most-boosted prisms <span class="heading-count">page {{ pager.page }} of {{ pager.total_pages }}</span></h2>
+    {% include "partials/_pagination.html" %}
+    <table class="editor-table">
+      <thead><tr><th>id</th><th>name</th><th>owner</th><th>guild</th><th>creator</th><th>created</th><th>boosted</th></tr></thead>
+      <tbody>
+        {% for p in rows %}
+          <tr>
+            <td class="numeric">{{ p.id }}</td>
+            <td>{{ p.name }}</td>
+            <td><span class="name">{{ unames.get(p.user_id, p.user_id) }}</span><span class="id-sub">{{ p.user_id }}</span></td>
+            <td><span class="name">{{ guild_name(p.guild_id) }}</span><span class="id-sub">{{ p.guild_id }}</span></td>
+            <td><span class="name">{{ unames.get(p.creator, p.creator) }}</span><span class="id-sub">{{ p.creator }}</span></td>
+            <td><span class="muted">{{ p.time|fmt_ts }}</span></td>
+            <td class="numeric">{{ p.catches_boosted }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "partials/_pagination.html" %}
+  </div>
 </section>
 {% endblock %}

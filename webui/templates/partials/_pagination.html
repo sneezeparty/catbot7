@@ -1,0 +1,55 @@
+{# Pagination control. Expects a `pager` dict from webui.pagination.make_pager.
+   Pass it explicitly when there are multiple paginators on a page:
+     {% with pager = board.pager %}{% include "partials/_pagination.html" %}{% endwith %}
+
+   If `pager.target` is set (a CSS selector like "#pager-server"), the prev/next
+   links get htmx attributes that swap the target element in-place using
+   `hx-select`. This preserves scroll position — htmx 2.0 doesn't scroll on
+   swap by default — and we set `hx-push-url=true` so the address bar still
+   reflects the active page. The `href` stays present so the link works with
+   JS off too.
+#}
+{% set hx = pager.target %}
+{% macro pager_link(href, label, rel=None, classes="btn") -%}
+  <a class="{{ classes }}"
+     href="{{ href }}"
+     {% if rel %}rel="{{ rel }}"{% endif %}
+     {% if hx %}
+       hx-get="{{ href }}"
+       hx-target="{{ hx }}"
+       hx-select="{{ hx }}"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+     {% endif %}
+  >{{ label }}</a>
+{%- endmacro %}
+<nav class="pager" aria-label="pagination">
+  <div class="pager-status">
+    {% if pager.total is not none %}
+      Page <strong>{{ pager.page }}</strong> of <strong>{{ pager.total_pages }}</strong>
+      <span class="muted">· {{ "{:,}".format(pager.total) }} total</span>
+    {% else %}
+      Page <strong>{{ pager.page }}</strong>
+    {% endif %}
+  </div>
+  <div class="pager-controls">
+    {% if pager.has_prev %}
+      {{ pager_link(pager.first_href, "« first", classes="btn btn-ghost") }}
+      {{ pager_link(pager.prev_href, "‹ prev", rel="prev") }}
+    {% else %}
+      <span class="btn btn-ghost is-disabled" aria-disabled="true">« first</span>
+      <span class="btn is-disabled" aria-disabled="true">‹ prev</span>
+    {% endif %}
+    {% if pager.has_next %}
+      {{ pager_link(pager.next_href, "next ›", rel="next") }}
+      {% if pager.last_href %}
+        {{ pager_link(pager.last_href, "last »", classes="btn btn-ghost") }}
+      {% endif %}
+    {% else %}
+      <span class="btn is-disabled" aria-disabled="true">next ›</span>
+      {% if pager.total is not none %}
+        <span class="btn btn-ghost is-disabled" aria-disabled="true">last »</span>
+      {% endif %}
+    {% endif %}
+  </div>
+</nav>

@@ -17,45 +17,53 @@
     <button class="btn">Search</button>
   </form>
 
-  {% if rows %}
-    <table class="editor-table">
-      <thead>
-        <tr>
-          <th>channel_id</th>
-          <th>cat</th>
-          <th>yet_to_spawn</th>
-          <th>spawn_min</th>
-          <th>spawn_max</th>
-          <th>cattype</th>
-          <th>rain</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
+  <div id="pager-channel" class="paginated-block">
+    {% include "partials/_pagination.html" %}
+
+    {% if rows %}
+      <table class="editor-table">
+        <thead>
           <tr>
-            <td><span class="name">{{ channel_name(row.channel_id) }}</span><span class="id-sub">{{ row.channel_id }}</span></td>
-            <td class="numeric">{{ row.cat or "" }}</td>
-            <td class="numeric">
-              {% if row.yet_to_spawn > now %}
-                <span class="muted" title="{{ row.yet_to_spawn|fmt_ts }}">{{ row.yet_to_spawn - now }}s</span>
-              {% else %}
-                ready
-              {% endif %}
-            </td>
-            <td class="numeric">{{ row.spawn_times_min }}</td>
-            <td class="numeric">{{ row.spawn_times_max }}</td>
-            <td>{{ row.cattype or "" }}</td>
-            <td>
-              {% if row.rain_should_end > now %}
-                <span class="muted">{{ row.rain_should_end - now }}s</span>
-              {% endif %}
-            </td>
+            <th>channel_id</th>
+            <th>cat</th>
+            <th>yet_to_spawn</th>
+            <th>spawn_min</th>
+            <th>spawn_max</th>
+            <th>cattype</th>
+            <th>rain</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="empty-state">No channels found.</p>
-  {% endif %}
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td><span class="name">{{ channel_name(row.channel_id) }}</span><span class="id-sub">{{ row.channel_id }}</span></td>
+              <td class="numeric">{{ row.cat or "" }}</td>
+              <td class="numeric">
+                {% if row.yet_to_spawn > now %}
+                  <span class="muted" title="{{ row.yet_to_spawn|fmt_ts }}">{{ row.yet_to_spawn - now }}s</span>
+                {% else %}
+                  ready
+                {% endif %}
+              </td>
+              <td class="numeric">{{ row.spawn_times_min }}</td>
+              <td class="numeric">{{ row.spawn_times_max }}</td>
+              <td>{{ row.cattype or "" }}</td>
+              <td>
+                {% if row.rain_should_end > now %}
+                  <span class="muted">{{ row.rain_should_end - now }}s</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">No channels found.</p>
+    {% endif %}
+
+    {% if rows %}
+      {% include "partials/_pagination.html" %}
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

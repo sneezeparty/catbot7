@@ -71,6 +71,8 @@ async def index(request):
     snapshot_rows = 0              # for the "warming up" message
     snapshot_oldest = 0
 
+    bot_id = state.bot_user_id_or_zero()
+
     if pool is not None:
         async with pool.acquire() as conn:
             # --- live counters ---
@@ -78,10 +80,10 @@ async def index(request):
                 "SELECT COUNT(*) FROM channel WHERE cat <> 0 OR yet_to_spawn <> 0"
             ) or 0
             live["profile_count"] = await conn.fetchval(
-                "SELECT COUNT(*) FROM profile"
+                "SELECT COUNT(*) FROM profile WHERE user_id <> $1", bot_id
             ) or 0
             live["user_count"] = await conn.fetchval(
-                'SELECT COUNT(*) FROM "user"'
+                'SELECT COUNT(*) FROM "user" WHERE user_id <> $1', bot_id
             ) or 0
             live["live_spawns"] = await conn.fetchval(
                 "SELECT COUNT(*) FROM channel WHERE cat <> 0"
@@ -90,10 +92,12 @@ async def index(request):
                 "SELECT COUNT(*) FROM channel WHERE rain_should_end > $1", now,
             ) or 0
             live["pending_jobs_offered"] = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobinstance WHERE state = 'offered'"
+                "SELECT COUNT(*) FROM jobinstance WHERE state = 'offered' AND user_id <> $1",
+                bot_id,
             ) or 0
             live["pending_jobs_committed"] = await conn.fetchval(
-                "SELECT COUNT(*) FROM jobinstance WHERE state = 'committed'"
+                "SELECT COUNT(*) FROM jobinstance WHERE state = 'committed' AND user_id <> $1",
+                bot_id,
             ) or 0
 
             row = await conn.fetchrow(
@@ -103,8 +107,9 @@ async def index(request):
                   COUNT(DISTINCT CASE WHEN last_catch >= $2 THEN user_id END) AS week,
                   COUNT(DISTINCT CASE WHEN last_catch >= $3 THEN user_id END) AS month
                 FROM profile
+                WHERE user_id <> $4
                 """,
-                today_start, week_start, month_start,
+                today_start, week_start, month_start, bot_id,
             )
             activity_counts = {
                 "today": int(row["today"] or 0),
@@ -168,11 +173,11 @@ async def index(request):
                        outcome,
                        COUNT(*) AS n
                 FROM jobinstance
-                WHERE state = 'resolved' AND resolved_at >= $1
+                WHERE state = 'resolved' AND resolved_at >= $1 AND user_id <> $2
                 GROUP BY day, outcome
                 ORDER BY day ASC
                 """,
-                window_start,
+                window_start, bot_id,
             )
             outcomes_set: list[str] = []
             for r in rows:
@@ -186,20 +191,20 @@ async def index(request):
             rows = await conn.fetch(
                 """
                 SELECT category, COUNT(*) AS n FROM jobinstance
-                WHERE state = 'resolved' AND resolved_at >= $1
+                WHERE state = 'resolved' AND resolved_at >= $1 AND user_id <> $2
                 GROUP BY category ORDER BY n DESC
                 """,
-                window_start,
+                window_start, bot_id,
             )
             jobs_by_category = [(r["category"] or "—", int(r["n"])) for r in rows]
 
             rows = await conn.fetch(
                 """
                 SELECT tier, COUNT(*) AS n FROM jobinstance
-                WHERE state = 'resolved' AND resolved_at >= $1
+                WHERE state = 'resolved' AND resolved_at >= $1 AND user_id <> $2
                 GROUP BY tier ORDER BY tier ASC
                 """,
-                window_start,
+                window_start, bot_id,
             )
             jobs_by_tier = [(f"T{int(r['tier'])}", int(r["n"])) for r in rows]
 
@@ -209,14 +214,16 @@ async def index(request):
                 SELECT to_char(date_trunc('week', to_timestamp("time")), 'YYYY-MM-DD') AS week,
                        COUNT(*) AS n
                 FROM prism
-                WHERE "time" >= $1
+                WHERE "time" >= $1 AND user_id <> $2
                 GROUP BY week ORDER BY week ASC
                 """,
-                now - 12 * 7 * 86400,
+                now - 12 * 7 * 86400, bot_id,
             )
             prisms_per_week = [(r["week"], int(r["n"])) for r in rows]
 
             # --- orders per day (buy vs sell) ---
+            # order.user_id is profile.id (not Discord), so the bot filter is a
+            # subselect of the bot's profile rows.
             rows = await conn.fetch(
                 """
                 SELECT to_char(date_trunc('day', to_timestamp("time")), 'YYYY-MM-DD') AS day,
@@ -224,10 +231,11 @@ async def index(request):
                        COUNT(*) AS n
                 FROM "order"
                 WHERE "time" >= $1
+                  AND user_id NOT IN (SELECT id FROM profile WHERE user_id = $2)
                 GROUP BY day, type_buy
                 ORDER BY day ASC
                 """,
-                window_start,
+                window_start, bot_id,
             )
             buy_map: dict[str, int] = {}
             sell_map: dict[str, int] = {}
@@ -249,11 +257,11 @@ async def index(request):
                 SELECT to_char(date_trunc('day', to_timestamp(last_catch)), 'YYYY-MM-DD') AS day,
                        COUNT(*) AS n
                 FROM profile
-                WHERE last_catch >= $1
+                WHERE last_catch >= $1 AND user_id <> $2
                 GROUP BY day
                 ORDER BY day ASC
                 """,
-                window_start,
+                window_start, bot_id,
             )
             recency = [(r["day"], int(r["n"])) for r in rows]
 
@@ -262,7 +270,7 @@ async def index(request):
             # is the bot's, left over from the old activity-driven market
             # maker that owned bid/ask orders). The simulated-market engine
             # no longer uses it, but the row persists and would contaminate
-            # rollups — exclude from both.
+            # rollups — exclude both that and the live bot user_id.
             rows = await conn.fetch(
                 """
                 SELECT guild_id,
@@ -270,11 +278,12 @@ async def index(request):
                        SUM(coins)::bigint AS coins,
                        COUNT(*) AS profile_count
                 FROM profile
-                WHERE guild_id <> 0
+                WHERE guild_id <> 0 AND user_id <> $1
                 GROUP BY guild_id
                 ORDER BY catches DESC NULLS LAST
                 LIMIT 10
-                """
+                """,
+                bot_id,
             )
             top_servers = [
                 {
@@ -290,11 +299,12 @@ async def index(request):
                 """
                 SELECT user_id, SUM(total_catches)::bigint AS catches
                 FROM profile
-                WHERE guild_id <> 0
+                WHERE guild_id <> 0 AND user_id <> $1
                 GROUP BY user_id
                 ORDER BY catches DESC NULLS LAST
                 LIMIT 10
-                """
+                """,
+                bot_id,
             )
             top_users = [
                 {"user_id": r["user_id"], "catches": int(r["catches"] or 0)}
@@ -303,7 +313,8 @@ async def index(request):
 
             # --- jobs pipeline + recent jobs (kept) ---
             job_rows = await conn.fetch(
-                "SELECT state, COUNT(*) AS n FROM jobinstance GROUP BY state"
+                "SELECT state, COUNT(*) AS n FROM jobinstance WHERE user_id <> $1 GROUP BY state",
+                bot_id,
             )
             counts_by_state = {r["state"]: int(r["n"]) for r in job_rows}
             job_states = [(s, counts_by_state.get(s, 0)) for s in JOB_STATES]
@@ -313,8 +324,9 @@ async def index(request):
 
             recent_jobs = await conn.fetch(
                 "SELECT user_id, guild_id, category, tier, outcome, complication, resolved_at "
-                "FROM jobinstance WHERE state = 'resolved' "
-                "ORDER BY resolved_at DESC LIMIT 15"
+                "FROM jobinstance WHERE state = 'resolved' AND user_id <> $1 "
+                "ORDER BY resolved_at DESC LIMIT 15",
+                bot_id,
             )
 
             # --- live ops tables (kept, collapsed) ---
@@ -329,7 +341,8 @@ async def index(request):
             )
             recent_prisms = await conn.fetch(
                 'SELECT name, user_id, guild_id, "time", catches_boosted '
-                'FROM prism ORDER BY "time" DESC NULLS LAST LIMIT 20'
+                'FROM prism WHERE user_id <> $1 ORDER BY "time" DESC NULLS LAST LIMIT 20',
+                bot_id,
             )
 
     # --- pivot jobs/day into rows for stacked bar ---

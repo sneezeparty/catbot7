@@ -10,6 +10,9 @@ import aiohttp_jinja2
 from aiohttp import web
 
 from webui import names, state
+from webui.pagination import make_pager, parse_page
+
+PER_PAGE = 100
 
 
 async def index(request):
@@ -17,14 +20,16 @@ async def index(request):
     rows = []
     total = 0
     by_ticker = []
+    page = parse_page(request)
     if pool is not None:
         async with pool.acquire() as conn:
-            total = await conn.fetchval('SELECT COUNT(*) FROM "order"')
+            total = await conn.fetchval('SELECT COUNT(*) FROM "order"') or 0
             rows = await conn.fetch(
                 'SELECT id, user_id, time, ticker, type_buy, quantity, price '
                 'FROM "order" '
                 "ORDER BY ticker, type_buy DESC, price DESC "
-                "LIMIT 500"
+                "LIMIT $1 OFFSET $2",
+                PER_PAGE, (page - 1) * PER_PAGE,
             )
             by_ticker = await conn.fetch(
                 'SELECT ticker, '
@@ -33,6 +38,14 @@ async def index(request):
                 'FROM "order" GROUP BY ticker ORDER BY ticker'
             )
     unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
+    pager = make_pager(
+        request,
+        page=page,
+        per_page=PER_PAGE,
+        total=int(total),
+        base_path="/db/order",
+        target="#pager-order",
+    )
     return aiohttp_jinja2.render_template(
         "db_order.html",
         request,
@@ -43,6 +56,7 @@ async def index(request):
             "total": total,
             "by_ticker": by_ticker,
             "unames": unames,
+            "pager": pager,
         },
     )
 

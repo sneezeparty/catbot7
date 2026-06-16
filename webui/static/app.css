@@ -1182,6 +1182,26 @@ h3.subsection::before {
   margin-top: var(--sp-1);
 }
 
+/* secondary metric (sits between stat-value and stat-foot) used on the
+   Load tiles to show /hr right under the headline /min figure. */
+.stat-sub {
+  font-size: var(--fs-sm);
+  color: var(--paper-soft);
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
+  margin-top: 2px;
+}
+
+/* Load tile: shrink the unit suffix next to the per-min figure so the
+   number stays the dominant element. */
+.load-row .stat-value .metric-unit {
+  font-size: var(--fs-md);
+  color: var(--paper-muted);
+  font-weight: 400;
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
 /* ================================================== charts ========== */
 
 .charts-row {
@@ -1222,9 +1242,11 @@ h3.subsection::before {
 }
 .leaderboard td:nth-child(3) { width: 10em; }
 .leaderboard td:nth-child(4) { width: 40%; }
-.leaderboard tr:nth-child(1) td:nth-child(1) { color: var(--amber); font-weight: 700; }
-.leaderboard tr:nth-child(2) td:nth-child(1) { color: var(--paper-soft); }
-.leaderboard tr:nth-child(3) td:nth-child(1) { color: var(--paper-soft); }
+/* rank classes are emitted by the template so paginating to page 2+ doesn't
+   re-paint the page's first row as the global #1. */
+.leaderboard tr.lb-rank-1 td:nth-child(1) { color: var(--amber); font-weight: 700; }
+.leaderboard tr.lb-rank-2 td:nth-child(1) { color: var(--paper-soft); }
+.leaderboard tr.lb-rank-3 td:nth-child(1) { color: var(--paper-soft); }
 
 .lb-bar {
   height: 8px;
@@ -1261,6 +1283,45 @@ h3.subsection::before {
 }
 .dashboard-note strong { color: var(--paper); }
 .dashboard-note em { color: var(--amber); font-style: normal; }
+
+/* =================================================== pagination ====== */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0 var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.pager-status { color: var(--paper-soft); }
+.pager-status strong { color: var(--paper); font-weight: 600; }
+.pager-controls {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.pager .btn { font-family: var(--font-mono); font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-3); }
+.pager .btn.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+/* per-board pager inside a leaderboards card sits tighter */
+.lb-grid .pager {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: transparent;
+  border-color: var(--line-soft);
+}
 
 /* ================================================== compact mobile ==== */
 

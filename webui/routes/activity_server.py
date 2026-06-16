@@ -62,6 +62,8 @@ async def index(request):
 
     await names.refresh_guild_name_cache()
 
+    bot_id = state.bot_user_id_or_zero()
+
     if pool is not None:
         async with pool.acquire() as conn:
             # --- tiles ---
@@ -77,9 +79,9 @@ async def index(request):
                   COUNT(DISTINCT CASE WHEN last_catch >= $2 THEN user_id END) AS active_7d,
                   COUNT(DISTINCT CASE WHEN last_catch >= $3 THEN user_id END) AS active_30d
                 FROM profile
-                WHERE guild_id = $1
+                WHERE guild_id = $1 AND user_id <> $4
                 """,
-                guild_id, week_start, month_start,
+                guild_id, week_start, month_start, bot_id,
             )
             if row is not None:
                 tiles["profile_count"] = int(row["profile_count"] or 0)
@@ -92,21 +94,22 @@ async def index(request):
                 tiles["active_30d"] = int(row["active_30d"] or 0)
             tiles["prism_count"] = int(
                 await conn.fetchval(
-                    "SELECT COUNT(*) FROM prism WHERE guild_id = $1", guild_id
+                    "SELECT COUNT(*) FROM prism WHERE guild_id = $1 AND user_id <> $2",
+                    guild_id, bot_id,
                 ) or 0
             )
 
             # --- rarity / pack doughnuts ---
             if tiles["profile_count"]:
                 rarity_row = await conn.fetchrow(
-                    f"SELECT {_rarity_sum_clauses()} FROM profile WHERE guild_id = $1",
-                    guild_id,
+                    f"SELECT {_rarity_sum_clauses()} FROM profile WHERE guild_id = $1 AND user_id <> $2",
+                    guild_id, bot_id,
                 )
                 rarities = [(r, int(rarity_row[r] or 0)) for r in RARITY_COLUMNS]
 
                 pack_row = await conn.fetchrow(
-                    f"SELECT {_pack_sum_clauses()} FROM profile WHERE guild_id = $1",
-                    guild_id,
+                    f"SELECT {_pack_sum_clauses()} FROM profile WHERE guild_id = $1 AND user_id <> $2",
+                    guild_id, bot_id,
                 )
                 packs = [(p.title(), int(pack_row[p] or 0)) for p in PACK_COLUMNS]
 
@@ -114,11 +117,11 @@ async def index(request):
             rows = await conn.fetch(
                 """
                 SELECT catnip_level, COUNT(*) AS n FROM profile
-                WHERE guild_id = $1
+                WHERE guild_id = $1 AND user_id <> $2
                 GROUP BY catnip_level
                 ORDER BY catnip_level ASC
                 """,
-                guild_id,
+                guild_id, bot_id,
             )
             catnip_distribution = [(int(r["catnip_level"] or 0), int(r["n"])) for r in rows]
 
@@ -129,11 +132,11 @@ async def index(request):
                        outcome,
                        COUNT(*) AS n
                 FROM jobinstance
-                WHERE state = 'resolved' AND guild_id = $1 AND resolved_at >= $2
+                WHERE state = 'resolved' AND guild_id = $1 AND resolved_at >= $2 AND user_id <> $3
                 GROUP BY day, outcome
                 ORDER BY day ASC
                 """,
-                guild_id, window_start,
+                guild_id, window_start, bot_id,
             )
             outcomes_set: list[str] = []
             for r in rows:
@@ -156,11 +159,11 @@ async def index(request):
                        (SELECT COUNT(*) FROM prism pr
                           WHERE pr.user_id = p.user_id AND pr.guild_id = p.guild_id) AS prism_count
                 FROM profile p
-                WHERE p.guild_id = $1
+                WHERE p.guild_id = $1 AND p.user_id <> $2
                 ORDER BY p.total_catches DESC NULLS LAST
                 LIMIT 25
                 """,
-                guild_id,
+                guild_id, bot_id,
             )
             top_users = [
                 {
@@ -178,16 +181,16 @@ async def index(request):
             # --- recent jobs in this guild ---
             recent_jobs = await conn.fetch(
                 "SELECT user_id, category, tier, outcome, complication, resolved_at "
-                "FROM jobinstance WHERE state = 'resolved' AND guild_id = $1 "
+                "FROM jobinstance WHERE state = 'resolved' AND guild_id = $1 AND user_id <> $2 "
                 "ORDER BY resolved_at DESC LIMIT 25",
-                guild_id,
+                guild_id, bot_id,
             )
 
             # --- recent prisms in this guild ---
             recent_prisms = await conn.fetch(
                 'SELECT name, user_id, "time", catches_boosted '
-                'FROM prism WHERE guild_id = $1 ORDER BY "time" DESC NULLS LAST LIMIT 20',
-                guild_id,
+                'FROM prism WHERE guild_id = $1 AND user_id <> $2 ORDER BY "time" DESC NULLS LAST LIMIT 20',
+                guild_id, bot_id,
             )
 
             # --- live spawns/rains in this guild's channels ---

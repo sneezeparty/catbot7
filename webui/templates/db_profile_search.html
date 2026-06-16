@@ -12,35 +12,45 @@
     <button class="btn">Search</button>
   </form>
 
-  {% if rows %}
-    <table class="editor-table">
-      <thead>
-        <tr>
-          <th>user_id</th><th>guild_id</th><th>bp</th><th>xp</th><th>season</th>
-          <th>catch_quest</th><th>misc_quest</th><th>catches</th><th>rain</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
+  <div id="pager-profile" class="paginated-block">
+    {% if pager %}
+      {% include "partials/_pagination.html" %}
+    {% endif %}
+
+    {% if rows %}
+      <table class="editor-table">
+        <thead>
           <tr>
-            <td><span class="name">{{ unames.get(r.user_id, r.user_id) }}</span><span class="id-sub">{{ r.user_id }}</span></td>
-            <td><span class="name">{{ guild_name(r.guild_id) }}</span><span class="id-sub">{{ r.guild_id }}</span></td>
-            <td class="numeric">{{ r.battlepass }}</td>
-            <td class="numeric">{{ r.progress }}</td>
-            <td class="numeric">{{ r.season }}</td>
-            <td>{{ r.catch_quest }}</td>
-            <td>{{ r.misc_quest }}</td>
-            <td class="numeric">{{ r.total_catches }}</td>
-            <td class="numeric">{{ r.rain_minutes }}</td>
-            <td class="actions"><a class="btn" href="/db/profile/{{ r.user_id }}/{{ r.guild_id }}">View</a></td>
+            <th>user_id</th><th>guild_id</th><th>bp</th><th>xp</th><th>season</th>
+            <th>catch_quest</th><th>misc_quest</th><th>catches</th><th>rain</th><th></th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% elif q_user or q_guild %}
-    <p class="empty-state">No profiles matched.</p>
-  {% else %}
-    <p class="empty-state">Enter at least one filter to search.</p>
-  {% endif %}
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td><span class="name">{{ unames.get(r.user_id, r.user_id) }}</span><span class="id-sub">{{ r.user_id }}</span></td>
+              <td><span class="name">{{ guild_name(r.guild_id) }}</span><span class="id-sub">{{ r.guild_id }}</span></td>
+              <td class="numeric">{{ r.battlepass }}</td>
+              <td class="numeric">{{ r.progress }}</td>
+              <td class="numeric">{{ r.season }}</td>
+              <td>{{ r.catch_quest }}</td>
+              <td>{{ r.misc_quest }}</td>
+              <td class="numeric">{{ r.total_catches }}</td>
+              <td class="numeric">{{ r.rain_minutes }}</td>
+              <td class="actions"><a class="btn" href="/db/profile/{{ r.user_id }}/{{ r.guild_id }}">View</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% elif q_user or q_guild %}
+      <p class="empty-state">No profiles matched.</p>
+    {% else %}
+      <p class="empty-state">Enter at least one filter to search.</p>
+    {% endif %}
+
+    {% if rows and pager %}
+      {% include "partials/_pagination.html" %}
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

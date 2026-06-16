@@ -7,7 +7,8 @@
   {% include "partials/_section_header.html" %}
 
   {% set body %}
-    A read-only view of per-guild feature flags on the <code>server</code> table. Showing up to 200 rows.
+    A read-only view of per-guild feature flags on the <code>server</code> table.
+    Showing {{ pager.per_page }} rows per page.
   {% endset %}
   {% include "partials/_help.html" %}
 
@@ -16,30 +17,38 @@
     <button class="btn">Search</button>
   </form>
 
-  {% if rows %}
-    <table class="editor-table">
-      <thead>
-        <tr>
-          <th>server_id</th>
-          {% for t in toggles %}<th title="{{ t }}">{{ t|replace("_", " ")|truncate(12) }}</th>{% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
+  <div id="pager-server" class="paginated-block">
+    {% include "partials/_pagination.html" %}
+
+    {% if rows %}
+      <table class="editor-table">
+        <thead>
           <tr>
-            <td><span class="name">{{ guild_name(row.server_id) }}</span><span class="id-sub">{{ row.server_id }}</span></td>
-            {% for t in toggles %}
-              <td>
-                {% if row[t] %}<span class="flag flag-on">on</span>
-                {% else %}<span class="flag flag-off">off</span>{% endif %}
-              </td>
-            {% endfor %}
+            <th>server_id</th>
+            {% for t in toggles %}<th title="{{ t }}">{{ t|replace("_", " ")|truncate(12) }}</th>{% endfor %}
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="empty-state">No servers found.</p>
-  {% endif %}
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td><span class="name">{{ guild_name(row.server_id) }}</span><span class="id-sub">{{ row.server_id }}</span></td>
+              {% for t in toggles %}
+                <td>
+                  {% if row[t] %}<span class="flag flag-on">on</span>
+                  {% else %}<span class="flag flag-off">off</span>{% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">No servers found.</p>
+    {% endif %}
+
+    {% if rows %}
+      {% include "partials/_pagination.html" %}
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

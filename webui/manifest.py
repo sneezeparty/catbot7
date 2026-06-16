@@ -30,7 +30,7 @@ from __future__ import annotations
 SECTIONS: dict[str, dict] = {
     # ----------------------------------------------------------------- Insights
     "dashboard": {
-        "source": ["live", "db:profile", "db:channel", "db:prism", "db:server", "db:user", "db:jobinstance"],
+        "source": ["live", "db:profile", "db:channel", "db:prism", "db:server", "db:user", "db:jobinstance", "db:metric_snapshot"],
         "routes": ["GET /"],
         "templates": ["dashboard.html"],
         "data_sources": [
@@ -39,7 +39,8 @@ SECTIONS: dict[str, dict] = {
             "profile.total_catches, profile.packs_opened, profile.last_catch, profile.cat_<rarity>, profile.pack_<tier>",
             'profile (COUNT), "user" (COUNT), prism (COUNT), prism.catches_boosted, prism.time',
             "jobinstance.state ('offered')",
-            "dashboard.py: RARITY_COLUMNS, PACK_COLUMNS, _rarity_sum_clauses, _pack_sum_clauses, _topN_with_other",
+            "metric_snapshot.bucket_time + LOAD_METRICS columns (total_catches, total_packs, jobs_completed_lifetime, catnip_total) — Load section diffs the last ~25 hourly buckets",
+            "dashboard.py: RARITY_COLUMNS, PACK_COLUMNS, LOAD_METRICS, _rarity_sum_clauses, _pack_sum_clauses, _topN_with_other, _load_rates",
         ],
     },
     "activity": {

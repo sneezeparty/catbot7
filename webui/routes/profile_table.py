@@ -9,6 +9,9 @@ import aiohttp_jinja2
 from aiohttp import web
 
 from webui import names, state
+from webui.pagination import make_pager, parse_page
+
+PER_PAGE = 50
 
 INT_FIELDS = [
     # Progression
@@ -175,8 +178,11 @@ JSONB_FIELDS = [
 async def index(request):
     pool = state.get_pool()
     rows = []
+    total = 0
     q_user = request.query.get("user", "").strip()
     q_guild = request.query.get("guild", "").strip()
+    page = parse_page(request)
+    pager = None
     if pool is not None and (q_user or q_guild):
         where = []
         args = []
@@ -186,13 +192,29 @@ async def index(request):
         if q_guild:
             args.append(f"%{q_guild}%")
             where.append(f"CAST(guild_id AS TEXT) LIKE ${len(args)}")
-        sql = (
-            "SELECT user_id, guild_id, battlepass, progress, season, "
-            "catch_quest, misc_quest, total_catches, rain_minutes "
-            "FROM profile WHERE " + " AND ".join(where) + " ORDER BY total_catches DESC LIMIT 100"
-        )
+        where_sql = " AND ".join(where)
         async with pool.acquire() as conn:
-            rows = await conn.fetch(sql, *args)
+            total = await conn.fetchval(
+                f"SELECT COUNT(*) FROM profile WHERE {where_sql}", *args,
+            ) or 0
+            limit_arg = f"${len(args) + 1}"
+            offset_arg = f"${len(args) + 2}"
+            sql = (
+                "SELECT user_id, guild_id, battlepass, progress, season, "
+                "catch_quest, misc_quest, total_catches, rain_minutes "
+                f"FROM profile WHERE {where_sql} "
+                f"ORDER BY total_catches DESC LIMIT {limit_arg} OFFSET {offset_arg}"
+            )
+            rows = await conn.fetch(sql, *args, PER_PAGE, (page - 1) * PER_PAGE)
+        pager = make_pager(
+            request,
+            page=page,
+            per_page=PER_PAGE,
+            total=int(total),
+            base_path="/db/profile",
+            params={"user": q_user, "guild": q_guild},
+            target="#pager-profile",
+        )
     await names.refresh_guild_name_cache()
     unames = await names.resolve_users(state.get_bot(), [r["user_id"] for r in rows])
     return aiohttp_jinja2.render_template(
@@ -205,6 +227,7 @@ async def index(request):
             "q_user": q_user,
             "q_guild": q_guild,
             "unames": unames,
+            "pager": pager,
         },
     )
 

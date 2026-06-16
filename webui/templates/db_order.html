@@ -28,35 +28,36 @@
     </tbody>
   </table>
 
-  <h2 class="section">Open orders <span class="heading-count">{{ rows|length }}{% if total > rows|length %} / {{ total }}{% endif %}</span></h2>
-  {% if total > rows|length %}
-    <p class="muted">Showing first 500 of {{ total }} orders.</p>
-  {% endif %}
-  <table class="editor-table">
-    <thead>
-      <tr>
-        <th>id</th>
-        <th>ticker</th>
-        <th>side</th>
-        <th>qty</th>
-        <th>price</th>
-        <th>user_id</th>
-        <th>placed</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for o in rows %}
+  <div id="pager-order" class="paginated-block">
+    <h2 class="section">Open orders <span class="heading-count">page {{ pager.page }} of {{ pager.total_pages }}</span></h2>
+    {% include "partials/_pagination.html" %}
+    <table class="editor-table">
+      <thead>
         <tr>
-          <td class="numeric">{{ o.id }}</td>
-          <td><span class="name">{{ o.ticker }}</span></td>
-          <td>{{ "BUY" if o.type_buy else "SELL" }}</td>
-          <td class="numeric">{{ o.quantity }}</td>
-          <td class="numeric">{{ o.price }}</td>
-          <td><span class="name">{{ unames.get(o.user_id, o.user_id) }}</span><span class="id-sub">{{ o.user_id }}</span></td>
-          <td><span class="muted">{{ o.time|fmt_ts }}</span></td>
+          <th>id</th>
+          <th>ticker</th>
+          <th>side</th>
+          <th>qty</th>
+          <th>price</th>
+          <th>user_id</th>
+          <th>placed</th>
         </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for o in rows %}
+          <tr>
+            <td class="numeric">{{ o.id }}</td>
+            <td><span class="name">{{ o.ticker }}</span></td>
+            <td>{{ "BUY" if o.type_buy else "SELL" }}</td>
+            <td class="numeric">{{ o.quantity }}</td>
+            <td class="numeric">{{ o.price }}</td>
+            <td><span class="name">{{ unames.get(o.user_id, o.user_id) }}</span><span class="id-sub">{{ o.user_id }}</span></td>
+            <td><span class="muted">{{ o.time|fmt_ts }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "partials/_pagination.html" %}
+  </div>
 </section>
 {% endblock %}

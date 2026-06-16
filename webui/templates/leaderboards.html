@@ -8,20 +8,23 @@
 
   {% set body %}
     Each board sums (or maxes) the relevant column across a user's per-server profiles.
-    Showing the top {{ limit }} per board.
+    Showing {{ per_page }} per page; every board paginates independently.
   {% endset %}
   {% include "partials/_help.html" %}
 
   <div class="lb-grid">
     {% for board in boards %}
-      <article class="card">
-        <h2>{{ board.title }} <span class="heading-count">{{ board.entries|length }}</span></h2>
+      <article class="card" id="pager-lb-{{ board.key }}">
+        <h2>
+          {{ board.title }}
+          <span class="heading-count">page {{ board.pager.page }}</span>
+        </h2>
         {% if board.entries %}
           <table class="editor-table leaderboard">
             <tbody>
               {% for e in board.entries %}
-                <tr>
-                  <td class="numeric">{{ loop.index }}</td>
+                <tr class="{% if e.rank == 1 %}lb-rank-1{% elif e.rank == 2 %}lb-rank-2{% elif e.rank == 3 %}lb-rank-3{% endif %}">
+                  <td class="numeric">{{ e.rank }}</td>
                   <td><span class="name">{{ unames.get(e.user_id, e.user_id) }}</span><span class="id-sub">{{ e.user_id }}</span></td>
                   <td class="numeric">{{ "{:,}".format(e.value) }}</td>
                   <td><div class="lb-bar"><div class="lb-bar-fill" style="width: {{ (e.value / board.top * 100)|round(1) }}%"></div></div></td>
@@ -30,7 +33,12 @@
             </tbody>
           </table>
         {% else %}
-          <p class="empty-state">No data yet.</p>
+          <p class="empty-state">
+            {% if board.pager.page > 1 %}Nothing on this page.{% else %}No data yet.{% endif %}
+          </p>
+        {% endif %}
+        {% if board.pager.has_prev or board.pager.has_next %}
+          {% with pager = board.pager %}{% include "partials/_pagination.html" %}{% endwith %}
         {% endif %}
       </article>
     {% endfor %}

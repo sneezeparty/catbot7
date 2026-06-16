@@ -43,6 +43,8 @@ async def index(request):
     series: dict = {}         # ticker -> {"labels": [...], "data": [...]}
     by_ticker: list = []      # order-book buy/sell counts
 
+    bot_id = state.bot_user_id_or_zero()
+
     if pool is not None:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -54,11 +56,19 @@ async def index(request):
                   COALESCE(SUM(catslots_coins_won), 0)  AS catslots_won,
                   COALESCE(SUM(catslots_coins_bet), 0)  AS catslots_bet
                 FROM profile
-                """
+                WHERE user_id <> $1
+                """,
+                bot_id,
             )
             econ = {k: int(row[k] or 0) for k in econ}
+            # order.user_id is profile.id, not Discord user_id, so the bot
+            # exclusion needs to subselect the bot's profile rows.
             order_notional = int(
-                await conn.fetchval('SELECT COALESCE(SUM(quantity * price), 0) FROM "order"') or 0
+                await conn.fetchval(
+                    'SELECT COALESCE(SUM(quantity * price), 0) FROM "order" '
+                    'WHERE user_id NOT IN (SELECT id FROM profile WHERE user_id = $1)',
+                    bot_id,
+                ) or 0
             )
 
             latest = await conn.fetch(
@@ -92,7 +102,10 @@ async def index(request):
                 'SELECT ticker, '
                 "  COUNT(*) FILTER (WHERE type_buy)     AS buy_count, "
                 "  COUNT(*) FILTER (WHERE NOT type_buy)  AS sell_count "
-                'FROM "order" GROUP BY ticker ORDER BY ticker'
+                'FROM "order" '
+                'WHERE user_id NOT IN (SELECT id FROM profile WHERE user_id = $1) '
+                'GROUP BY ticker ORDER BY ticker',
+                bot_id,
             )
 
     await names.refresh_guild_name_cache()

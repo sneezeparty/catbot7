@@ -17,7 +17,7 @@
     <article class="stat-tile">
       <span class="stat-eyebrow">Setupped channels</span>
       <span class="stat-value">{{ "{:,}".format(live.setupped_channels) }}</span>
-      <span class="stat-foot">currently spawning cats</span>
+      <span class="stat-foot">channels with <code>/setup</code> active</span>
     </article>
     <article class="stat-tile">
       <span class="stat-eyebrow">Profiles</span>
@@ -48,6 +48,46 @@
       <span class="stat-eyebrow">Jobs committed</span>
       <span class="stat-value">{{ "{:,}".format(live.pending_jobs_committed) }}</span>
       <span class="stat-foot">awaiting resolve</span>
+    </article>
+  </div>
+
+  {# ============================ last 24h event counts ============================ #}
+  {% set window_label = "Last 24 hours" if last24h.window_hours >= 24 else "Last " ~ last24h.window_hours ~ "h" %}
+  <h2 class="section">{{ window_label }}</h2>
+  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
+    Event counts derived by differencing the latest <code>metric_snapshot</code>
+    row against one ~24h old.
+    {% if last24h.window_hours and last24h.window_hours < 24 %}
+    <br><strong class="muted">Currently warming up:</strong> only ~{{ last24h.window_hours }}h of snapshot history collected so far.
+    {% elif not last24h.window_hours %}
+    <br><strong class="muted">No snapshot history yet</strong> — values will populate as the snapshot loop ticks.
+    {% endif %}
+  </p>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Catches</span>
+      <span class="stat-value">{{ "{:,}".format(last24h.catches) }}</span>
+      <span class="stat-foot">messages typing <code>cat</code></span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Packs opened</span>
+      <span class="stat-value">{{ "{:,}".format(last24h.packs) }}</span>
+      <span class="stat-foot"><code>/pack</code> opens</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs completed</span>
+      <span class="stat-value">{{ "{:,}".format(last24h.jobs_completed) }}</span>
+      <span class="stat-foot"><code>/jobs</code> resolved</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Jobs failed</span>
+      <span class="stat-value">{{ "{:,}".format(last24h.jobs_failed) }}</span>
+      <span class="stat-foot">failed outcomes</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Prisms created</span>
+      <span class="stat-value">{{ "{:,}".format(last24h.prisms) }}</span>
+      <span class="stat-foot">new prism rows</span>
     </article>
   </div>
 

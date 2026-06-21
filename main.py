@@ -3535,7 +3535,6 @@ async def _perks_resolve_immediate_inner(profile: Profile, perk_id: str, *, npc:
         if cur_prog >= int(quest_data.get("progress", 1)):
             profile.misc_cooldown = now
             profile.misc_progress = 0
-            profile.reminder_misc = 1
             profile.progress = int(getattr(profile, "progress", 0) or 0) + int(getattr(profile, "misc_reward", 0) or 0)
         else:
             profile.misc_progress = cur_prog
@@ -4628,14 +4627,15 @@ async def generate_quest(user: Profile, quest_type: str):
 
     quest_data = config.battle["quests"][quest_type][quest]
     if quest_type == "vote":
-        # ~1/3 of refresh cycles the slot is the real Vote on Top.gg quest;
-        # the other ~2/3 we sub in a random single-action misc quest so the
-        # vote prompt doesn't dominate. Substitute reuses vote_reward (XP)
-        # and vote_cooldown (claim timestamp). vote_quest stores the misc
-        # quest id; empty string means "real vote quest." Pre-migration 028
-        # the vote_quest column may be absent — _set_vote_quest_safe returns
-        # False in that case and we fall back to the real vote quest path.
-        roll_substitute = random.randint(1, 3) != 1
+        # ~1/2 of refresh cycles the slot is the real Vote on Top.gg quest
+        # ("every other level"); the other half we sub in a random
+        # single-action misc quest so the vote prompt doesn't dominate.
+        # Substitute reuses vote_reward (XP) and vote_cooldown (claim
+        # timestamp). vote_quest stores the misc quest id; empty string
+        # means "real vote quest." Pre-migration 028 the vote_quest column
+        # may be absent — _set_vote_quest_safe returns False in that case
+        # and we fall back to the real vote quest path.
+        roll_substitute = random.randint(1, 2) == 1
         sub_assigned = False
         if roll_substitute:
             sub_pool = [
@@ -5023,7 +5023,6 @@ async def progress(
             user.catch_cooldown = int(time.time())
             current_xp = user.progress + user.catch_reward + _qxp_bonus(user.catch_reward, include_catch_xp=True)
             user.catch_progress = 0
-            user.reminder_catch = 1
     elif quest == "vote":
         # Vote slot is a misc-pool substitute this cycle — voting doesn't
         # claim it. The substitute is progressed via its own quest name
@@ -5058,7 +5057,6 @@ async def progress(
             user.misc_cooldown = int(time.time())
             current_xp = user.progress + user.misc_reward + _qxp_bonus(user.misc_reward, include_catch_xp=False)
             user.misc_progress = 0
-            user.reminder_misc = 1
     elif user.extra_quest == quest:
         if user.extra_cooldown != 0:
             return user
@@ -5081,7 +5079,6 @@ async def progress(
             user.challenge_cooldown = int(time.time())
             current_xp = user.progress + user.challenge_reward + _qxp_bonus(user.challenge_reward, include_catch_xp=False)
             user.challenge_progress = 0
-            user.reminder_challenge = 1
             if not user.has_ach("challenge_first"):
                 # Fire the first-completion ach BEFORE the level-up flow so it
                 # lands inline with the other catch-context embeds.
@@ -5445,8 +5442,10 @@ async def _spawn_revival_loop():
 
 
 # Activity dashboard hourly aggregate snapshot. Cadence is faster than the
-# bucket (1 hour) so every hour boundary gets a row promptly; the bucket-time
-# PK + ON CONFLICT DO NOTHING makes the extra writes within a bucket no-ops.
+# bucket (1 hour) so every hour boundary gets a row promptly AND the current
+# bucket's row stays fresh — ON CONFLICT DO UPDATE rewrites the in-progress
+# hour every tick so the "Last 24h" tile and the today-bar on the catches/
+# coins charts reflect data ≤5 min old instead of waiting up to an hour.
 METRICS_SNAPSHOT_INTERVAL = 300
 
 
@@ -5456,8 +5455,8 @@ async def _metrics_snapshot_tick():
     bot is currently in.
 
     Robust to a partially-migrated DB: missing table/column is logged once and
-    skipped. Robust to restarts: PK on bucket_time + ON CONFLICT DO NOTHING
-    means the next tick after a restart is at worst a no-op.
+    skipped. Robust to restarts: PK on bucket_time + ON CONFLICT DO UPDATE
+    means the next tick after a restart just refreshes the current row.
     """
     import asyncpg as _asyncpg
     if pool is None or not bot or not bot.is_ready():
@@ -5548,7 +5547,23 @@ async def _metrics_snapshot_tick():
                         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                         $11, $12, $13, $14, $15, $16, $17
                     )
-                    ON CONFLICT (bucket_time) DO NOTHING
+                    ON CONFLICT (bucket_time) DO UPDATE SET
+                        guild_count = EXCLUDED.guild_count,
+                        profile_count = EXCLUDED.profile_count,
+                        user_count = EXCLUDED.user_count,
+                        active_24h = EXCLUDED.active_24h,
+                        active_7d = EXCLUDED.active_7d,
+                        active_30d = EXCLUDED.active_30d,
+                        total_catches = EXCLUDED.total_catches,
+                        total_packs = EXCLUDED.total_packs,
+                        total_prisms = EXCLUDED.total_prisms,
+                        coins_in_circulation = EXCLUDED.coins_in_circulation,
+                        catnip_total = EXCLUDED.catnip_total,
+                        jobs_completed_lifetime = EXCLUDED.jobs_completed_lifetime,
+                        jobs_failed_lifetime = EXCLUDED.jobs_failed_lifetime,
+                        live_spawns = EXCLUDED.live_spawns,
+                        active_rains = EXCLUDED.active_rains,
+                        pending_jobs = EXCLUDED.pending_jobs
                     """,
                     bucket,
                     len(bot.guilds),
@@ -6322,20 +6337,14 @@ async def refresh_stock_rewards(ticker):
 
 async def postpone_reminder(interaction):
     reminder_type = interaction.data["custom_id"]
-    if reminder_type == "vote":
-        user = await User.get_or_create(user_id=interaction.user.id)
-        user.reminder_vote = int(time.time()) + 30 * 60
-        await user.save()
-    else:
-        guild_id = reminder_type.split("_")[1]
-        user = await Profile.get_or_create(guild_id=int(guild_id), user_id=interaction.user.id)
-        if reminder_type.startswith("catch"):
-            user.reminder_catch = int(time.time()) + 30 * 60
-        elif reminder_type.startswith("challenge"):
-            user.reminder_challenge = int(time.time()) + 30 * 60
-        else:
-            user.reminder_misc = int(time.time()) + 30 * 60
-        await user.save()
+    if reminder_type != "vote":
+        # Stale button on an old quest-reminder DM. Quest reminders were
+        # retired; only vote postpone is live now.
+        await interaction.response.send_message("this reminder type is no longer supported", ephemeral=True)
+        return
+    user = await User.get_or_create(user_id=interaction.user.id)
+    user.reminder_vote = int(time.time()) + 30 * 60
+    await user.save()
     logging.debug("Reminder postponed: %s", reminder_type)
     await interaction.response.send_message(f"ok, i will remind you <t:{int(time.time()) + 30 * 60}:R>", ephemeral=True)
 
@@ -6517,142 +6526,6 @@ async def background_loop():
             await user.save()
 
     logging.debug("Reminders sent: %d, type: %s", reminder_count, "vote")
-
-    # i know the next two are similiar enough to be merged but its currently dec 30 and i cant be bothered
-    # catch reminders
-    reminder_count = 0
-    while True:
-        user = await Profile.collect(
-            f"(reminders_enabled = true AND reminder_catch != 0) AND ((catch_cooldown != 0 AND catch_cooldown + 43200 < {start_time}) OR (reminder_catch > 1 AND reminder_catch < {start_time})) LIMIT 1",
-        )
-        if not user or not user[0]:
-            break
-        user = user[0]
-        await asyncio.sleep(0.2)
-
-        await refresh_quests(user)
-        await user.refresh_from_db()
-
-        quest_data = config.battle["quests"]["catch"][user.catch_quest]
-
-        embed = discord.Embed(
-            title=f"{get_emoji(quest_data['emoji'])} {quest_data['title']}",
-            description=f"Reward: **{user.catch_reward}** XP",
-            color=Colors.green,
-        )
-
-        view = View(timeout=VIEW_TIMEOUT)
-        button = Button(label="Postpone", custom_id=f"catch_{user.guild_id}")
-        button.callback = postpone_reminder
-        view.add_item(button)
-
-        guild = bot.get_guild(user.guild_id)
-        if not guild:
-            guild_name = "a server"
-        else:
-            guild_name = guild.name
-
-        try:
-            user_user = await User.get_or_create(id=user.user_id)
-            user_dm = await fetch_dm_channel(user_user)
-            await user_dm.send(f"A new quest is available in {guild_name}!", embed=embed, view=view)
-        except Exception:
-            pass
-        user.reminder_catch = 0
-        reminder_count += 1
-        await user.save()
-
-    logging.debug("Reminders sent: %d, type: %s", reminder_count, "catch")
-
-    # misc reminders
-    reminder_count = 0
-    while True:
-        user = await Profile.collect(
-            f"(reminders_enabled = true AND reminder_misc != 0) AND ((misc_cooldown != 0 AND misc_cooldown + 43200 < {start_time}) OR (reminder_misc > 1 AND reminder_misc < {start_time})) LIMIT 1",
-        )
-        if not user or not user[0]:
-            break
-        user = user[0]
-        await asyncio.sleep(0.2)
-
-        await refresh_quests(user)
-        await user.refresh_from_db()
-
-        quest_data = config.battle["quests"]["misc"][user.misc_quest]
-
-        embed = discord.Embed(
-            title=f"{get_emoji(quest_data['emoji'])} {quest_data['title']}",
-            description=f"Reward: **{user.misc_reward}** XP",
-            color=Colors.green,
-        )
-
-        view = View(timeout=VIEW_TIMEOUT)
-        button = Button(label="Postpone", custom_id=f"misc_{user.guild_id}")
-        button.callback = postpone_reminder
-        view.add_item(button)
-
-        guild = bot.get_guild(user.guild_id)
-        if not guild:
-            guild_name = "a server"
-        else:
-            guild_name = guild.name
-
-        try:
-            user_user = await User.get_or_create(user_id=user.user_id)
-            user_dm = await fetch_dm_channel(user_user)
-            await user_dm.send(f"A new quest is available in {guild_name}!", embed=embed, view=view)
-        except Exception:
-            pass
-        user.reminder_misc = 0
-        reminder_count += 1
-        await user.save()
-
-    logging.debug("Reminders sent: %d, type: %s", reminder_count, "misc")
-
-    # challenge reminders
-    reminder_count = 0
-    while True:
-        user = await Profile.collect(
-            f"(reminders_enabled = true AND reminder_challenge != 0) AND ((challenge_cooldown != 0 AND challenge_cooldown + 43200 < {start_time}) OR (reminder_challenge > 1 AND reminder_challenge < {start_time})) LIMIT 1",
-        )
-        if not user or not user[0]:
-            break
-        user = user[0]
-        await asyncio.sleep(0.2)
-
-        await refresh_quests(user)
-        await user.refresh_from_db()
-
-        quest_data = config.battle["quests"]["challenge"][user.challenge_quest]
-
-        embed = discord.Embed(
-            title=f"{get_emoji(quest_data['emoji'])} {quest_data['title']}",
-            description=f"Reward: **{user.challenge_reward}** XP",
-            color=Colors.green,
-        )
-
-        view = View(timeout=VIEW_TIMEOUT)
-        button = Button(label="Postpone", custom_id=f"challenge_{user.guild_id}")
-        button.callback = postpone_reminder
-        view.add_item(button)
-
-        guild = bot.get_guild(user.guild_id)
-        if not guild:
-            guild_name = "a server"
-        else:
-            guild_name = guild.name
-
-        try:
-            user_user = await User.get_or_create(user_id=user.user_id)
-            user_dm = await fetch_dm_channel(user_user)
-            await user_dm.send(f"A new quest is available in {guild_name}!", embed=embed, view=view)
-        except Exception:
-            pass
-        user.reminder_challenge = 0
-        reminder_count += 1
-        await user.save()
-
-    logging.debug("Reminders sent: %d, type: %s", reminder_count, "challenge")
 
     # manual reminders
     async for reminder in Reminder.filter("time < $1", time.time()):
@@ -14722,6 +14595,16 @@ async def jobs(message: discord.Interaction):
                         await progress(interaction, profile, "job_hard")
                     except Exception:
                         logging.exception("jobs: job_hard progress failed")
+                # "Have a job perk active" quest — passive condition, so fire
+                # whenever a successful commit leaves the player holding any
+                # stored perk (covers a fresh drop AND a pre-existing perk
+                # from an earlier job). The /perks command also fires this
+                # for the case where the player never does another job.
+                if _perks_active_ids(profile):
+                    try:
+                        await progress(interaction, profile, "perk_user")
+                    except Exception:
+                        logging.exception("jobs: perk_user progress failed")
         except Exception:
             logging.exception("jobs: post-commit BP progress wrapper failed")
 

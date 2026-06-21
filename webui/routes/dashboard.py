@@ -121,8 +121,9 @@ async def index(request):
     if pool is not None:
         async with pool.acquire() as conn:
             counts["servers"] = await conn.fetchval("SELECT COUNT(*) FROM server")
+            # Every row in `channel` is a /setup'd channel (/forget deletes).
             counts["channels"] = await conn.fetchval(
-                "SELECT COUNT(*) FROM channel WHERE cat <> 0 OR yet_to_spawn <> 0"
+                "SELECT COUNT(*) FROM channel"
             )
             counts["profiles"] = await conn.fetchval(
                 "SELECT COUNT(*) FROM profile WHERE user_id <> $1", bot_id

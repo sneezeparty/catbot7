@@ -3392,8 +3392,8 @@
       "vote": {
         "emoji": "topgg",
         "title": "Vote on Top.gg",
-        "xp_min": 150,
-        "xp_max": 220,
+        "xp_min": 300,
+        "xp_max": 450,
         "progress": 1
       }
     },

@@ -1,4 +1,4 @@
-"""aiohttp server entry. Bound to 127.0.0.1:9445."""
+"""aiohttp server entry. Bound to 192.168.1.155:9445 (LAN-only, no auth)."""
 
 import logging
 from pathlib import Path
@@ -12,7 +12,7 @@ from webui.routes import register as register_routes
 
 log = logging.getLogger(__name__)
 
-HOST = "127.0.0.1"
+HOST = "192.168.1.155"
 PORT = 9445
 
 WEBUI_DIR = Path(__file__).resolve().parent

@@ -47,6 +47,15 @@ async def index(request):
     }
     activity_counts = {"today": 0, "week": 0, "month": 0}
 
+    # Event counts over the last ~24h, computed by differencing the latest
+    # metric_snapshot row against one ~24h old (falls back to the oldest
+    # snapshot if there isn't enough history yet). window_hours reflects the
+    # actual span covered so the UI can label it honestly.
+    last24h = {
+        "catches": 0, "packs": 0, "jobs_completed": 0,
+        "jobs_failed": 0, "prisms": 0, "window_hours": 0,
+    }
+
     # ---- time-series ----
     catches_per_day: list = []     # [(day, catches)]
     coins_per_day: list = []       # [(day, coins)]
@@ -76,8 +85,13 @@ async def index(request):
     if pool is not None:
         async with pool.acquire() as conn:
             # --- live counters ---
+            # Every row in `channel` represents a /setup'd channel — /forget
+            # deletes the row. The older filter `cat<>0 OR yet_to_spawn<>0`
+            # missed channels in the brief window after a catch where both
+            # fields are 0, and disagreed with the Announcements broadcaster
+            # count.
             live["setupped_channels"] = await conn.fetchval(
-                "SELECT COUNT(*) FROM channel WHERE cat <> 0 OR yet_to_spawn <> 0"
+                "SELECT COUNT(*) FROM channel"
             ) or 0
             live["profile_count"] = await conn.fetchval(
                 "SELECT COUNT(*) FROM profile WHERE user_id <> $1", bot_id
@@ -126,6 +140,32 @@ async def index(request):
                 snapshot_oldest = int(meta["oldest"] or 0)
             except Exception:
                 snapshot_rows = 0
+
+            if snapshot_rows >= 2:
+                try:
+                    delta_rows = await conn.fetch(
+                        "SELECT bucket_time, total_catches, total_packs, "
+                        "jobs_completed_lifetime, jobs_failed_lifetime, total_prisms "
+                        "FROM metric_snapshot ORDER BY bucket_time DESC LIMIT 50"
+                    )
+                    if len(delta_rows) >= 2:
+                        latest_row = delta_rows[0]
+                        target_bucket = int(latest_row["bucket_time"]) - 86400
+                        prev_row = next(
+                            (r for r in delta_rows[1:] if int(r["bucket_time"]) <= target_bucket),
+                            delta_rows[-1],
+                        )
+                        span = max(1, int(latest_row["bucket_time"]) - int(prev_row["bucket_time"]))
+                        last24h = {
+                            "catches": max(0, int(latest_row["total_catches"] or 0) - int(prev_row["total_catches"] or 0)),
+                            "packs": max(0, int(latest_row["total_packs"] or 0) - int(prev_row["total_packs"] or 0)),
+                            "jobs_completed": max(0, int(latest_row["jobs_completed_lifetime"] or 0) - int(prev_row["jobs_completed_lifetime"] or 0)),
+                            "jobs_failed": max(0, int(latest_row["jobs_failed_lifetime"] or 0) - int(prev_row["jobs_failed_lifetime"] or 0)),
+                            "prisms": max(0, int(latest_row["total_prisms"] or 0) - int(prev_row["total_prisms"] or 0)),
+                            "window_hours": max(1, span // 3600),
+                        }
+                except Exception:
+                    pass
 
             if snapshot_rows:
                 try:
@@ -371,6 +411,7 @@ async def index(request):
             "now": now,
             "live": live,
             "activity_counts": activity_counts,
+            "last24h": last24h,
             "catches_per_day": catches_per_day,
             "coins_per_day": coins_per_day,
             "jobs_day_keys": jobs_day_keys,

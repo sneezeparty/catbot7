@@ -115,7 +115,7 @@ Added in May 2026. Originally added when the vote quest was inactive on this sel
 | `store_buy` | ~240–300 XP | buy any cat from `/catstore` |
 | `store_sell` | ~220–280 XP | sell any cat to `/catstore` |
 | `store_spree` | ~320–400 XP | spend ≥ 2,500 coins on a single `/catstore` purchase |
-| `perk_user` | ~220–280 XP | have a job perk active when the trigger fires; implicitly gated on having received at least one job perk drop |
+| `perk_user` | ~220–280 XP | have a job perk active at the moment a successful `/jobs` commit lands (fires from the commit block in `main.py` when `_perks_active_ids(profile)` is non-empty); also fires from `/perks` for players who hold a perk but don't commit another job; implicitly gated on having received at least one job perk drop |
 
 **Design intent:** the extra slot is the *novel-mechanic* slot — quests here probe parts of the bot that catch/misc don't cover (catnip, social, casino variety, jobs, the Cat Store). The `sacrifice` quest is intentionally opaque: users see "reward depends on the cat" and don't see the per-cat table. This creates a small thrill of "which cat is worth sacrificing" without turning into a spreadsheet exercise.
 
@@ -147,9 +147,9 @@ Added alongside `gift3` in May 2026. A 5th peer slot — not gated on catnip, vo
 
 A separate quest slot that is **gated on `config.VOTING_ENABLED`** — when `voting_enabled=0` the slot is inert and `/vote` returns "voting isn't enabled on this instance." When enabled, the `/vote` command surfaces the player's vote status and reward info.
 
-**Slot composition (1/3 real vote, 2/3 substitute).** When `generate_quest("vote")` runs, it rolls `random.randint(1, 3)`:
-- **Pass (== 1, ~33%):** the slot is set to the real "Vote on Top.gg" quest, drawn from `quests.vote` in `battlepass.json`. XP range is **150–220 XP base** with a **2× weekend multiplier**. The reward is randomized and stored in `user.vote_reward`.
-- **Fail (~67%):** a single-action misc quest is picked at random from a filtered subset of `quests.misc` (see substitute pool rules below) and stored in `user.vote_quest` (the `profile.vote_quest` text column, default `''`). The substitute's XP range comes from the misc quest's own `xp_min/xp_max`. XP and claim timestamp still ride on `vote_reward` and `vote_cooldown` — no extra columns needed.
+**Slot composition (1/2 real vote, 1/2 substitute).** When `generate_quest("vote")` runs, it rolls `random.randint(1, 2)`:
+- **Pass (== 1, ~50%):** the slot is set to the real "Vote on Top.gg" quest, drawn from `quests.vote` in `battlepass.json`. XP range is **300–450 XP base** with a **2× weekend multiplier**. The reward is randomized and stored in `user.vote_reward`.
+- **Fail (~50%):** a single-action misc quest is picked at random from a filtered subset of `quests.misc` (see substitute pool rules below) and stored in `user.vote_quest` (the `profile.vote_quest` text column, default `''`). The substitute's XP range comes from the misc quest's own `xp_min/xp_max`. XP and claim timestamp still ride on `vote_reward` and `vote_cooldown` — no extra columns needed.
 
 If the substitute pool is empty (extreme config drift), the slot falls back to the real vote quest.
 
@@ -181,7 +181,7 @@ The **`/battlepass` vote quest line** renders "Vote on Top.gg" as a clickable ma
 
 **Env-var requirements:** voting is **on by default** (`voting_enabled` defaults to `"1"`); set `voting_enabled=0` to disable. `top_gg_modern_token` is required for vote-replay fallback polling and stats posting. `webhook_verify` is optional — starts the public `0.0.0.0:8069` webhook server; without it, only the vote-replay polling path is active.
 
-**Design intent:** the real-vote XP (150–220 base) is intentionally the *smallest* of the five daily quest rewards, so voting feels rewarding but not coercive. The 2/3 substitute mechanic ensures the slot contributes meaningful activity-driven XP even on days when the player does not vote — without that, non-voters would lose a fifth of their daily quest economy every cycle. The substitute is constrained to single-action misc quests so it can complete naturally as a side effect of normal play, not as an extra obligation. The `refresh_quests` last-ordering rule ensures no quest appears in two slots at once, preserving the economy design of five distinct daily tasks.
+**Design intent:** voting is now more enticing — the real-vote XP (300–450 base) is competitive with other daily quest rewards (not the smallest), reflecting an intent to make voting feel genuinely worthwhile rather than just a token bonus. The substitute mechanic still preserves a 5th XP source on no-vote days so the slot never sits dead: on non-vote cycles players receive an activity-driven misc quest instead. The substitute is constrained to single-action misc quests so it can complete naturally as a side effect of normal play, not as an extra obligation. The 50/50 split (down from 1/3 real / 2/3 substitute) means the real vote quest appears roughly every other cycle. The `refresh_quests` last-ordering rule ensures no quest appears in two slots at once, preserving the economy design of five distinct daily tasks.
 
 ## Quest selection
 
@@ -220,7 +220,10 @@ When a quest completes (or passive XP rolls over a level boundary):
 - Quest progress is **wiped on season rollover**, not on quest completion (completed quest just sets cooldown to `now`).
 - `casino_progress_temp` is the bitmask state for the casino extra quest. It resets when the quest completes (or season rolls).
 - `gift3_recipients` is the comma-separated list of distinct recipient IDs for the `gift3` extra quest. It resets on completion and on season rollover.
-- `reminder_challenge` drives DM reminders for the challenge slot (same pattern as `reminder_catch`, `reminder_misc`, `reminder_extra`). Postpone uses the `challenge_` prefix in the button custom ID.
+> **STALE:** the following describes a removed mechanic and should be deleted or rewritten:
+> `reminder_challenge` drove DM reminders for the challenge slot (same pattern as `reminder_catch`, `reminder_misc`, `reminder_extra`). Postpone used the `challenge_` prefix in the button custom ID.
+>
+> As of the removal of multi-slot quest-reminder DMs, `profile.reminder_catch`, `profile.reminder_misc`, and `profile.reminder_challenge` are inert columns — they remain in `schema.sql` but no code reads or writes them. `postpone_reminder()` now only handles the `vote` custom_id; stale Postpone buttons on already-delivered quest-reminder DMs return a no-op message. The `/vote` and `/battlepass` reminder toggles (`reminders_enabled`) and the vote-reminder DM loop in `background_loop` are unchanged.
 
 The vote slot additionally uses `profile.vote_quest` (text, default `''`) to hold the current substitute misc quest id. Empty string means "real vote cycle." The substitute completes single-action — no `vote_progress` column exists; the `progress=1` pool constraint removes the need for one.
 

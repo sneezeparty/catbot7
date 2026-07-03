@@ -19,6 +19,11 @@
       <span class="stat-value">{{ "{:,}".format(order_notional) }}</span>
       <span class="stat-foot">coins tied up in open orders</span>
     </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Scratchcards outstanding</span>
+      <span class="stat-value">{{ "{:,}".format(econ.scratchcards) }}</span>
+      <span class="stat-foot">unspent /scratch cards (wiped at season rollover)</span>
+    </article>
   </div>
 
   {# ============================ gambling ============================ #}

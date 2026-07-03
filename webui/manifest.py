@@ -40,6 +40,7 @@ SECTIONS: dict[str, dict] = {
             'profile (COUNT), "user" (COUNT), prism (COUNT), prism.catches_boosted, prism.time',
             "jobinstance.state ('offered')",
             "metric_snapshot.bucket_time + LOAD_METRICS columns (total_catches, total_packs, jobs_completed_lifetime, catnip_total) — Load section diffs the last ~25 hourly buckets",
+            "profile.cookies WHERE guild_id=666 AND user_id=<bot> — the /chaos global counter sentinel row (bot-owned, so every user_id<>bot aggregate already skips it)",
             "dashboard.py: RARITY_COLUMNS, PACK_COLUMNS, LOAD_METRICS, _rarity_sum_clauses, _pack_sum_clauses, _topN_with_other, _load_rates",
         ],
     },
@@ -89,6 +90,7 @@ SECTIONS: dict[str, dict] = {
         "data_sources": [
             "profile.coins, profile.coins_earned, profile.stock_coins_earned, profile.stock_coins_spent",
             "profile.roulette_coins_won, profile.roulette_coins_bet, profile.catslots_coins_won, profile.catslots_coins_bet",
+            "profile.scratchcards (SUM — 'Scratchcards outstanding' tile)",
             "pricehistory.ticker, pricehistory.price, pricehistory.time",
             'order.ticker, order.type_buy',
             "economy.py: TICKERS — mirror of main.stock_data tickers (PRSM/CTNP/PASS/ACHS/RAIN)",
@@ -99,7 +101,7 @@ SECTIONS: dict[str, dict] = {
         "routes": ["GET /leaderboards"],
         "templates": ["leaderboards.html"],
         "data_sources": [
-            "profile.total_catches, profile.coins, profile.battlepass, profile.jobs_completed, profile.catnip_level",
+            "profile.total_catches, profile.coins, profile.battlepass, profile.jobs_completed, profile.catnip_level, profile.bonus_catches, profile.fish_caught",
             "prism (COUNT per user_id)",
             "leaderboards.py: BOARDS — one SQL per board, each returns (user_id, value)",
         ],
@@ -139,6 +141,11 @@ SECTIONS: dict[str, dict] = {
             "new columns can be added here to surface them, but nothing is written back",
             "profile.last_job_time (bigint, unix ts — Jobs grace-period shield; in INT_FIELDS)",
             "profile.vote_quest (VARCHAR(30) — '' or a misc quest id subbing for the Top.gg vote quest; in STR_FIELDS)",
+            "profile.bonus_catches (integer — successful bonus-cat 🎁 minigames; in INT_FIELDS)",
+            "profile.fish_caught (integer — lifetime /fish catches; in INT_FIELDS), profile.rarest_fish (VARCHAR(15) cattype name; in STR_FIELDS)",
+            "profile.weekly_quest (VARCHAR(10) weekly quest id, '' = none; STR_FIELDS), profile.weekly_progress + profile.scratchcards (INT_FIELDS)",
+            "profile.weekly_cattypes (smallint[] of cattype indices for the 'different' weekly quest — array column, shown raw in the detail view; no display grouping yet)",
+            "NOTE: the row (guild_id=666, user_id=<bot>) is the /chaos global counter sentinel (cookies column) — not a real profile; harmless if it shows in searches",
         ],
     },
     "user_table": {

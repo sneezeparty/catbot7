@@ -106,11 +106,11 @@ The insurance is **soft** — it does not zero out complications. A +100 Whisker
 
 Rep with anyone other than the offerer does not help. The "I'm Whiskers's guy" identity is preserved by making rep insurance non-fungible across NPCs.
 
-> **STALE:** the following mechanics from `main.py → show_board` are not represented in this section and should be documented here:
->
-> 1. **Hiring refusal threshold.** `_jobs_eligible_npcs` refuses to include any NPC whose `faction_rep` value is below `refuse_threshold` (currently **−25**, from `config/jobs.json → rep.refuse_threshold`). A player whose rep with *all* NPCs falls below −25 will see no offers and cannot generate a board at all until rep recovers.
->
-> 2. **Empty-board two-cause distinction.** When `show_board` finds no offers it now branches on the actual cause: (a) if at least one NPC is still eligible (rep ≥ −25), the board is empty because the player has accepted or declined all offers generated for this 12h window — the message tells them the next batch arrives at the window boundary; (b) if no NPC will hire them (all reps below −25), it is a genuine reputation problem and the message says so. Previously a single message always blamed reputation. Design intent for this branching is unrecorded.
+**Hiring refusal threshold.** `_jobs_eligible_npcs` excludes any NPC whose rep with the player is below `refuse_threshold` (−25, from `config/jobs.json → rep.refuse_threshold`). A player below −25 with *every* NPC sees no offers at all until rep recovers — negative rep has a hard consequence, not just worse odds.
+
+**Empty-board messaging.** When `show_board` has no offers it distinguishes the two causes rather than always blaming reputation: if at least one NPC would still hire (rep ≥ −25), the board is simply exhausted for this 12h window and the message points at the window boundary; only when no NPC will hire does it call out reputation.
+
+**Design intent:** both are honesty mechanics. The refusal threshold makes the mafia's memory tangible ("nobody will work with you"), and the two-cause message exists because misdiagnosing "you used up your offers" as "everyone hates you" taught players the wrong lesson about how rep works.
 
 ## Recipe philosophy: NPCs as mechanical archetypes
 

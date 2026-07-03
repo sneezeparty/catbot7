@@ -5,7 +5,7 @@
       "exclusive": false,
       "name": "Lucky Catcher",
       "desc": "**percent%** chance of **doubling** cats on catch.",
-      "weight": 25,
+      "weight": 22.5,
       "values": [
         5,
         7.5,
@@ -222,6 +222,20 @@
         2.5,
         5,
         8
+      ]
+    },
+    {
+      "id": "bonus_catcher",
+      "exclusive": false,
+      "name": "Gift Catcher",
+      "desc": "**percent%** increased chance of a **bonus cat** 🎁 appearing after your catch. (max 2x increase)",
+      "weight": 5,
+      "values": [
+        10,
+        15,
+        25,
+        50,
+        75
       ]
     }
   ],
@@ -607,11 +621,11 @@
       "name": "El Patrón",
       "duration": 24,
       "cost": 2000,
-      "bounty_difficulty": 400,
+      "bounty_difficulty": 80,
       "bounty_amount": 2,
       "bonus": 1,
       "change": "Literally Nothing\nReally, you shouldn't do this.",
-      "max_amount": 999999,
+      "max_amount": 60,
       "weights": {
         "common": 0,
         "uncommon": 5,
@@ -626,11 +640,11 @@
       "name": "Most Wanted",
       "duration": 24,
       "cost": 5000,
-      "bounty_difficulty": 2000,
+      "bounty_difficulty": 150,
       "bounty_amount": 3,
       "bonus": 1,
       "change": "???",
-      "max_amount": 999999,
+      "max_amount": 120,
       "weights": {
         "common": 0,
         "uncommon": 0,

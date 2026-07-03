@@ -144,6 +144,13 @@ async def index(request):
                 "SELECT COUNT(*) FROM jobinstance WHERE state = 'offered' AND user_id <> $1",
                 bot_id,
             )
+            # /chaos global counter: sentinel profile row (guild 666, bot user)
+            # reusing the cookies column. Excluded from every aggregate above
+            # because its user_id is the bot's.
+            counts["chaos_counter"] = await conn.fetchval(
+                "SELECT cookies FROM profile WHERE guild_id = 666 AND user_id = $1",
+                bot_id,
+            ) or 0
 
             row = await conn.fetchrow(
                 """

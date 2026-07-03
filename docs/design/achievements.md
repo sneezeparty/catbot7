@@ -52,9 +52,14 @@ Example:
 }
 ```
 
-Events currently registered: `catch`, `gift`, `trade`, `pig_play`. Adding a new event = `await ach_engine.evaluate("event_name", profile, ctx, ...)` at the relevant call site.
+Events currently registered — adding a new one = `await ach_engine.evaluate("event_name", profile, ctx, ...)` at the relevant call site:
 
-> **STALE:** `main.py` also calls `ach_engine.evaluate` with event names `message_text`, `prism`, and `command` that are not listed above. These event types are not represented in the achievements doc; if any aches use them as triggers, add a brief description of each event here.
+- `catch` — fires on every cat catch (rarity/timing conditions).
+- `gift`, `trade` — fire on completed /gift and /trade actions.
+- `pig_play` — fires per /pig round with the final score in ctx (used by `stat_threshold` conditions).
+- `message_text` — fires from `on_message` for chat-content aches (the `startswith`/`exact` matches that used to be hardcoded in the `achs` list).
+- `prism` — fires when a prism boosts a catch.
+- `command` — fires on slash-command invocation; the `command_use` condition matches by command name (e.g. the Brew Coffee ach).
 
 Condition types are pluggable via `@_evaluator("name")` in `ach_engine.py`. Adding a new condition type = decorate a new evaluator function.
 

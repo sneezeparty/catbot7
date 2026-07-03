@@ -3463,20 +3463,6 @@
       }
     },
     "misc": {
-      "slots": {
-        "emoji": "\ud83c\udfb0",
-        "title": "Spin the /slots machine 10 times",
-        "xp_min": 150,
-        "xp_max": 250,
-        "progress": 10
-      },
-      "slots2": {
-        "emoji": "\ud83c\udfb0",
-        "title": "Spin the /slots machine 5 times",
-        "xp_min": 250,
-        "xp_max": 350,
-        "progress": 5
-      },
       "catslots": {
         "emoji": "\ud83c\udfb0",
         "title": "Spin the /catslots machine 10 times",
@@ -3526,13 +3512,6 @@
         "xp_max": 320,
         "progress": 1
       },
-      "news": {
-        "emoji": "\ud83d\udcf0",
-        "title": "Read a /news article",
-        "xp_min": 150,
-        "xp_max": 210,
-        "progress": 1
-      },
       "gift": {
         "emoji": "\ud83c\udf81",
         "title": "/Gift someone",
@@ -3540,33 +3519,12 @@
         "xp_max": 220,
         "progress": 1
       },
-      "reminder": {
-        "emoji": "\ud83d\udcdd",
-        "title": "Set a /reminder",
-        "xp_min": 190,
-        "xp_max": 250,
-        "progress": 1
-      },
       "ttc": {
         "emoji": "\u2b55",
-        "title": "Play a game of /tictactoe",
-        "xp_min": 170,
-        "xp_max": 230,
-        "progress": 1
-      },
-      "rate": {
-        "emoji": "\ud83d\udc4d",
-        "title": "/Rate something",
-        "xp_min": 150,
-        "xp_max": 210,
-        "progress": 1
-      },
-      "catball": {
-        "emoji": "\ud83c\udfb1",
-        "title": "Ask the magic /8ball",
-        "xp_min": 120,
-        "xp_max": 220,
-        "progress": 1
+        "title": "Tie against Cat Bot 3 times in /tictactoe",
+        "xp_min": 270,
+        "xp_max": 350,
+        "progress": 3
       },
       "roll": {
         "emoji": "\ud83c\udfb2",
@@ -3609,6 +3567,55 @@
         "xp_min": 250,
         "xp_max": 290,
         "progress": 1
+      },
+      "roll6": {
+        "emoji": "\ud83c\udfb2",
+        "title": "/Roll a 6 on default dice",
+        "xp_min": 175,
+        "xp_max": 225,
+        "progress": 1
+      },
+      "roulette3": {
+        "emoji": "\ud83c\udfb0",
+        "title": "Win 3 /roulette bets",
+        "xp_min": 280,
+        "xp_max": 350,
+        "progress": 3
+      },
+      "pig50": {
+        "emoji": "\ud83c\udfb2",
+        "title": "Get 50+ score in /pig",
+        "xp_min": 280,
+        "xp_max": 350,
+        "progress": 1
+      },
+      "cookie": {
+        "emoji": "\ud83c\udf6a",
+        "title": "Bake 50 /cookies",
+        "xp_min": 250,
+        "xp_max": 350,
+        "progress": 50
+      },
+      "coffee": {
+        "emoji": "\u2615",
+        "title": "/Brew 50 coffees",
+        "xp_min": 250,
+        "xp_max": 350,
+        "progress": 50
+      },
+      "fish": {
+        "emoji": "\ud83c\udfa3",
+        "title": "Catch 5 /fish",
+        "xp_min": 250,
+        "xp_max": 350,
+        "progress": 5
+      },
+      "chaos": {
+        "emoji": "\ud83d\udca5",
+        "title": "Cause /chaos 50 times",
+        "xp_min": 250,
+        "xp_max": 350,
+        "progress": 50
       }
     },
     "extra": {
@@ -3726,6 +3733,43 @@
         "xp_min": 320,
         "xp_max": 380,
         "progress": 1
+      }
+    },
+    "weekly": {
+      "catch": {
+        "emoji": "nicecat",
+        "title": "Catch 70 cats",
+        "progress": 70,
+        "start_time": 0,
+        "end_time": 604800
+      },
+      "brave+": {
+        "emoji": "bravecat",
+        "title": "Catch 5 cats rarer than Brave",
+        "progress": 5,
+        "start_time": 604800,
+        "end_time": 1209600
+      },
+      "bonus": {
+        "emoji": "\ud83c\udf81",
+        "title": "Succeed in 4 bonus minigames",
+        "progress": 4,
+        "start_time": 1209600,
+        "end_time": 1814400
+      },
+      "different": {
+        "emoji": "wildcat",
+        "title": "Catch 13 different cattypes",
+        "progress": 13,
+        "start_time": 1814400,
+        "end_time": 2419200
+      },
+      "": {
+        "emoji": "",
+        "title": "",
+        "progress": 0,
+        "start_time": 2419200,
+        "end_time": 3000000
       }
     }
   }

@@ -45,6 +45,12 @@
   "spawn_revival_interval_seconds": 60,
   "anti_double_catch_cooldown_seconds": 300,
   "view_timeout_seconds": 86400,
+  "bonus_cat_chance_coef": 0.02,
+  "bonus_minigame_deadline_seconds": 30,
+  "extra_level_xp": 3000,
+  "extra_level_reward": "Mystery",
+  "weekly_quest_xp": 2000,
+  "weekly_quest_scratchcards": 1,
   "pack_drop_chance_on_catch": 0.02,
   "pack_tier_weights": {
     "Wooden": 38,

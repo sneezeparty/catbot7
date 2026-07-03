@@ -43,6 +43,7 @@
         <li><span>Cats spawned now</span><strong>{{ counts.get('live_spawns', 0) }}</strong></li>
         <li><span>Active rains</span><strong>{{ counts.get('active_rains', 0) }}</strong></li>
         <li><span>Pending job offers</span><strong>{{ counts.get('pending_jobs', 0) }}</strong></li>
+        <li><span>/chaos counter</span><strong>{{ "{:,}".format(counts.get('chaos_counter', 0)) }}</strong></li>
       </ul>
       <p class="muted"><a href="/activity">live activity →</a></p>
     </article>

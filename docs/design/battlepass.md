@@ -66,18 +66,18 @@ These counters and `season_stat_baseline` require migration 022. Code paths that
 
 ## Level rewards
 
-Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 6,300 XP grants one Stone pack indefinitely. Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
+Each level has a fixed reward: cats, packs, or rain minutes. Past the final level, the ladder enters an "Extra Rewards" tier: every 3,000 XP grants one Mystery pack — a random non-special pack tier, weighted `1/totalvalue` toward the cheap tiers (`grant_mystery_pack()` in `main.py`) — indefinitely. (Tunable via `config/tuning.json → extra_level_xp` / `extra_level_reward`; previously a flat Stone pack every 6,300 XP, before the overflow-reward retune.) Code that reads level count uses `len(config.battle["seasons"][str(user.season)])` everywhere — adding or trimming levels per season is purely a JSON change.
 
 **XP cost curves:**
 
 - **Season 1 (Levels 1–30):** ramp from 550 to 1000 XP per level. Total: 23,250 XP.
 - **Season 2 (Levels 1–30):** three levels per step, stepping up from 900 to 1800 XP (blocks of 3: 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800). Total to reach Level 30: **40,500 XP**. (Earlier S2 builds used the 1150→2050 curve totaling 48,000 XP; that left returning veterans who'd already harvested the early-game achievement XP front-load missing L30 by a single day. The flatter curve gives engaged voters ~4 days of real-life slack while still keeping L30 out of reach for casual play.)
 - **Seasons 3+ (Levels 1–30):** unchanged from the original 1150→2050 curve (48,000 XP). Per-season values live in `config/battlepass.json` and can be retuned individually.
-- **Seasons 2+ (Levels 31–40):** one level per step — 2500, 2950, 3350, 3800, 4200, 4600, 5050, 5450, 5900, 6300. Total for Levels 31–40: 44,100 XP. **Combined Level 40 total in S2: 84,600 XP** (40,500 + 44,100). **Full pass (Level 40 + one Extra Rewards tick): 90,900 XP.**
+- **Seasons 2+ (Levels 31–40):** one level per step — 2500, 2950, 3350, 3800, 4200, 4600, 5050, 5450, 5900, 6300. Total for Levels 31–40: 44,100 XP. **Combined Level 40 total in S2: 84,600 XP** (40,500 + 44,100). **Full pass (Level 40 + one Extra Rewards tick): 87,600 XP** (84,600 + 3,000, after the Mystery-pack overflow-reward retune; the tick was 6,300 XP — total 90,900 — before that change).
 
 **Design calibration (Season 2, post-rebalance):** an average engaged player completing all five daily quest slots (catch, misc, extra, challenge, plus vote when `voting_enabled=1`) yields ~1,450–1,560 XP/day, putting a *returning* engaged voter at L30 by ~day 26 (4-day slack vs. the 30-day season), a *fresh* engaged voter (with ~11.6k XP front-load from early achievements) at L30 by ~day 19, and a casual 3/4-quest player at ~33 days (still misses L30). A Tier-4-perks grinder is expected to reach approximately Level 40 in-season. When `voting_enabled=0`, the vote slot still yields its substitute-quest XP, so calibration shifts only modestly.
 
-**Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Stone-pack-forever tail exists so engaged players past the final level don't feel like they hit a wall. The 31–40 tail added in seasons 2+ replaces the early Stone-pack farm with more meaningful per-level rewards, capped by a per-season capstone (typically a Celestial pack at level 40), with the Stone-pack tail still kicking in past level 40 for the very-engaged.
+**Design intent:** the reward curve is *front-loaded with variety* (early levels mix cat tiers and packs) and *back-loaded with packs* (later levels lean into pack tiers since those are scaling rewards). The Mystery-pack-forever tail (previously a flat Stone pack; see the Extra Rewards note above) exists so engaged players past the final level don't feel like they hit a wall. The 31–40 tail added in seasons 2+ replaces the early Mystery-pack farm with more meaningful per-level rewards, capped by a per-season capstone (typically a Celestial pack at level 40), with the Mystery-pack tail still kicking in past level 40 for the very-engaged.
 
 ## Quest slots
 
@@ -93,11 +93,15 @@ XP range: ~250–400.
 
 ### Misc slot
 
-Action-driven quests outside the catch loop. Examples: "/Gift someone", "Spin the slot machine 10 times", "Spin the /catslots machine once/twice/3 times/10 times", "Win at /catslots", "Read a /news article", "/Define a word". Defined under `quests.misc`.
+Action-driven quests outside the catch loop. Examples: "/Gift someone", "Spin the /catslots machine once/twice/3 times/10 times", "Win at /catslots", "Catch 5 /fish", "Cause /chaos 50 times", "Bake 50 /cookies", "/Brew 50 coffees", "/Roll a 6 on default dice", "Win 3 /roulette bets", "Get 50+ score in /pig", "/Define a word". The live catalog is `config/battlepass.json → quests.misc`.
+
+The July 2026 catalog refresh (alongside the upstream feature port) retired the one-click filler quests that had aged badly (`slots`, `slots2`, `news`, `reminder`, `rate`, `catball`) and added quests wired to the new commands (`fish`, `chaos`, `cookie`, `coffee`) plus harder skill variants of surviving quests (`roll6`, `roulette3`, `pig50`, and the reworked `ttc` — see below). `gift`, `ping`, and `tiktok` were deliberately kept even though upstream removed them: they feed the vote-substitute pool, which needs a healthy supply of single-action quests.
+
+The `ttc` quest is "Tie against Cat Bot 3 times in /tictactoe" — only ties against the bot itself count. The minimax bot always ties under perfect play, so this is a genuine skill check; the old "play a game" version was trivially farmable via self-play, which no longer counts for anything.
 
 XP range: ~120–350.
 
-**Design intent:** these push the user to explore commands they wouldn't otherwise touch. The lower XP ceiling reflects that they're often "one click" tasks.
+**Design intent:** these push the user to explore commands they wouldn't otherwise touch. The lower XP ceiling reflects that they're often "one click" tasks; the multi-step additions (`cookie`/`coffee`/`chaos` at ×50, `fish` at ×5) sit at the top of the range because they ask for a real session, not a single click.
 
 ### Extra slot
 
@@ -183,15 +187,28 @@ The **`/battlepass` vote quest line** renders "Vote on Top.gg" as a clickable ma
 
 **Design intent:** voting is now more enticing — the real-vote XP (300–450 base) is competitive with other daily quest rewards (not the smallest), reflecting an intent to make voting feel genuinely worthwhile rather than just a token bonus. The substitute mechanic still preserves a 5th XP source on no-vote days so the slot never sits dead: on non-vote cycles players receive an activity-driven misc quest instead. The substitute is constrained to single-action misc quests so it can complete naturally as a side effect of normal play, not as an extra obligation. The 50/50 split (down from 1/3 real / 2/3 substitute) means the real vote quest appears roughly every other cycle. The `refresh_quests` last-ordering rule ensures no quest appears in two slots at once, preserving the economy design of five distinct daily tasks.
 
+### Weekly quest track
+
+A sixth quest track (ported from upstream cattlepass v2.1, July 2026), rendered above the daily slots in `/battlepass`. Unlike the five slots it is **not** governed by `QUEST_COOLDOWN`: the season-month is divided into four fixed 7-day windows (`start_time`/`end_time` seconds-from-month-start in `quests.weekly`, on the same UTC+4 clock as the season rollover), and each window hosts exactly one fixed quest, completable once. Days 28 through end-of-month are a deliberate dead zone (the `""` sentinel window) — no weekly quest is active and the section disappears from `/battlepass`.
+
+The live rotation: week 1 `catch` (catch 70 cats), week 2 `brave+` (5 cats rarer than Brave), week 3 `bonus` (succeed in 4 bonus-cat minigames — depends on [bonus cats](economy.md#bonus-cats), so a `bonus_cat_chance_coef = 0` kill-switch makes that week uncompletable), week 4 `different` (13 distinct cattypes, deduped via `profile.weekly_cattypes`).
+
+Reward is a flat **`weekly_quest_xp` (2,000) + `weekly_quest_scratchcards` (1)** per completion (`config/tuning.json`), deliberately **not** run through `_qxp_bonus` perk scaling or weekend doubling — at 2,000 XP a multiplier would swing more than every daily quest combined, so the marquee reward stays fixed. Weekly state (`weekly_quest`, `weekly_progress`, `weekly_cattypes`, `scratchcards` — migration 034) is wiped at season rollover with the other slots; unspent scratchcards are wiped too, because they are pack-lottery tickets and the season wipe empties packs (carrying them over would leak pack value across the economy reset).
+
+**`/scratch`** spends one scratchcard on a 5×5 pick-10 pair-matching board paying packs (Wooden through Celestial) or per-server bonus rain minutes, weighted heavily toward the cheap tiers. The payout is precomputed from the shuffle before the player picks a single tile — the board is theater. This is upstream's deliberate "can't lose to a slow connection" safety net: a player who falls asleep mid-board still gets everything their card rolled.
+
+**Design intent:** the weekly track is the *retention cadence* between the 12-hour slot rhythm and the monthly season arc — one chunky goal per week that survives a few missed days, where the daily slots don't. The reward routes through a lottery minigame instead of a direct payout because a fixed weekly payout would be pure homework; the scratch card converts the same expected value into a moment of variance the player initiates. Scratchcards have exactly one source (weekly completion) so the card economy can't inflate.
+
 ## Quest selection
 
 `generate_quest()` in `main.py` picks a random quest from the slot's pool, with these eligibility checks:
 
-- `slots`, `reminder`, `plush` — retired, always skipped.
 - `prism` — skipped if the user's prism-boost chance is below `PRISM_BOOST_FLOOR` (would be unwinnable).
-- `news` — skipped if the user has read every news article and the latest 4 are all read.
 - `achievement` — skipped if the user already has >30 visible achievements.
 - `catnip_session` — skipped if user has no catnip access.
+- `define` — skipped when `WORDNIK_API_KEY` is unset (the command isn't registered without it).
+
+Retiring a quest means **deleting it from the catalog**, not skip-listing it: `random.choice` over the catalog keys can't pick what isn't there, and the retired-quest guards in `refresh_quests` re-roll any profile still holding a deleted id. (The old `slots`/`reminder`/`plush` skip list and the `news` eligibility branch were removed with the July 2026 catalog refresh — they guarded quests that no longer exist.)
 
 The challenge slot has no per-quest eligibility skips — all five quests are completable by any player (Legendary+ cats are rare but spawnable by any server with cat spawning enabled).
 
@@ -220,10 +237,8 @@ When a quest completes (or passive XP rolls over a level boundary):
 - Quest progress is **wiped on season rollover**, not on quest completion (completed quest just sets cooldown to `now`).
 - `casino_progress_temp` is the bitmask state for the casino extra quest. It resets when the quest completes (or season rolls).
 - `gift3_recipients` is the comma-separated list of distinct recipient IDs for the `gift3` extra quest. It resets on completion and on season rollover.
-> **STALE:** the following describes a removed mechanic and should be deleted or rewritten:
-> `reminder_challenge` drove DM reminders for the challenge slot (same pattern as `reminder_catch`, `reminder_misc`, `reminder_extra`). Postpone used the `challenge_` prefix in the button custom ID.
->
-> As of the removal of multi-slot quest-reminder DMs, `profile.reminder_catch`, `profile.reminder_misc`, and `profile.reminder_challenge` are inert columns — they remain in `schema.sql` but no code reads or writes them. `postpone_reminder()` now only handles the `vote` custom_id; stale Postpone buttons on already-delivered quest-reminder DMs return a no-op message. The `/vote` and `/battlepass` reminder toggles (`reminders_enabled`) and the vote-reminder DM loop in `background_loop` are unchanged.
+- The weekly track has no cooldown column at all — completion is gated by `weekly_progress` reaching the quest target, and rotation is gated by the calendar windows. One completion per window by construction.
+- Quest-reminder DMs exist only for the **vote** slot. The per-slot reminder columns (`reminder_catch`, `reminder_misc`, `reminder_challenge`) are inert leftovers in `schema.sql` from the removed multi-slot reminder system — no code reads or writes them, and `postpone_reminder()` only handles the `vote` custom_id.
 
 The vote slot additionally uses `profile.vote_quest` (text, default `''`) to hold the current substitute misc quest id. Empty string means "real vote cycle." The substitute completes single-action — no `vote_progress` column exists; the `progress=1` pool constraint removes the need for one.
 

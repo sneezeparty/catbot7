@@ -383,7 +383,14 @@ CREATE TABLE public.profile (
     season_stat_baseline jsonb DEFAULT '{}'::jsonb NOT NULL,
     job_rerolls_window integer DEFAULT 0 NOT NULL,
     job_rerolls_window_idx bigint DEFAULT 0 NOT NULL,
-    season_trophies jsonb DEFAULT '[]'::jsonb NOT NULL
+    season_trophies jsonb DEFAULT '[]'::jsonb NOT NULL,
+    bonus_catches integer DEFAULT 0,
+    fish_caught integer DEFAULT 0,
+    rarest_fish character varying(15) DEFAULT ''::character varying,
+    weekly_quest character varying(10) DEFAULT ''::character varying,
+    weekly_progress smallint DEFAULT 0,
+    weekly_cattypes smallint[] DEFAULT '{}'::smallint[],
+    scratchcards smallint DEFAULT 0
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

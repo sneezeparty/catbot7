@@ -146,6 +146,13 @@
         "category": "Cat Hunt",
         "xp": 400
     },
+    "math_jumpscare": {
+        "title": "Math Jumpscare",
+        "description": "complete Rare bonus minigame",
+        "is_hidden": true,
+        "category": "Cat Hunt",
+        "xp": 300
+    },
     "news": {
         "title": "That's quite new",
         "description": "read the news",
@@ -208,6 +215,20 @@
                 "command": "brew"
             }
         }
+    },
+    "fisherman": {
+        "title": "Fisherman",
+        "description": "catch a /fish",
+        "is_hidden": false,
+        "category": "Commands",
+        "xp": 150
+    },
+    "pro_fisher": {
+        "title": "Pro Fisher",
+        "description": "catch a Legendary or rarer fish",
+        "is_hidden": true,
+        "category": "Hard",
+        "xp": 300
     },
     "reminder": {
         "title": "Reminder",

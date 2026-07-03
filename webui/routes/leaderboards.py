@@ -50,6 +50,16 @@ BOARDS = [
      "WHERE user_id <> $1 "
      "GROUP BY user_id HAVING MAX(catnip_level) > 0 "
      "ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
+    ("bonus", "Bonus catches", "wins",
+     "SELECT user_id, SUM(bonus_catches)::bigint AS value FROM profile "
+     "WHERE user_id <> $1 "
+     "GROUP BY user_id HAVING SUM(bonus_catches) > 0 "
+     "ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
+    ("fish", "Fish caught", "fish",
+     "SELECT user_id, SUM(fish_caught)::bigint AS value FROM profile "
+     "WHERE user_id <> $1 "
+     "GROUP BY user_id HAVING SUM(fish_caught) > 0 "
+     "ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
 ]
 
 

@@ -342,6 +342,23 @@ SEASON_ANNOUNCE_INTERVAL = config.tuning.get("season_announce_interval_seconds",
 ANTI_DOUBLE_CATCH_COOLDOWN = config.tuning["anti_double_catch_cooldown_seconds"]
 FAST_CATCHER_THRESHOLD = config.tuning["fast_catcher_threshold_seconds"]
 SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
+# Bonus cats 🎁 (upstream "june update", solo variant): coefficient for the
+# rarity-scaled bonus-cat chance (0.02 ≈ 3.7% Fine → 22% eGirl). Setting it
+# to 0 disables bonus cats entirely — this is the kill switch. Sourced from
+# tuning.json with literal defaults so existing tuning files keep working.
+BONUS_CAT_CHANCE_COEF = float(config.tuning.get("bonus_cat_chance_coef", 0.02))
+BONUS_MINIGAME_DEADLINE_SECONDS = int(config.tuning.get("bonus_minigame_deadline_seconds", 30))
+# Battlepass overflow ("Extra Rewards") past the last season level: XP cost per
+# extra level and its reward. "Mystery" resolves at grant time to a random
+# non-special pack weighted by 1/totalvalue (commons much more likely).
+# 3000 rather than upstream's 2000 because this fork also grants a bonus pack
+# on every level — 2000 would roughly quadruple the post-cap pack faucet.
+EXTRA_LEVEL_XP = int(config.tuning.get("extra_level_xp", 3000))
+EXTRA_LEVEL_REWARD = str(config.tuning.get("extra_level_reward", "Mystery"))
+# Weekly quest 🍀 fixed reward: XP + /scratch cards per completion. Fixed
+# (never perk-scaled or weekend-doubled) — it's the marquee weekly payout.
+WEEKLY_QUEST_XP = int(config.tuning.get("weekly_quest_xp", 2000))
+WEEKLY_QUEST_SCRATCHCARDS = int(config.tuning.get("weekly_quest_scratchcards", 1))
 PACK_DROP_CHANCE_ON_CATCH = config.tuning["pack_drop_chance_on_catch"]
 PACK_TIER_WEIGHTS = config.tuning["pack_tier_weights"]
 # Pack "coin crate" variant — about half of opens (per coin flip) pay part
@@ -405,6 +422,9 @@ with open("facts.txt") as f:
 
 with open("fanhalo.txt") as f:
     fanhalo_list = f.read().split("\n")
+
+with open("rickroll.txt") as f:
+    rickroll_list = [line for line in f.read().split("\n") if line]
 
 # convert achievement json to a few other things
 ach_names = ach_list.keys()
@@ -664,6 +684,10 @@ temp_spawns_storage = []
 # to prevent double belated battlepass progress and for "faster than 10 seconds" belated bp quest
 temp_belated_storage = {}
 
+# (guild_id, user_id) tuples of people currently /fish-ing. Reset every
+# background_loop as a leak guard; active sessions re-add themselves.
+fish_lock = []
+
 # to avoid expensive db queries
 temp_stock_prices = {}
 
@@ -750,6 +774,16 @@ def get_emoji(name):
         return "✅"
     else:
         return "🔳"
+
+
+def fish_emoji(cattype_name):
+    # prefer the uploaded <type>fish app emoji; fall back to the cat emoji so
+    # missing fish art (e.g. the fork-only Baby/Shadow/Terminator types, which
+    # upstream never drew) doesn't render as 🔳.
+    name = cattype_name.lower() + "fish"
+    if name in emojis:
+        return emojis[name]
+    return get_emoji(cattype_name.lower() + "cat")
 
 
 def get_news():
@@ -1152,18 +1186,18 @@ def _battlepass_level_info(profile):
     """Current battlepass level label, XP progress, and XP cap for a profile.
 
     Mirrors the /battlepass + /inventory logic, including the "Extra Rewards"
-    fallback (6300 XP per level, no season cap) once a player passes the last
-    defined level of their season. Returns (label, progress, cap, season_max);
+    fallback (EXTRA_LEVEL_XP per level, no season cap) once a player passes the
+    last defined level of their season. Returns (label, progress, cap, season_max);
     season_max is None in Extra Rewards mode or if the season data is missing."""
     try:
         season_levels = config.battle["seasons"][str(profile.season)]
         if profile.battlepass >= len(season_levels):
-            return ("Extra Rewards", profile.progress, 6300, None)
+            return ("Extra Rewards", profile.progress, EXTRA_LEVEL_XP, None)
         season_max = len(season_levels)
         cap = season_levels[profile.battlepass]["xp"]
         return (f"Level {profile.battlepass + 1}/{season_max}", profile.progress, cap, season_max)
     except Exception:
-        return (f"Level {profile.battlepass + 1}", profile.progress, 6300, None)
+        return (f"Level {profile.battlepass + 1}", profile.progress, EXTRA_LEVEL_XP, None)
 
 
 # Catstore-scoped multiplier on top of cat_value(). Doubles every price the
@@ -4161,6 +4195,18 @@ def grant_bonus_pack(user: Profile) -> tuple[str, str]:
     return pack_name, desc
 
 
+def grant_mystery_pack(user: Profile) -> str:
+    """Resolve the battlepass "Mystery" overflow reward: one random non-special
+    pack weighted toward the cheap tiers (1/totalvalue). Increments the pack
+    counter (does NOT save) and returns the chosen tier name. Shared by both
+    level-up paths (progress + grant_achievement_xp) so the odds can't drift."""
+    pack_options = [pack["name"] for pack in pack_data if not pack["special"]]
+    pack_weights = [1 / pack["totalvalue"] for pack in pack_data if not pack["special"]]
+    pack_chosen = random.choices(pack_options, weights=pack_weights, k=1)[0]
+    user[f"pack_{pack_chosen.lower()}"] += 1
+    return pack_chosen
+
+
 # Per-tier color for the bonus-pack-drop embed shown on a lucky catch. The
 # higher the tier, the more dramatic the framing (see BONUS_PACK_VIBES).
 BONUS_PACK_COLORS = {
@@ -4310,7 +4356,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         return []
     season_levels = config.battle["seasons"][str(user.season)]
     if user.battlepass >= len(season_levels):
-        level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
+        level_data = {"xp": EXTRA_LEVEL_XP, "reward": EXTRA_LEVEL_REWARD, "amount": 1}
     else:
         level_data = season_levels[user.battlepass]
 
@@ -4327,10 +4373,13 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         user.battlepass += 1
         xp_progress -= active_level_data["xp"]
         user.progress = xp_progress
+        pack_chosen = None
         if active_level_data["reward"] in cattypes:
             user[f"cat_{active_level_data['reward']}"] += active_level_data["amount"]
         elif active_level_data["reward"] == "Rain":
             user.rain_minutes += active_level_data["amount"]
+        elif active_level_data["reward"] == "Mystery":
+            pack_chosen = grant_mystery_pack(user)
         else:
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
         # Optional "extra_reward" stack — a level can grant a second reward on
@@ -4355,6 +4404,8 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             description = (
                 f"You got {get_emoji(active_level_data['reward'].lower() + 'cat')} {active_level_data['amount']} {active_level_data['reward']}!"
             )
+        elif pack_chosen:
+            description = f"You got a {get_emoji('mysterypack')} -> {get_emoji(pack_chosen.lower() + 'pack')} {pack_chosen} pack! Do /packs to open it!"
         else:
             description = (
                 f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -4378,7 +4429,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
         if user.battlepass >= len(season_levels):
-            active_level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
+            active_level_data = {"xp": EXTRA_LEVEL_XP, "reward": EXTRA_LEVEL_REWARD, "amount": 1}
         else:
             active_level_data = season_levels[user.battlepass]
 
@@ -4592,13 +4643,40 @@ def _set_vote_quest_safe(user, value: str) -> bool:
     return True
 
 
+def _weekly_quest_safe(user) -> str:
+    # '' both when no weekly quest is active (the sentinel) and when the
+    # column doesn't exist yet (migration 034 unrun).
+    try:
+        return user.weekly_quest
+    except (KeyError, AttributeError):
+        return ""
+
+
+async def _append_weekly_catch_quests(user, cattype, quests):
+    # weekly quests 🍀: every catch counts for "catch"; "brave+" by rarity
+    # index (computed, not hardcoded — the fork's cattype list grew); the
+    # "different" dedup mutates weekly_cattypes and must save BEFORE
+    # multi_progress refetches, or the append gets clobbered. Shared by the
+    # main and belated catch paths.
+    quests.append("catch")
+    if cattype not in cattypes:
+        return
+    idx = cattypes.index(cattype)
+    if idx > cattypes.index("Brave"):
+        quests.append("brave+")
+    if _weekly_quest_safe(user) == "different":
+        current = user.weekly_cattypes.copy()
+        if idx not in current:
+            current.append(idx)
+            user.weekly_cattypes = current
+            quests.append("different")
+            await user.save()
+
+
 async def generate_quest(user: Profile, quest_type: str):
     while True:
         quest = random.choice(list(config.battle["quests"][quest_type].keys()))
-        if quest in ["slots", "reminder", "plush"]:
-            # removed quests
-            continue
-        elif quest == "define" and not config.WORDNIK_API_KEY:
+        if quest == "define" and not config.WORDNIK_API_KEY:
             # /define is conditionally registered on WORDNIK_API_KEY; without
             # the key the command doesn't exist, so the quest is unwinnable.
             continue
@@ -4611,10 +4689,6 @@ async def generate_quest(user: Profile, quest_type: str):
             global_boost = PRISM_BOOST_GLOBAL_COEF * math.log(2 * total_count + 1)
             prism_boost = global_boost + PRISM_BOOST_USER_COEF * math.log(2 * user_count + 1)
             if prism_boost < PRISM_BOOST_FLOOR:
-                continue
-        elif quest == "news":
-            global_user = await User.get_or_create(user_id=user.user_id)
-            if len(get_news()) <= len(global_user.news_state.strip()) and "0" not in global_user.news_state.strip()[-4:]:
                 continue
         elif quest == "achievement":
             unlocked = 0
@@ -4641,7 +4715,6 @@ async def generate_quest(user: Profile, quest_type: str):
             sub_pool = [
                 k for k, q in config.battle["quests"]["misc"].items()
                 if q.get("progress", 1) == 1
-                and k not in ("slots", "reminder", "plush")
                 and k != user.misc_quest
                 and not (k == "define" and not config.WORDNIK_API_KEY)
             ]
@@ -4885,6 +4958,19 @@ async def refresh_quests(user):
         user.challenge_cooldown = 1
         user.challenge_reward = 0
 
+        # Weekly quest + scratchcards (migration 034). Unspent cards are
+        # pack-lottery tickets and the season wipe empties packs, so they
+        # reset too — no pack value leaks across the wipe. Probe-read guard
+        # like the flags below so an un-migrated DB no-ops cleanly.
+        try:
+            _ = user.weekly_quest
+            user.weekly_quest = list(config.battle["quests"]["weekly"].keys())[0]
+            user.weekly_progress = 0
+            user.weekly_cattypes = []
+            user.scratchcards = 0
+        except (KeyError, AttributeError):
+            pass
+
         # 0.6.5 — per-season economy wipe. Coins reset to the season starting
         # allowance (SEASON_STARTING_COINS), catnip and jobs state reset, pack
         # queue empties. Cats / stocks / prisms / discovered / achievements /
@@ -4952,6 +5038,14 @@ async def refresh_quests(user):
         user.challenge_progress = 0
         user.challenge_cooldown = 1
         user.challenge_reward = 0
+    # Weekly retired-quest guard ('' is always valid — it's the sentinel entry).
+    try:
+        if user.weekly_quest and user.weekly_quest not in config.battle["quests"]["weekly"]:
+            user.weekly_quest = ""
+            user.weekly_progress = 0
+            user.weekly_cattypes = []
+    except (KeyError, AttributeError):
+        pass
     # Substitute vote quest retirement: if the misc quest currently hosted in
     # the vote slot got removed (or define lost its API key), force a re-roll.
     # Uses the safe accessor to no-op pre-migration 028 when the column is
@@ -4981,6 +5075,30 @@ async def refresh_quests(user):
     # /battlepass UI never sees an unset slot.
     if not user.challenge_quest or QUEST_COOLDOWN < user.challenge_cooldown + QUEST_COOLDOWN < time.time():
         await generate_quest(user, "challenge")
+
+    # Weekly quest rotation (upstream cattlepass v2.1). Windows are seconds
+    # from the start of the month on the same +4h clock as the season rollover
+    # above — weeks 1-4 each host one quest, the "" sentinel covers days
+    # 28-EOM (no active quest). No 12h cooldown: one completion per window,
+    # gated purely by weekly_progress. Probe-read guard for migration 034.
+    try:
+        curr_weekly = config.battle["quests"]["weekly"][user.weekly_quest]
+    except (KeyError, AttributeError):
+        return
+    # tzinfo=utc matters: a naive datetime's .timestamp() is interpreted in
+    # the HOST timezone, which would shift every weekly window by the host's
+    # UTC offset (upstream gets away with it on UTC servers; this box isn't).
+    month_start = datetime.datetime(current_date.year, current_date.month, 1, tzinfo=datetime.timezone.utc) - datetime.timedelta(hours=4)
+    time_in_month = time.time() - int(month_start.timestamp())
+    if curr_weekly["start_time"] < time_in_month < curr_weekly["end_time"]:
+        return
+    for k, v in config.battle["quests"]["weekly"].items():
+        if v["start_time"] < time_in_month < v["end_time"]:
+            user.weekly_quest = k
+            user.weekly_progress = 0
+            user.weekly_cattypes = []
+            await user.save()
+            return
 
 
 async def multi_progress(message: discord.Message | discord.Interaction, user: Profile, quests: list[str], is_belated: Optional[bool] = False):
@@ -5083,6 +5201,21 @@ async def progress(
                 # Fire the first-completion ach BEFORE the level-up flow so it
                 # lands inline with the other catch-context embeds.
                 await achemb(message, "challenge_first", "send")
+    elif quest and _weekly_quest_safe(user) == quest and quest in config.battle["quests"].get("weekly", {}):
+        # Weekly quest 🍀 (upstream cattlepass v2.1): no cooldown, one
+        # completion per calendar-week window, fixed marquee reward of
+        # WEEKLY_QUEST_XP + a /scratch card. Deliberately NOT scaled by
+        # _qxp_bonus or weekend doubling — a perk swinging 2000 XP would
+        # dwarf every other quest.
+        quest_data = config.battle["quests"]["weekly"][quest]
+        if user.weekly_progress >= quest_data["progress"]:
+            return user
+        user.weekly_progress += 1
+        if user.weekly_progress >= quest_data["progress"]:
+            user.weekly_progress = quest_data["progress"]
+            quest_complete = True
+            current_xp = user.progress + WEEKLY_QUEST_XP
+            user.scratchcards += WEEKLY_QUEST_SCRATCHCARDS
     elif _vote_quest_safe(user) == quest and quest:
         # Vote slot is hosting this misc quest as a substitute. Single-action
         # completion (substitute pool is filtered to progress=1). Uses misc
@@ -5106,7 +5239,7 @@ async def progress(
     old_xp = user.progress
     level_complete_embeds = []
     if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-        level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
+        level_data = {"xp": EXTRA_LEVEL_XP, "reward": EXTRA_LEVEL_REWARD, "amount": 1}
         level_text = "Extra Rewards"
     else:
         level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -5121,10 +5254,13 @@ async def progress(
             xp_progress -= active_level_data["xp"]
             user.progress = xp_progress
             cat_emojis = None
+            pack_chosen = None
             if active_level_data["reward"] in cattypes:
                 user[f"cat_{active_level_data['reward']}"] += active_level_data["amount"]
             elif active_level_data["reward"] == "Rain":
                 user.rain_minutes += active_level_data["amount"]
+            elif active_level_data["reward"] == "Mystery":
+                pack_chosen = grant_mystery_pack(user)
             else:
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
             # Optional "extra_reward" stack — same shape as the primary. See
@@ -5150,6 +5286,8 @@ async def progress(
                     description = (
                         f"You got {get_emoji(active_level_data['reward'].lower() + 'cat')} {active_level_data['amount']} {active_level_data['reward']}!"
                     )
+                elif pack_chosen:
+                    description = f"You got a {get_emoji('mysterypack')} -> {get_emoji(pack_chosen.lower() + 'pack')} {pack_chosen} pack! Do /packs to open it!"
                 else:
                     description = (
                         f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -5172,7 +5310,7 @@ async def progress(
             level_complete_embeds.append(build_levelup_pack_embed(user, bonus_pack_name))
 
             if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-                active_level_data = {"xp": 6300, "reward": "Stone", "amount": 1}
+                active_level_data = {"xp": EXTRA_LEVEL_XP, "reward": EXTRA_LEVEL_REWARD, "amount": 1}
                 new_level_text = "Extra Rewards"
             else:
                 active_level_data = config.battle["seasons"][str(user.season)][user.battlepass]
@@ -5242,6 +5380,8 @@ async def progress_embed(message, user, level_data, current_xp, old_xp, quest_da
     streak_data = get_streak_reward(global_user.daily_catch_streak)
     if streak_data["reward"] and "top.gg" in quest_data["title"]:
         streak_reward = f"\n🔥 **Streak Bonus!** +1 {streak_data['emoji']} {streak_data['reward'].capitalize()} pack"
+    elif quest_data in config.battle["quests"].get("weekly", {}).values():
+        streak_reward = f"\n🍀 **Weekly Quest!** +{WEEKLY_QUEST_SCRATCHCARDS} /scratch card{'s' if WEEKLY_QUEST_SCRATCHCARDS != 1 else ''}!"
     else:
         streak_reward = ""
 
@@ -6360,12 +6500,14 @@ async def _safe_background_loop():
 
 # a loop for various maintenance which is ran every 5 minutes
 async def background_loop():
-    global pointlaugh_ratelimit, reactions_ratelimit, reaction_cooldown, last_loop_time, loop_count, catchcooldown, temp_belated_storage, fakecooldown, last_vote_cursor
+    global pointlaugh_ratelimit, reactions_ratelimit, reaction_cooldown, last_loop_time, loop_count, catchcooldown, temp_belated_storage, fakecooldown, last_vote_cursor, fish_lock
     pointlaugh_ratelimit = {}
     reactions_ratelimit = {}
     reaction_cooldown = {}
     catchcooldown = {}
     fakecooldown = {}
+    # leak guard: active /fish sessions re-add themselves every 10ms tick
+    fish_lock = []
     await bot.change_presence(activity=discord.CustomActivity(name=f"Catting in {len(bot.guilds):,} servers"))
 
     # temp_belated_storage cleanup
@@ -6671,6 +6813,350 @@ async def _store_reconcile_entitlements() -> None:
         )
     except Exception:
         logging.exception("store reconcile failed")
+
+
+# ============================== bonus cats 🎁 ==============================
+# Ported from upstream's "june update" (commit 3398188) as a SOLO variant:
+# there is no late catching here, so only the original catcher can play
+# (the Go! button in the catch handler gates on the catcher's id). One
+# unique minigame per cattype; success = +3 of that cat. Gremlin's minigame
+# became Baby's, and Shadow/Terminator got new ones (we have those types,
+# upstream doesn't).
+
+sentences = [
+    "The quick brown fox jumps over the lazy dog.",
+    "Cat Bot is a Discord bot about catching cats.",
+    "The birch canoe slid on the smooth planks.",
+    "Glue the sheet to the dark blue background.",
+    "It's easy to tell the depth of a well.",
+    "These days a chicken leg is a rare dish.",
+    "Rice is often served in round bowls.",
+    "The juice of lemons makes fine punch.",
+    "The box was thrown beside the parked truck.",
+    "The hogs were fed chopped corn and garbage.",
+    "Four hours of steady work faced us.",
+    "A large size in stockings is hard to sell.",
+    "Stop posting about Among Us, I'm tired of seeing it!",
+    "I love Cat Bot, it is great, now there is a new update!",
+    "Yo, my name is Jeremy, my parents left when I was three!",
+    "There is just a single rule, Jeremy is really cool!",
+    "I am cool and I am green, better than at first it may seem!",
+    "Cell machine sticky cell is hypothetical cell",
+    "im gonna make catbot - Poggers!",
+    "be nice or cat will punish you",
+    "Cat Bot pinned a message to this channel.",
+    "your sins will not be forgotten",
+    "Who needs friends, all i need is to have the best cats",
+    "Jane Cat Bot here, I would like to say thanks to myself",
+    "Never gonna give you up, never gonna let you down!",
+    "Now contains 32 random daily cats!",
+    "Cat Rains make cats spawn super fast for a limited period.",
+    "spice it up a bit, ban a random half of the server",
+    "ok brumbler statue building i think i eat sand sometimes",
+    "blame freshpenguin for anything bad which happens",
+    "how do i use catch, im on ipad how to use catch",
+    "Throw your phone out the window or it will explode!",
+    "okay chat an excercise, calmly welcome the new member",
+    "devlog is now a separeate channel yay",
+    "host update: previous host has been seized by authorities",
+    "You are the best Minecraft Discord server I've ever been on.",
+    "Cat Bot was permanently banned by RiskLM for silly.",
+]
+
+
+def to_roman_numeral(value):
+    roman_map = {1: "I", 4: "IV", 5: "V", 9: "IX", 10: "X", 40: "XL", 50: "L", 90: "XC", 100: "C", 400: "CD", 500: "D", 900: "CM", 1000: "M"}
+    result = ""
+    remainder = value
+    for i in sorted(roman_map.keys(), reverse=True):
+        times = remainder // i
+        remainder %= i
+        result += roman_map[i] * times
+    return result
+
+
+def is_prime(n):
+    if n < 2:
+        return False
+
+    s = [True] * (n + 1)
+    s[0] = s[1] = False
+
+    for i in range(2, int(n**0.5) + 1):
+        if s[i]:
+            for j in range(i * i, n + 1, i):
+                s[j] = False
+    return s[n]
+
+
+async def play_minigame(interaction: discord.Interaction, cattype: str):
+    start = int(time.time())
+    end = start + BONUS_MINIGAME_DEADLINE_SECONDS
+
+    modal = Modal(title="Bonus Cat Minigame")
+    if cattype == "Fine":
+        random_letter = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        random_text = random.choice(sentences)
+        answer = random_text.lower().count(random_letter.lower())
+        modal.add_item(TextDisplay(f"## Count the amount of {random_letter}'s in the sentence below\n\n{random_text}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Nice":
+        random_numbers = [random.randint(-100, 100) for _ in range(4)]
+        answer = " ".join(map(str, sorted(random_numbers)))
+        modal.add_item(TextDisplay(f"## Sort the numbers in ascending order\n\n{', '.join(map(str, random_numbers))}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Good":
+        random_text = random.choice(sentences)
+        answer = 0
+        for vowel in "AEIOU":
+            answer += random_text.lower().count(vowel.lower())
+        modal.add_item(TextDisplay(f"## Count the amount of vowels (excluding Y) in the sentence below\n\n{random_text}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Rare":
+        base = random.randint(200, 900)
+        num_range = [base + (i * 10) for i in range(-2, 2)]
+        random.shuffle(num_range)
+        items = {
+            num_range[0]: str(num_range[0]),
+            num_range[1]: str(num_range[1] // 2) + " * 2",
+            num_range[2]: str(num_range[2] * 3) + "/3",
+            num_range[3]: str(num_range[3] - 111) + " + 111",
+        }
+        items = dict(random.sample(list(items.items()), len(items)))
+        options = [discord.RadioGroupOption(label=value, value=key) for key, value in items.items()]
+        modal.add_item(discord.ui.Label(text="Choose the biggest number", component=discord.ui.RadioGroup(options=options, id=67)))
+        answer = max(items.keys())
+    elif cattype == "Wild":
+        options = [discord.RadioGroupOption(label="heads", value="heads"), discord.RadioGroupOption(label="tails", value="tails")]
+        modal.add_item(discord.ui.Label(text="Pick heads or tails", component=discord.ui.RadioGroup(options=options, id=67)))
+        answer = random.choice(["heads", "tails"])
+    elif cattype == "Baby":
+        # baby's first order of operations (upstream gave this one to Gremlin)
+        a, b, c = random.randint(1, 15), random.randint(1, 15), random.randint(2, 10)
+        answer = a + b * c
+        modal.add_item(discord.ui.Label(text=f"What's the result of {a} + {b} * {c}?", component=TextInput(placeholder="Answer", id=67)))
+    elif cattype == "Shadow":
+        lookalikes = random.choice([("I", "l", "1"), ("O", "0", "o"), ("S", "5", "s")])
+        target = random.choice(lookalikes)
+        shadow_string = "".join(random.choice(lookalikes) for _ in range(25))
+        answer = shadow_string.count(target)
+        modal.add_item(TextDisplay(f"## Count how many `{target}` hide among the lookalikes below\n\n`{shadow_string}`"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Epic":
+        random_text = random.choice(sentences)
+        answer = random_text.upper()
+        modal.add_item(TextDisplay(f"## Retype this text in UPPERCASE\n\n{random_text}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Sus":
+        random_text = random.choice(sentences)
+        random_letter = ""
+        while not random_letter.isalpha():
+            random_letter = random.choice(random_text).upper()
+        answer = random_text.replace(random_letter, "").replace(random_letter.lower(), "")
+        modal.add_item(TextDisplay(f"## Retype this text without the letter '{random_letter}'\n\n{random_text}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Brave":
+        option_texts = ["ANSWER"]
+        for i in range(1, 25):
+            option = list("ANSWER")
+            while "".join(option) in option_texts:
+                random.shuffle(option)
+            option_texts.append("".join(option))
+        random.shuffle(option_texts)
+        options = [discord.SelectOption(label=text, value=text) for text in option_texts]
+        modal.add_item(discord.ui.Label(text='Find "ANSWER"', component=discord.ui.Select(options=options, id=67)))
+        answer = "ANSWER"
+    elif cattype == "Rickroll":
+        answer = random.choice(rickroll_list)
+        modal.add_item(TextDisplay(f"## Retype this text\n\n{answer}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Reverse":
+        line = random.choice(sentences)
+        split_line = line.split()
+        split_line.reverse()
+        answer = " ".join(split_line)
+        modal.add_item(TextDisplay(f"## Reverse the word order of this text\n\n{line}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Superior":
+        number = random.randint(10_000, 99_999)
+        answer = sum(int(i) for i in str(number))
+        modal.add_item(TextDisplay(f"## What is the sum of the digits of this number\n\n{number}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Trash":
+        inputs = ['TRO', 'JET', 'STR', 'ADJ', 'CRA', 'ISE', 'TIC', 'INT', 'MIN', 'SCA', 'INC', 'VER', 'RED', 'TRA', 'MEN', 'KIL', 'ZAP', 'LUB', 'STA', 'REF', 'LIT', 'IST', 'MIS', 'ANG', 'REV', 'LAT', 'DIS', 'BLA', 'SYR', 'DIG', 'CAT', 'INE', 'LIN', 'RAF', 'PER', 'SAV', 'ROA', 'SCH', 'LOV', 'SOF', 'CON', 'HUN', 'LAG', 'COM', 'ICA', 'INS', 'RIS', 'GAG', 'INO', 'LOW', 'RAT', 'WOR', 'BRE', 'LOG', 'ORI', 'HAN', 'ATT', 'TIN', 'DRA', 'UNP', 'PUR', 'PAL', 'MIL', 'FOR', 'GRA', 'ATE', 'PAT', 'BER', 'BET', 'WEA', 'IOD', 'RES', 'TRI', 'BRO', 'RAN', 'PRO', 'WHI', 'FLA', 'ELL', 'ENT', 'INK', 'ABS', 'CLA', 'CAL', 'OVE', 'IMI', 'ILL', 'COK', 'SHI', 'SAT', 'CRO', 'DEP', 'STI', 'MAT', 'SIN', 'IDE', 'SPL']  # fmt: skip
+        answer = random.choice(inputs)
+        modal.add_item(
+            discord.ui.Label(text=f"Type a 6+ letter word containing {answer}", component=TextInput(placeholder="Answer", id=67, min_length=6))
+        )
+    elif cattype == "Legendary":
+        shift = random.randint(1, 5)
+        out = []
+        for ch in "CAT":
+            out.append(chr((ord(ch) - ord("A") + shift) % 26 + ord("A")))
+        answer = "".join(out)
+        modal.add_item(TextDisplay(f"## Shift the word CAT forwards alphabetically by {shift} letters"))
+        modal.add_item(TextInput(label="Answer", id=67, min_length=3, max_length=3))
+    elif cattype == "Mythic":
+        answer = random.randint(15, 89)
+        modal.add_item(TextDisplay(f"## What's the value of this roman numeral?\n\n{to_roman_numeral(answer)}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "8bit":
+        power = random.randint(3, 10)
+        answer = 2**power
+        modal.add_item(discord.ui.Label(text=f"What's 2 to the power of {power}?", component=TextInput(placeholder="Answer", id=67)))
+    elif cattype == "Corrupt":
+        bin_string = "".join(random.choice(["0", "1"]) for _ in range(25))
+        to_count = random.choice(["0", "1"])
+        answer = bin_string.count(to_count)
+        modal.add_item(TextDisplay(f"## How many {to_count}s are in this binary number?\n\n{bin_string}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Professor":
+        answer = random.choice(cattypes)
+        show = list(answer)
+        random.shuffle(show)
+        show = "".join(show).upper()
+        modal.add_item(TextDisplay(f"## Decode this cat type\n\n{show}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Divine":
+        letter_mappings = {
+            "A": "X",
+            "C": "R",
+            "D": "K",
+            "F": "W",
+            "G": "Y",
+            "H": "B",
+            "I": "T",
+            "L": "J",
+            "M": "N",
+            "O": "E",
+            "P": "Q",
+            "S": "Z",
+            "U": "V",
+        }
+        letter_mappings.update({v: k for k, v in letter_mappings.items()})  # reverse mappings
+        sentence = random.choice(sentences).upper()
+        pick_index = random.randint(0, len(sentence) - 1)
+        while not sentence[pick_index].isalpha():
+            pick_index = random.randint(0, len(sentence) - 1)
+        changed = sentence[:pick_index] + letter_mappings[sentence[pick_index]] + sentence[pick_index + 1 :]
+        answer = sentence[pick_index] + letter_mappings[sentence[pick_index]]
+        modal.add_item(TextDisplay(f"## Type a letter which is different in the sentences\n\n{sentence}\n\n{changed}"))
+        modal.add_item(TextInput(label="Answer", id=67, max_length=1))
+    elif cattype == "Real":
+        try:
+            # hard 2s timeout: this runs inside the Go! button callback BEFORE
+            # send_modal (modals must be the first response, so we can't defer)
+            # — a slow API would blow Discord's 3s interaction window.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
+                async with session.get(
+                    "https://the-trivia-api.com/v2/questions?limit=1&difficulties=easy",
+                    headers={"User-Agent": "CatBot/1.0 https://github.com/milenakos/cat-bot"},
+                ) as response:
+                    stuff = await response.json()
+                    question = stuff[0]
+                    question_text = question["question"]["text"]
+                    correct_answer = question["correctAnswer"]
+                    answers = question["incorrectAnswers"] + [correct_answer]
+        except Exception:
+            question_text = "Are cats awesome?"
+            answers = ["Yes", "No", "Meh", "IDK"]
+            correct_answer = "Yes"
+        random.shuffle(answers)
+        options = []
+        answer = correct_answer
+        for answer_value in answers:
+            options.append(discord.RadioGroupOption(label=answer_value[:100], value=answer_value[:100]))
+        modal.add_item(TextDisplay(f"## {question_text}"))
+        modal.add_item(discord.ui.Label(text="Answer", component=discord.ui.RadioGroup(options=options, id=67)))
+    elif cattype == "Terminator":
+        # inverse of Mythic's - you write the roman numeral
+        number = random.randint(15, 89)
+        answer = to_roman_numeral(number)
+        modal.add_item(TextDisplay(f"## Write this number as a roman numeral\n\n{number}"))
+        modal.add_item(TextInput(label="Answer", id=67))
+    elif cattype == "Ultimate":
+        number = random.randint(10, 150)
+        answer = "Yes" if is_prime(number) else "No"
+        options = [discord.RadioGroupOption(label="Yes", value="Yes"), discord.RadioGroupOption(label="No", value="No")]
+        modal.add_item(discord.ui.Label(text=f"Is {number} a prime number?", component=discord.ui.RadioGroup(options=options, id=67)))
+    elif cattype == "eGirl":
+        answer = "meow"
+        modal.add_item(
+            discord.ui.Label(
+                text="Meow agressively.",
+                component=TextInput(placeholder="meow mrrrp miau nyaa~ :3", min_length=69, style=discord.TextStyle.long, id=67),
+            )
+        )
+    modal.add_item(TextDisplay(f"-# Times up <t:{end}:R>"))
+
+    async def check_minigame(interaction: discord.Interaction):
+        nonlocal answer
+        if time.time() > end:
+            await interaction.response.send_message("❌ You weren't fast enough!", ephemeral=True)
+            return
+        answer_item = modal.find_item(67)
+        if isinstance(answer_item, TextInput) or isinstance(answer_item, discord.ui.RadioGroup):
+            answer_raw = answer_item.value
+        elif isinstance(answer_item, discord.ui.Select):
+            answer_raw = answer_item.values[0]
+        answer_clean = re.sub(r"[^0-9A-Za-z \-~]+", "", answer_raw)
+        answer = re.sub(r"[^0-9A-Za-z \-~]+", "", str(answer))
+
+        if cattype == "Trash" and answer in answer_clean.upper():
+            if not config.WORDNIK_API_KEY:
+                # no key to validate against - assume it's a word
+                correct = True
+            else:
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(
+                            f"https://api.wordnik.com/v4/word.json/{answer_clean.lower()}/definitions?api_key={config.WORDNIK_API_KEY}&useCanonical=true&includeTags=false&includeRelated=false&limit=1",
+                            headers={"User-Agent": "CatBot/1.0 https://github.com/milenakos/cat-bot"},
+                        ) as response:
+                            response_text = await response.text()
+                            correct = "from" in response_text
+                    except Exception:
+                        # assume word is valid
+                        correct = True
+        elif cattype == "Trash":
+            correct = False
+        elif cattype == "Divine":
+            # bool() guard: punctuation strips to "" and "" is in every string,
+            # which would make any single symbol a guaranteed win (upstream bug)
+            correct = bool(answer_clean) and answer_clean.upper() in answer
+        elif cattype == "eGirl":
+            # need atleast 10 signals
+            signals = 0
+            answer_clean = answer_clean.lower()
+            for word in ["meow", "purr", "nya", "miau", "mrrp", "www", "ppp", "uuu", "333", ":3", "~"]:
+                signals += answer_clean.count(word)
+            correct = signals >= 10
+            answer = "10+ meow signals"
+            answer_clean = f"{signals} meow signals"
+        elif cattype == "Epic":
+            correct = answer_clean == str(answer)
+        elif cattype == "Sus":
+            # collapse whitespace: removing a standalone word (e.g. "a") leaves
+            # a double space the player can't see or retype (upstream bug)
+            correct = " ".join(answer_clean.lower().split()) == " ".join(str(answer).lower().split())
+        else:
+            correct = answer_clean.lower() == str(answer).lower()
+
+        if correct:
+            profile = await Profile.get_or_create(user_id=interaction.user.id, guild_id=interaction.guild.id)
+            profile.bonus_catches += 1
+            profile[f"cat_{cattype}"] += 3
+            await profile.save()
+            icon = get_emoji(cattype.lower() + "cat")
+            await interaction.response.send_message(f"✅ {interaction.user.mention} got +3 {icon} {cattype} bonus cats.")
+            await progress(interaction, profile, "bonus")
+            if cattype == "Rare":
+                await achemb(interaction, "math_jumpscare", "followup")
+        else:
+            await interaction.response.send_message(f"❌ Better luck next time!\nCorrect answer: `{answer}`\nYour answer: `{answer_clean}`", ephemeral=True)
+
+    modal.on_submit = check_minigame
+    await interaction.response.send_modal(modal)
 
 
 # this is all the code which is ran on every message sent
@@ -7053,6 +7539,8 @@ async def on_message(message: discord.Message):
                         elif channel.cattype == "Nice" and user.catch_progress in [0, 1]:
                             quests.append("finenice")
                             quests.append("finenice")
+                    # weekly quests 🍀 count for belated catchers too
+                    await _append_weekly_catch_quests(user, channel.cattype, quests)
                     await multi_progress(message, user, quests, True)
         else:
             pls_remove_me_later_k_thanks = channel.cat
@@ -7196,6 +7684,7 @@ async def on_message(message: discord.Message):
                 respawn_chance = 0
                 do_respawn = False
                 packs_gained = []
+                bonus_chance_increase = 0
 
                 if user.perks:
                     if user.catnip_active < time.time():
@@ -7261,6 +7750,8 @@ async def on_message(message: discord.Message):
                             bp_xp_chance += _amp(perks_by_id["bp_xp"]["values"][rarity])
                         elif id == "respawn":
                             respawn_chance += _amp(perks_by_id["respawn"]["values"][rarity])
+                        elif id == "bonus_catcher":
+                            bonus_chance_increase += _amp(perks_by_id["bonus_catcher"]["values"][rarity])
 
                     for i in packs:
                         chance = random.random() * 100
@@ -7311,17 +7802,6 @@ async def on_message(message: discord.Message):
                     # channel state has been persisted (see post-save hook below).
                     if respawn_chance > 0 and random.random() * 100 < respawn_chance and channel.cat_rains == 0:
                         do_respawn = True
-
-                # Big Score perk: permanent +5% spawn-extra in this server.
-                # Survives catnip expiry and pinch lockout — it's not a catnip
-                # perk, it's a reward for clearing the Tier 5 capstone.
-                if not do_respawn and bool(getattr(user, "big_score_perk_unlocked", False)) and channel.cat_rains == 0:
-                    bs_chance = JOBS_BIG_SCORE.get("perk_spawn_extra_bonus", 0.05) * 100
-                    if random.random() * 100 < bs_chance:
-                        do_respawn = True
-                        suffix_string += f"\n{get_emoji('catnip')} Bait & Switch! Another cat appears..."
-                        if not user.has_ach("bait_switch_proc"):
-                            await achemb(message, "bait_switch_proc", "send")
 
                     if double_first > user.catnip_total_cats:
                         user.catnip_total_cats += 1
@@ -7382,6 +7862,17 @@ async def on_message(message: discord.Message):
                     elif chance <= triple_chance + double_chance + single_chance + none_chance:
                         silly_amount *= 0
                         suffix_string += "\n🚫 catnip failed! your cat was uncought. tragic."
+
+                # Big Score perk: permanent +5% spawn-extra in this server.
+                # Survives catnip expiry and pinch lockout — it's not a catnip
+                # perk, it's a reward for clearing the Tier 5 capstone.
+                if not do_respawn and bool(getattr(user, "big_score_perk_unlocked", False)) and channel.cat_rains == 0:
+                    bs_chance = JOBS_BIG_SCORE.get("perk_spawn_extra_bonus", 0.05) * 100
+                    if random.random() * 100 < bs_chance:
+                        do_respawn = True
+                        suffix_string += f"\n{get_emoji('catnip')} Bait & Switch! Another cat appears..."
+                        if not user.has_ach("bait_switch_proc"):
+                            await achemb(message, "bait_switch_proc", "send")
 
                 # blessings
                 bless_chance = await User.sum("rain_minutes_bought", "blessings_enabled = true") * 0.0001 * 0.01
@@ -7628,6 +8119,29 @@ async def on_message(message: discord.Message):
                 if silly_amount > 0:
                     await mark_discovered(user, le_emoji)
 
+                # Bonus cats 🎁: rarity-scaled roll, once per catch, catcher-only
+                # (solo variant of upstream's june update — no late catching).
+                # BONUS_CAT_CHANCE_COEF = 0 disables these (tuning.json kill switch).
+                bonus_cattype = channel.cattype
+                bonus_minigame = False
+                bonus_weight = type_dict.get(bonus_cattype)
+                if BONUS_CAT_CHANCE_COEF > 0 and bonus_weight:
+                    bonus_chance = BONUS_CAT_CHANCE_COEF * math.log2(_TYPE_DICT_VALUE_SUM / bonus_weight - 0.7)
+                    if bonus_chance_increase > 0:
+                        # Gift Catcher perk caps at a 2x increase, matching upstream
+                        bonus_chance *= min(2, bonus_chance_increase * 0.01 + 1)
+                    if random.random() < bonus_chance:
+                        if cat_rain_end or channel.cat_rains > 0:
+                            # rains move fast - flat +1 instead of a minigame
+                            user[f"cat_{bonus_cattype}"] += 1
+                            suffix_string += f"\n🎁 Bonus {get_emoji(bonus_cattype.lower() + 'cat')} {bonus_cattype} cat! +1 extra cat."
+                            if channel.channel_id in config.cat_cought_rain:
+                                if bonus_cattype not in config.cat_cought_rain[channel.channel_id]:
+                                    config.cat_cought_rain[channel.channel_id][bonus_cattype] = []
+                                config.cat_cought_rain[channel.channel_id][bonus_cattype].append(f"<@{user.user_id}>")
+                        else:
+                            bonus_minigame = True
+
                 async def delete_cat():
                     try:
                         cat_spawn = send_target.get_partial_message(cat_temp)
@@ -7658,6 +8172,8 @@ async def on_message(message: discord.Message):
                             delay = 30 if any(getattr(b, "callback", None) for b in buttons) else 10
                             await result.delete(delay=delay)
 
+                        return result
+
                     except Exception:
                         logging.exception(
                             "catch confirm send failed (channel=%s guild=%s)",
@@ -7665,7 +8181,38 @@ async def on_message(message: discord.Message):
                             getattr(message.guild, "id", None),
                         )
 
-                await asyncio.gather(delete_cat(), send_confirm())
+                gather_results = await asyncio.gather(delete_cat(), send_confirm())
+                if bonus_minigame and gather_results[1]:
+                    # defined here (not on every catch) — bonus rolls are rare
+                    async def send_bonus_prompt(confirm_msg):
+                        bonus_icon = get_emoji(bonus_cattype.lower() + "cat")
+                        attempted = False
+
+                        async def bonus_go(interaction: discord.Interaction):
+                            nonlocal attempted
+                            if interaction.user.id != message.author.id:
+                                await do_funny(interaction)
+                                return
+                            if attempted:
+                                await interaction.response.send_message("You already had your shot!", ephemeral=True)
+                                return
+                            attempted = True
+                            await play_minigame(interaction, bonus_cattype)
+
+                        go_button = Button(style=ButtonStyle.green, label="Go!")
+                        go_button.callback = bonus_go
+                        prompt_view = View(timeout=10)
+                        prompt_view.add_item(go_button)
+                        try:
+                            prompt = await confirm_msg.reply(
+                                f"🎁 **BONUS {bonus_icon} {bonus_cattype.upper()} CAT!**\nPlay a minigame and potentially **get +3 more!**",
+                                view=prompt_view,
+                            )
+                            await prompt.delete(delay=10)
+                        except Exception:
+                            logging.exception("bonus cat prompt failed (channel=%s)", message.channel.id)
+
+                    bot.loop.create_task(send_bonus_prompt(gather_results[1]))
 
                 logging.debug("Caught (pre-boost) %d %s", 1, channel.cattype)
                 logging.debug("Caught (post-boost) %d %s", silly_amount, le_emoji)
@@ -7804,6 +8351,7 @@ async def on_message(message: discord.Message):
                     elif channel.cattype == "Nice" and user.catch_progress in [0, 1]:
                         quests.append("finenice")
                         quests.append("finenice")
+                await _append_weekly_catch_quests(user, channel.cattype, quests)
 
                 # handle catnip bounties
                 await bounty(message, user, channel.cattype)
@@ -8372,9 +8920,6 @@ async def news(message: discord.Interaction):
         if news_id < len(current_state) and current_state[news_id] not in "123456789":
             user.news_state = current_state[:news_id] + "1" + current_state[news_id + 1 :]
             await user.save()
-
-        profile = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
-        await progress(interaction, profile, "news")
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         back_button = Button(emoji="⬅️", label="Back")
@@ -8969,6 +9514,10 @@ async def gen_stats(profile, star):
     else:
         stats.append(["average_time", "⏱️", f"Average catch time: N/A{star}"])
     stats.append(["purrfect_catches", "✨", f"Purrfect catches: {profile.perfection_count:,}{star}"])
+    try:
+        stats.append(["bonus_catches", "🎁", f"Successful bonus catches: {profile.bonus_catches:,}{star}"])
+    except KeyError:
+        pass  # migration 032 not run yet
 
     # catching boosts
     stats.append([get_emoji("prism"), "Prisms & Catnip"])
@@ -8994,7 +9543,8 @@ async def gen_stats(profile, star):
     # (30 for season 1, 40 for seasons 2+). Going past it means the player
     # entered the Extra Rewards fallback, which is what "season complete"
     # means here — and the bonus XP they earned in Extra Rewards mode is
-    # 6300 per overflow level.
+    # EXTRA_LEVEL_XP per overflow level. (Approximate for levels earned
+    # before the knob changed; it's a display stat, not a ledger.)
     for season in profile.bp_history.split(";"):
         if not season:
             break
@@ -9006,7 +9556,7 @@ async def gen_stats(profile, star):
         season_max = len(config.battle["seasons"].get(str(season_num), [])) or 30
         if season_lvl > season_max:
             seasons_complete += 1
-            total_xp += 6300 * (season_lvl - (season_max + 1))
+            total_xp += EXTRA_LEVEL_XP * (season_lvl - (season_max + 1))
         if season_lvl > max_level:
             max_level = season_lvl
 
@@ -9021,7 +9571,7 @@ async def gen_stats(profile, star):
         season_max_curr = len(config.battle["seasons"].get(str(profile.season), [])) or 30
         if profile.battlepass > season_max_curr:
             seasons_complete += 1
-            total_xp += 6300 * (profile.battlepass - (season_max_curr + 1))
+            total_xp += EXTRA_LEVEL_XP * (profile.battlepass - (season_max_curr + 1))
         if profile.battlepass > max_level:
             max_level = profile.battlepass
 
@@ -9068,6 +9618,11 @@ async def gen_stats(profile, star):
     stats.append(["roulette_spins", "💰", f"Roulette spins: {profile.roulette_spins:,}, wins: {profile.roulette_wins:,}"])
     stats.append(["portfolio_value", "🪙", f"Portfolio value: {portfolio_value:,}"])
     stats.append(["cookies", "🍪", f"Cookies clicked: {profile.cookies:,}"])
+    try:
+        rarest_fish_text = f"{fish_emoji(profile.rarest_fish.strip())} {profile.rarest_fish.strip()}" if profile.rarest_fish.strip() else "none"
+        stats.append(["fish_caught", "🎣", f"Fish caught: {profile.fish_caught:,} (rarest: {rarest_fish_text})"])
+    except KeyError:
+        pass  # migration 033 not run yet
     stats.append(["pig_high_score", "🎲", f"Pig high score: {profile.best_pig_score:,}"])
     stats.append(["cats_gifted", "🎁", f"Cats gifted: {profile.cats_gifted:,}{star}"])
     stats.append(["cats_received_as_gift", "🎁", f"Cats received as gift: {profile.cat_gifts_recieved:,}{star}"])
@@ -9180,7 +9735,7 @@ async def gen_inventory(message, person_id):
     try:
         needed_xp = config.battle["seasons"][str(person.season)][person.battlepass]["xp"]
     except Exception:
-        needed_xp = 6300
+        needed_xp = EXTRA_LEVEL_XP
 
     stats = await gen_stats(person, "")
     highlighted_stat = None
@@ -10005,6 +10560,141 @@ if config.DONOR_CHANNEL_ID:
         await message.response.send_message("Success! Here is a preview:", embed=embedVar)
 
 
+@bot.tree.command(description="bumbum's scratch off game")
+async def scratch(message: discord.Interaction):
+    user = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+
+    def prize_emoji(opt):
+        # fork has no "1rain" app emoji — plain ☔ stands in for rain minutes
+        return "☔" if opt == "1m Rain" else get_emoji(f"{opt.lower()}pack")
+
+    async def scratch_callback(interaction: discord.Interaction):
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+
+        await user.refresh_from_db()
+        if user.scratchcards == 0:
+            await interaction.response.send_message("You have no scratch cards!", ephemeral=True)
+            return
+
+        opts = [
+            "1m Rain", "1m Rain",
+            "Celestial", "Celestial",
+            "Diamond", "Diamond",
+            "Platinum", "Platinum",
+            "Gold", "Gold", "Gold",
+            "Silver", "Silver", "Silver",
+            "Bronze", "Bronze", "Bronze",
+            "Stone", "Stone", "Stone", "Stone",
+            "Wooden", "Wooden", "Wooden", "Wooden",
+        ]  # fmt: skip
+
+        random.shuffle(opts)
+
+        # the entire minigame is actually a lie whoopsie daisy!!!
+        # this is solely so people who fall asleep midgame wont lose on rewards
+        picks = opts[:10]
+        winnings = ["Winnings:"]
+        user.scratchcards -= 1
+        for opt in set(opts):
+            amount = picks.count(opt) // 2
+            if amount == 0:
+                continue
+            winnings.append(f"{prize_emoji(opt)} x{amount}")
+            if opt == "1m Rain":
+                # profile.rain_minutes = per-server bonus minutes (/rain spends
+                # these first, before the global user pool)
+                user.rain_minutes += amount
+            else:
+                user[f"pack_{opt.lower()}"] += amount
+        await user.save()
+
+        # each key has a list of indices where that item appears in picks
+        positions = {}
+        for i, x in enumerate(picks):
+            if x not in positions:
+                positions[x] = []
+            positions[x].append(i)
+
+        # this is used during minigame to determine when to reveal the pair
+        pairs = {}
+        for idxs in positions.values():
+            for i in range(0, len(idxs) - 1, 2):
+                a, b = idxs[i], idxs[i + 1]
+                pairs[a] = b
+                pairs[b] = a
+
+        move_spaces = []
+
+        async def scratch_spot(interaction: discord.Interaction):
+            if interaction.user != message.user:
+                await do_funny(interaction)
+                return
+            spot = int(interaction.data["custom_id"])
+            if len(move_spaces) < 10:
+                move_spaces.append(spot)
+            await refresh_board(interaction)
+
+        async def refresh_board(interaction: discord.Interaction):
+            nonlocal move_spaces
+            await interaction.response.defer()
+            view = LayoutView(timeout=VIEW_TIMEOUT)
+            buttons = []
+            empty_idx = 10
+            if len(move_spaces) > 10:
+                move_spaces = move_spaces[:10]
+            for i in range(25):
+                if i not in move_spaces:
+                    if len(move_spaces) != 10:
+                        button = Button(emoji=get_emoji("empty"), custom_id=str(i), style=ButtonStyle.gray)
+                        button.callback = scratch_spot
+                    else:
+                        item = opts[empty_idx]
+                        empty_idx += 1
+                        button = Button(
+                            emoji=prize_emoji(item),
+                            disabled=True,
+                            style=ButtonStyle.gray,
+                        )
+                    buttons.append(button)
+                    continue
+                move_number = move_spaces.index(i)
+                button = Button(
+                    emoji=prize_emoji(picks[move_number]),
+                    style=ButtonStyle.green if move_number in pairs and len(move_spaces) > pairs[move_number] else ButtonStyle.blurple,
+                    disabled=True,
+                )
+                buttons.append(button)
+
+            view.add_item(TextDisplay(f"Clicks remaining: {10 - len(move_spaces)}" if len(move_spaces) != 10 else "\n".join(winnings)))
+            for i in range(0, 25, 5):
+                view.add_item(ActionRow(*buttons[i : i + 5]))
+
+            if len(move_spaces) == 10:
+                await user.refresh_from_db()
+                button = Button(label=f"Scratch! ({user.scratchcards})", style=ButtonStyle.green, disabled=user.scratchcards == 0)
+                button.callback = scratch_callback
+                view.add_item(ActionRow(button))
+            await interaction.edit_original_response(view=view)
+
+        await refresh_board(interaction)
+
+    view = LayoutView(timeout=VIEW_TIMEOUT)
+    button = Button(label=f"Scratch! ({user.scratchcards})", style=ButtonStyle.green, disabled=user.scratchcards == 0)
+    button.callback = scratch_callback
+    view.add_item(
+        Container(
+            "## 🍀 Scratch Off",
+            f"You will be able to select **10 out of 25 spots**. Finding a __pair__ will give you it's respective prize. (example: finding 2x {get_emoji('diamondpack')} will give you a Diamond pack)",
+            "Get scratch cards by completing *Weekly Quests*.",
+            "===",
+            ActionRow(button),
+        )
+    )
+    await message.response.send_message(view=view)
+
+
 @bot.tree.command(description="View and open packs")
 async def packs(message: discord.Interaction):
     async def process_pack_opening(limit=None):
@@ -10535,6 +11225,28 @@ async def battlepass(message: discord.Interaction):
 
         description = f"Season ends <t:{timestamp}:R>\n\n"
 
+        # weekly quest 🍀 — hidden entirely during the days-28+ dead zone
+        # (weekly_quest == '') and pre-migration 034 (_weekly_quest_safe '').
+        _wq_display = _weekly_quest_safe(user)
+        if _wq_display:
+            weekly_quest = config.battle["quests"].get("weekly", {}).get(_wq_display)
+            if weekly_quest:
+                # tzinfo=utc — see the weekly rotation block in refresh_quests
+                month_start = datetime.datetime(now.year, now.month, 1, tzinfo=datetime.timezone.utc) - datetime.timedelta(hours=4)
+                description += f"__Weekly Quest__ (refreshes <t:{weekly_quest['end_time'] + int(month_start.timestamp())}:R>)\n"
+                if weekly_quest["progress"] > user.weekly_progress:
+                    description += f"{get_emoji(weekly_quest['emoji'])} {weekly_quest['title']} ({user.weekly_progress}/{weekly_quest['progress']})\n"
+                    if _wq_display != "different":
+                        colored = int(user.weekly_progress / weekly_quest["progress"] * 10)
+                        description += get_emoji("staring_square") * colored + "⬛" * (10 - colored)
+                    else:
+                        for cat_index in user.weekly_cattypes:
+                            description += get_emoji(cattypes[cat_index].lower() + "cat")
+                        description += "⬛" * (weekly_quest["progress"] - user.weekly_progress)
+                    description += f"\n- Reward: {WEEKLY_QUEST_XP} XP + {WEEKLY_QUEST_SCRATCHCARDS} Scratchcard\n\n"
+                else:
+                    description += f"✅ ~~{weekly_quest['title']}~~\n\n"
+
         # vote slot — real Top.gg vote ~1/3 of cycles, otherwise a misc-pool
         # substitute hosted in the same slot (vote_quest carries the misc id).
         # Pre-migration 028, _vote_quest_safe returns '' and we fall through
@@ -10627,9 +11339,13 @@ async def battlepass(message: discord.Interaction):
             description += f"{get_emoji(challenge_quest['emoji'])} {challenge_quest['title']}{progress_string}\n- Reward: {user.challenge_reward} XP\n\n"
 
         if user.battlepass >= len(config.battle["seasons"][str(user.season)]):
-            description += f"**Extra Rewards** [{user.progress}/6300 XP]\n"
-            colored = int(user.progress / 630)
-            description += get_emoji("staring_square") * colored + "⬛" * (10 - colored) + "\nReward: " + get_emoji("stonepack") + " Stone pack\n\n"
+            description += f"**Extra Rewards** [{user.progress}/{EXTRA_LEVEL_XP} XP]\n"
+            colored = int(user.progress / (EXTRA_LEVEL_XP / 10))
+            if EXTRA_LEVEL_REWARD == "Mystery":
+                reward_bit = get_emoji("mysterypack") + " Mystery pack"
+            else:
+                reward_bit = get_emoji(EXTRA_LEVEL_REWARD.lower() + "pack") + f" {EXTRA_LEVEL_REWARD} pack"
+            description += get_emoji("staring_square") * colored + "⬛" * (10 - colored) + "\nReward: " + reward_bit + "\n\n"
         else:
             level_data = config.battle["seasons"][str(user.season)][user.battlepass]
             season_max = len(config.battle["seasons"][str(user.season)])
@@ -10657,7 +11373,10 @@ async def battlepass(message: discord.Interaction):
             if num % 10 == 9:
                 description += "\n"
         if user.battlepass >= len(config.battle["seasons"][str(user.season)]) - 1:
-            description += f"*Extra:* {get_emoji('stonepack')} per 6300 XP"
+            if EXTRA_LEVEL_REWARD == "Mystery":
+                description += f"*Extra:* {get_emoji('mysterypack')} per {EXTRA_LEVEL_XP} XP"
+            else:
+                description += f"*Extra:* {get_emoji(EXTRA_LEVEL_REWARD.lower() + 'pack')} per {EXTRA_LEVEL_XP} XP"
 
         embedVar = discord.Embed(
             title=f"Cattlepass Season {user.season}",
@@ -15178,9 +15897,7 @@ async def tictactoe(message: discord.Interaction, person: discord.Member):
 
     async def end_game(winner):
         if players[0] == players[1]:
-            # self-play
-            user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
-            await progress(message, user, "ttc")
+            # self-play - no quest progress, that was free real estate
             return
         users = [
             await Profile.get_or_create(guild_id=message.guild.id, user_id=players[0].id),
@@ -15196,8 +15913,16 @@ async def tictactoe(message: discord.Interaction, person: discord.Member):
             users[1].ttt_draws += 1
         await users[0].save()
         await users[1].save()
-        await progress(message, users[0], "ttc")
-        await progress(message, users[1], "ttc")
+        if winner == -1:
+            # ttc quest (upstream rework): only ties against Cat Bot count —
+            # the minimax bot always ties under perfect play, so it's an
+            # actual minigame instead of self-play farming. Runs AFTER the
+            # stat saves above: progress() refetches the row, so any unsaved
+            # ttt_played/ttt_draws increments would be silently discarded.
+            if players[0] == bot.user:
+                await progress(message, users[1], "ttc")
+            if players[1] == bot.user:
+                await progress(message, users[0], "ttc")
 
     await finish_turn()
 
@@ -15296,9 +16021,10 @@ async def cookie(message: discord.Interaction):
         await interaction.response.defer()
         # extra_quest/extra_cooldown/casino_progress_temp are read by
         # progress_casino_quest's guard below before it refetches, so they must
-        # be in this partial fetch or attribute access KeyErrors.
+        # be in this partial fetch or attribute access KeyErrors. Same for
+        # misc_quest and the cookie-quest guard (upstream fix e16db15).
         user = await Profile.get(
-            ["cookies", "extra_quest", "extra_cooldown", "casino_progress_temp"],
+            ["cookies", "extra_quest", "extra_cooldown", "casino_progress_temp", "misc_quest"],
             guild_id=message.guild.id,
             user_id=message.user.id,
         )
@@ -15310,6 +16036,8 @@ async def cookie(message: discord.Interaction):
             await achemb(interaction, "cookieclicker", "followup")
         if 5100 > user.cookies >= 5000:
             await achemb(interaction, "cookiesclicked", "followup")
+        if user.misc_quest.strip() == "cookie":
+            await progress(message, user, "cookie")
         # casino quest: clicking the cookie counts as the cookieclicker game
         await progress_casino_quest(interaction, user, "cookieclicker")
 
@@ -15318,6 +16046,223 @@ async def cookie(message: discord.Interaction):
     button.callback = bake
     view.add_item(button)
     await message.response.send_message(view=view)
+
+
+@bot.tree.command(description="absolute CHAOS")
+async def chaos(message: discord.Interaction):
+    profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+
+    async def click(interaction: discord.Interaction, first: Optional[bool] = False):
+        # the global counter lives in a sentinel profile row (guild 666, owned
+        # by the bot user) reusing the cookies column - one atomic upsert per
+        # click, so it survives restarts and needs no schema change.
+        cookies = await pool.fetchrow(
+            """INSERT INTO profile (guild_id, user_id, cookies)
+            VALUES (666, $1, 1)
+            ON CONFLICT (guild_id, user_id)
+            DO UPDATE SET cookies = profile.cookies + $2
+            RETURNING cookies;""",
+            bot.user.id,
+            random.randint(0, 1000),
+        )
+        cookies = cookies["cookies"]
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        b = Button(label="Chaos!", style=ButtonStyle.red, emoji="💥")
+        b.callback = click
+        view.add_item(
+            Container(
+                f"## {cookies:,}",
+                "the number above is global for everyone. click the button to add a random number to it.",
+                b,
+            )
+        )
+
+        if first:
+            await interaction.response.send_message(view=view)
+        else:
+            await interaction.response.defer()
+            await interaction.edit_original_response(view=view)
+
+        if profile.misc_quest.strip() == "chaos":
+            await progress(message, profile, "chaos")
+
+    await click(message, True)
+
+
+@bot.tree.command(description="yeah i made this solely so i could name it catfishing")
+async def fish(message: discord.Interaction):
+    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
+
+    async def go_fishing(interaction: discord.Interaction):
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+
+        if (interaction.guild.id, interaction.user.id) in fish_lock:
+            await interaction.response.send_message("You're already fishing!", ephemeral=True)
+            return
+
+        fish_lock.append((interaction.guild.id, interaction.user.id))
+
+        await interaction.response.defer()
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        view.add_item(TextDisplay("Fishing... (wait 10-30 seconds)"))
+        await interaction.edit_original_response(view=view)
+
+        for _ in range(random.randint(1000, 3000)):
+            if (interaction.guild.id, interaction.user.id) not in fish_lock:
+                fish_lock.append((interaction.guild.id, interaction.user.id))
+            await asyncio.sleep(0.01)
+
+        fishtype = random.choices(cattypes, weights=type_dict.values())[0]
+        fish_caught = False
+
+        async def pull_fish(interaction: discord.Interaction):
+            nonlocal fish_caught
+            if fish_caught:
+                return
+            if interaction.user != message.user:
+                await do_funny(interaction)
+                return
+            fish_caught = True
+
+            view = LayoutView(timeout=VIEW_TIMEOUT)
+            button = Button(emoji="🎣", label="Cast", style=ButtonStyle.blurple)
+            button.callback = go_fishing
+            view.add_item(TextDisplay(f"You caught a {fish_emoji(fishtype)} {fishtype} fish!"))
+            view.add_item(ActionRow(button))
+            await interaction.response.defer()
+            await interaction.edit_original_response(view=view)
+
+            await profile.refresh_from_db()
+            profile.fish_caught += 1
+            if not profile.rarest_fish.strip() or cattypes.index(fishtype) > cattypes.index(profile.rarest_fish.strip()):
+                profile.rarest_fish = fishtype
+            await profile.save()
+            await achemb(interaction, "fisherman", "followup")
+            if cattypes.index(fishtype) >= cattypes.index("Legendary"):
+                await achemb(interaction, "pro_fisher", "followup")
+
+            try:
+                fish_lock.remove((interaction.guild.id, interaction.user.id))
+            except ValueError:
+                pass
+
+            await progress(message, profile, "fish")
+
+        view = LayoutView(timeout=VIEW_TIMEOUT)
+        button = Button(label="Pull!", style=ButtonStyle.blurple)
+        button.callback = pull_fish
+
+        view.add_item(TextDisplay(f"A {fish_emoji(fishtype)} {fishtype} is on the line! Pull!"))
+        view.add_item(ActionRow(button))
+
+        await interaction.edit_original_response(view=view)
+
+        await asyncio.sleep(5)
+
+        if not fish_caught:
+            view = LayoutView(timeout=VIEW_TIMEOUT)
+            button = Button(emoji="🎣", label="Cast", style=ButtonStyle.blurple)
+            button.callback = go_fishing
+            view.add_item(TextDisplay("You weren't fast enough..."))
+            view.add_item(ActionRow(button))
+            await interaction.edit_original_response(view=view)
+            try:
+                fish_lock.remove((interaction.guild.id, interaction.user.id))
+            except ValueError:
+                pass
+
+    view = LayoutView(timeout=VIEW_TIMEOUT)
+
+    button = Button(emoji="🎣", label="Cast", style=ButtonStyle.blurple)
+    button.callback = go_fishing
+
+    if profile.rarest_fish.strip():
+        rarest_fish = f"{fish_emoji(profile.rarest_fish.strip())} {profile.rarest_fish}"
+    else:
+        rarest_fish = "none"
+
+    view.add_item(Container("## 🎣 catfishing", f"total fish caught: {profile.fish_caught:,}\nyour rarest fish: {rarest_fish}"))
+    view.add_item(ActionRow(button))
+
+    await message.response.send_message(view=view)
+
+
+CAT_FORTUNES = [
+    "You will find a mysterious hairball in your shoe. It brings good luck... probably.",
+    "A cat will stare at you from across the room today. It is judging you. You will not pass.",
+    "Beware of the red dot. It leads nowhere, yet you will chase it anyway.",
+    "Your next nap will be legendary. 14 hours minimum. You've earned it.",
+    "A cardboard box will present itself. You must sit in it. This is the way.",
+    "You will knock something off a table today. Do not apologize. Maintain eye contact.",
+    "The vacuum cleaner approaches. Flee now, ask questions never.",
+    "Today's lucky number is 9. You have that many lives left... for now.",
+    "A can opener will sound in the distance. Follow it. Destiny awaits.",
+    "You will receive chin scratches from an unexpected source. Accept them graciously.",
+    "The laser pointer of fate shines upon you. Chase it with reckless abandon.",
+    "An ancient prophecy foretells: you will ignore an expensive cat toy and play with the bag it came in.",
+    "Mercury is in retrograde. This means nothing to you. You are a cat. Nap on.",
+    "You will sit on someone's keyboard today and type something profound. Or 'asdfjkl;'. Same thing.",
+    "A bird will appear at your window. You will make that weird chattering sound. It is inevitable.",
+    "Your food bowl is half empty. Scream about it at 3 AM. This is reasonable.",
+    "The bathroom door will close. You must yell. You MUST be on the other side.",
+    "A cucumber will appear behind you. Your reaction will be... disproportionate.",
+    "You will find the warmest spot in the house and defend it with your life.",
+    "Someone will call your name. Ignore them. They will call again. Ignore harder.",
+    "The stars align in the shape of a fish. This is the best possible omen.",
+    "You will bring a gift to your human today. They will not appreciate the dead bug. Ungrateful.",
+    "A door will be slightly ajar. You will not go through it. You will simply stare.",
+    "Your horoscope says: if it fits, you sits. The science is settled.",
+    "Tonight, you will perform the 3 AM zoomies. The furniture will not survive.",
+    "A mysterious force compels you to drink water from the faucet instead of your bowl.",
+    "You will claim a laptop as your bed. The human's 'important work' is irrelevant.",
+    "The prophecy is clear: you will catch between 0 and 10,000 cats today. Probably.",
+    "A great trade offer approaches. You will decline it. Then accept a worse one. This is the way of the cat.",
+    "The ancient cat council has spoken: your next pack opening will be... interesting.",
+]
+
+CAT_ACTIVITIES = (
+    "napping",
+    "knocking things off tables",
+    "ignoring humans",
+    "zoomies",
+    "bird watching",
+    "box sitting",
+    "keyboard walking",
+    "3 AM screaming",
+)
+
+CAT_FORTUNE_TITLES = [
+    "Madame Meowstradamus Speaks",
+    "The Crystal Yarn Ball Reveals",
+    "Purrfessor Whiskers' Prophecy",
+    "The Oracle of Meow",
+    "Fortune Paws Has Spoken",
+    "The Catstrologer's Vision",
+    "Whisker Wisdom™",
+    "The Feline Fates Decree",
+]
+
+
+@bot.tree.command(description="🔮 Consult the ancient cat oracle for a purrsonalized fortune")
+async def fortune(interaction: discord.Interaction):
+    rng = random.Random(interaction.user.id + discord.utils.utcnow().date().toordinal())
+
+    embed = discord.Embed(
+        title=f"🔮 {rng.choice(CAT_FORTUNE_TITLES)}",
+        description=(
+            f"😺 {rng.choice(CAT_FORTUNES)}\n\n"
+            f"**Lucky cat type:** {rng.choice(cattypes)}\n"
+            f"**Lucky number:** {rng.randint(1, 9)}\n"
+            f"**Lucky activity:** {rng.choice(CAT_ACTIVITIES)}"
+        ),
+        color=Colors.brown,
+    )
+
+    embed.set_footer(text="Fortunes reset daily • Your fate is sealed (until tomorrow)")
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(description="donate (give) cats now")
@@ -16068,27 +17013,29 @@ async def bal(message: discord.Interaction):
 
 @bot.tree.command(description="Brew some coffee to catch cats more efficiently")
 async def brew(message: discord.Interaction):
-    user = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
-    retry_counter = 2
-
     async def brew_coffee(interaction: discord.Interaction):
-        nonlocal user, retry_counter, view
+        nonlocal view
         if interaction.user != message.user:
             await do_funny(interaction)
             return
 
         await interaction.response.defer()
 
-        if retry_counter != 0:
-            retry_counter -= 1
+        try:
+            # misc_quest must be in this partial fetch — the quest hook below
+            # reads it before progress() refetches (upstream fix e16db15).
+            user = await Profile.get(["coffees", "misc_quest"], guild_id=message.guild.id, user_id=message.user.id)
+            user.coffees += 1
+            await user.save()
+        except AttributeError:
+            await interaction.edit_original_response(content="...", view=None)
             return
-
-        user = await Profile.get(["coffees"], guild_id=message.guild.id, user_id=message.user.id)
-        user.coffees += 1
-        await user.save()
 
         view.children[0].label = f"{user.coffees:,}"
         await interaction.edit_original_response(content="ugh fine", view=view)
+
+        if user.misc_quest.strip() == "coffee":
+            await progress(message, user, "coffee")
 
     view = View(timeout=VIEW_TIMEOUT)
     button = Button(emoji="☕", label="Retry", style=ButtonStyle.blurple)
@@ -16385,8 +17332,6 @@ async def slots(message: discord.Interaction):
 
         try:
             await achemb(interaction, "slots", "followup")
-            await progress(message, profile, "slots")
-            await progress(message, profile, "slots2")
             await progress_casino_quest(message, profile, "slots")
         except Exception:
             pass
@@ -17461,6 +18406,7 @@ async def roulette(
 
         if win:
             await progress(message, user, "roulette")
+            await progress(message, user, "roulette3")
             await achemb(interaction, "roulette_winner", "followup")
         # casino quest counts every roulette spin (win or lose)
         await progress_casino_quest(message, user, "roulette")
@@ -17685,7 +18631,10 @@ async def roll(message: discord.Interaction, sides: Optional[int]):
             side = "heads"
         await message.response.send_message(f"🪙 your coin lands on **{side}** ({coinflipresult})")
     else:
-        await message.response.send_message(f"🎲 your {dice} lands on **{random.randint(1, sides)}**")
+        rolled = random.randint(1, sides)
+        await message.response.send_message(f"🎲 your {dice} lands on **{rolled}**")
+        if sides == 6 and rolled == 6:
+            await progress(message, user, "roll6")
     await progress(message, user, "roll")
 
 
@@ -17699,8 +18648,6 @@ async def rate(message: discord.Interaction, thing: str, stat: str):
         await message.response.send_message("/rate is 100% correct")
     else:
         await message.response.send_message(f"{thing} is {random.randint(0, 100)}% {stat}")
-    user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
-    await progress(message, user, "rate")
 
 
 @bot.tree.command(name="8ball", description="ask the magic catball")
@@ -17742,8 +18689,6 @@ async def eightball(message: discord.Interaction, question: str):
     ]
 
     await message.response.send_message(f"{question}\n:8ball: **{random.choice(catball_responses)}**")
-    user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
-    await progress(message, user, "catball")
     await achemb(message, "balling", "followup")
 
 
@@ -17805,6 +18750,8 @@ async def pig(message: discord.Interaction):
 
         if score >= 20:
             await progress(message, profile, "pig")
+        if score >= 50:
+            await progress(message, profile, "pig50")
         # casino quest: any /pig round counts, even sub-20 scores
         await progress_casino_quest(message, profile, "pig")
         if score >= 50:
@@ -17885,7 +18832,6 @@ async def remind(
     profile.reminders_set += 1
     await profile.save()
     await achemb(message, "reminder", "followup")  # the ai autocomplete thing suggested this and its actually a cool ach
-    await progress(message, profile, "reminder")  # the ai autocomplete thing also suggested this though profile wasnt defined
 
 
 @bot.tree.command(name="random", description="Get a random cat")
@@ -18147,8 +19093,6 @@ async def get_bounties(level):
         variation = random.uniform(0.85, 1.15)
         if len(bounties) == num_bounties:
             variation *= 1.5
-            if level == 10:
-                variation *= 10
         if bounty_type == "rarity":
             margin = 0.2
             # Threshold rarity is constrained to quest-eligible (excludes
@@ -19459,7 +20403,7 @@ async def leaderboards(
                 interactor = position[final_value]
                 if type == "Cattlepass":
                     if position[final_value] >= len(bp_season):
-                        lv_xp_req = 6300
+                        lv_xp_req = EXTRA_LEVEL_XP
                     else:
                         lv_xp_req = bp_season[int(position[final_value]) - 1]["xp"]
                     interactor_perc = math.floor((100 / lv_xp_req) * position["progress"])
@@ -19468,7 +20412,7 @@ async def leaderboards(
                 messager = position[final_value]
                 if type == "Cattlepass":
                     if position[final_value] >= len(bp_season):
-                        lv_xp_req = 6300
+                        lv_xp_req = EXTRA_LEVEL_XP
                     else:
                         lv_xp_req = bp_season[int(position[final_value]) - 1]["xp"]
                     messager_perc = math.floor((100 / lv_xp_req) * position["progress"])
@@ -19512,7 +20456,7 @@ async def leaderboards(
 
             if type == "Cattlepass":
                 if i[final_value] >= len(bp_season):
-                    lv_xp_req = 6300
+                    lv_xp_req = EXTRA_LEVEL_XP
                 else:
                     lv_xp_req = bp_season[int(i[final_value]) - 1]["xp"]
                 prog_perc = math.floor((100 / lv_xp_req) * i["progress"])

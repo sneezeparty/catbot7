@@ -10,16 +10,19 @@ Cats are weighted by `type_dict` in `main.py`. The weight is *inverse rarity* �
 - "Value" of a cat type is `sum(type_dict.values()) // type_dict[type]` (integer division). This is what trade/gift/inventory valuations use.
 - Catches are per-server, not per-user. A user who plays in 10 servers has 10 independent inventories — this is core to the social loop.
 
-**Design intent:** the ladder is roughly logarithmic. Rarer-than-Mythic is "trophy tier" — the bot is in 200k+ servers and Ultimates / eGirls should remain genuinely scarce. Don't introduce a new mid-rarity that compresses the gap; introduce it at the tails.
+**Design intent:** the ladder is roughly logarithmic. Rarer-than-Mythic is "trophy tier" — Ultimates / eGirls should remain genuinely scarce. New rarities go at the tails by preference (Terminator, weight 5, is the model case); a mid-ladder addition is acceptable only where the local weight gap is wide enough to absorb it without compressing its neighbors — Shadow (221, slotted into the Baby-230 → Epic-200 gap) is the deliberate exception that set this policy.
 
-> **STALE:** the design intent above says "introduce at the tails." Shadow (weight 221, between Baby 230 and Epic 200) is a mid-ladder addition, not a tail addition. If this was a deliberate exception to the rule, the design intent paragraph should be revised to describe the actual policy (e.g., "tails preferred, but mid-rarity additions are acceptable if the weight gap at that point is large enough to absorb them"). Terminator (weight 5, between Real 5 and Ultimate 3) is a tail addition and consistent with the stated intent.
+### Season-gated rarities
 
-> **STALE:** new mechanic `rarity_min_season` / `_spawn_eligible_type_dict` / `_season_eligible_cattypes` (from `config/tuning.json` and `main.py`) is not represented in design docs. The `rarity_min_season` dict in `config/tuning.json` gates rarity eligibility by season number — rarities listed there are excluded until the current season number reaches their minimum. Two helpers enforce this gate:
->
-> - `_spawn_eligible_type_dict()` — used at spawn time only. Returns a filtered `type_dict` (weight-keyed dict) that also drops rarities whose spawn image is not on disk. Used by `spawn_cat()`.
-> - `_season_eligible_cattypes()` — a parallel helper without the image check. Returns a plain list of eligible rarity names. Used by all pack-open rarity rolls (4 call sites in `get_pack_rewards` / `process_pack_opening`) and the catnip level-up price selection (`set_mafia_offer`).
->
-> Currently `{"Shadow": 2, "Terminator": 2}`, matching the live season so both rarities are immediately eligible. The mechanism is designed for future season-gated rarity drops. This mechanic should be documented in the "Cat rarities" section (or a sub-section) once the design intent is established.
+`config/tuning.json → rarity_min_season` maps rarity → minimum season number; a rarity listed there doesn't spawn, roll from packs, or appear in catnip pricing until the current season reaches its minimum. Two helpers enforce the gate: `_spawn_eligible_type_dict()` at spawn time (also drops rarities whose spawn image is missing from disk), and `_season_eligible_cattypes()` for pack-open rolls and catnip level pricing. Currently `{"Shadow": 2, "Terminator": 2}` — both already live.
+
+**Design intent:** new rarities are *content drops*, and the gate lets a rarity ship in code/config ahead of its season without leaking early. Gating by season (not date) keeps it aligned with the wipe cadence: a rarity always debuts at a season boundary, when everyone's economy restarts together.
+
+### Bonus cats
+
+After a normal catch (July 2026, ported from upstream's "june update"), a rarity-scaled roll can turn the catch into a **bonus cat 🎁**: `chance = bonus_cat_chance_coef × log2(sum(type_dict.values()) / type_weight − 0.7)` — roughly 3.7% at Fine up to ~22% at eGirl. The catcher gets a **30-second, one-attempt** solo minigame (one distinct puzzle per cattype — `play_minigame()` in `main.py`) worth **+3 cats of that type** on success. During a cat rain the payout is a flat +1 instead (rains move too fast for modal UI). `profile.bonus_catches` counts lifetime successes; the [Gift Catcher catnip perk](catnip.md#perks) raises the roll chance, capped at 2×. Setting `bonus_cat_chance_coef` to `0` in `config/tuning.json` disables the whole mechanic (note this makes the week-3 [weekly quest](battlepass.md#weekly-quest-track) uncompletable).
+
+**Design intent:** the roll is rarity-scaled rather than flat so the payoff lands where it's felt — +3 Fine cats is noise, +3 eGirls is an event, and the scaling makes rare catches doubly exciting without inflating commons. It's a *skill* gate (puzzle, deadline, one attempt) rather than a second RNG roll, because the catch itself was already the luck. This fork runs the **solo variant**: upstream couples bonus cats to a late-catching mechanic that lets bystanders join the minigame; we deliberately dropped late catching, so only the catcher plays. Bonus grants are flat (+3, unboosted) and sit outside the prism/catnip multiplier stack — they never compound with doublers.
 
 ## Packs
 
@@ -33,7 +36,7 @@ Pack tiers form their own ladder: Wooden → Stone → Bronze → Silver → Gol
 
 **Design intent:** packs exist to compress the long-tail catching grind. The expected value of a tier-N pack is calibrated so that a player who is many catches behind can "catch up" via packs without trivializing the grind for everyone else.
 
-> **STALE:** the following design constraint was superseded by the pack coin variant mechanic (see below): "Don't add packs that pay out in non-cat currency — that erodes the cat-as-currency design." The constraint should be rewritten to reflect the new intent.
+The old constraint here was "don't add packs that pay out in non-cat currency." The pack coin variant (below) deliberately superseded it: coins are now an accepted secondary payout **as long as total pack worth stays constant** — the split changes the *form* of the payout, never its size. The surviving rule: a pack's expected value is denominated in cat-value, and any non-cat payout must be an equal-value substitution inside that budget, not a bonus on top.
 
 ### Pack coin variant
 
@@ -246,7 +249,20 @@ When adding a new XP source, new pack tier, or new currency interaction, sanity-
 - **Pack inflation:** total in-circulation packs should grow sub-linearly with catches. If a feature gives N packs per catch (vs the current ~0.01-ish), it's overpowered.
 - **Per-currency monopoly:** if a feature creates a new way to convert coins into rain minutes (or vice versa), the surviving segregation rule is breaking. Either widen the segregation or pick a different reward. Note: coins↔roulette_balance arbitrage is no longer a concern — those two pools were merged in migration 006.
 
-> **STALE:** new mechanic `bakery` / `brew` / `cookie` (from `main.py`) is not represented in design docs. The `/bakery` command is a weekly Bake.gg integration: users accumulate cookies (via `/cookie`), coffees (via `/brew`), and Nice cats, then deliver a "bakery order" to receive a Silver Pack and a Bake.gg Cat Egg. The Cat Egg can be opened on Bake.gg for a Chef Pack back in Cat Bot (one per user per week). This introduces two new resource sinks (`cookies`, `coffees`) and an external partner economy loop that the segregation rules above don't currently account for.
+### Bakery loop (clicker sinks)
+
+`/bakery` is a weekly Bake.gg partner integration: players accumulate **cookies** (`/cookie`) and **coffees** (`/brew`) via idle clicking plus a few Nice cats, then deliver a bakery order for a Silver Pack and a Bake.gg Cat Egg (redeemable on Bake.gg for a Chef Pack back in Cat Bot, once per user per week).
+
+**Design intent:** cookies and coffees are *deliberately worthless* clicker counters — the bakery order is the only sink, it's weekly-capped, and the pack payout is modest. The loop exists to give the joke commands a point and to cross-pollinate with the partner site, not to be an income source; the weekly cap is what keeps an unbounded clicker from ever mattering to the economy. (The `cookie`/`coffee` misc quests layer on the same counters — they pay quest XP for clicking, which is bounded by the misc slot's own cooldown.)
+
+### Flavor commands (zero-economy loops)
+
+`/fish` and `/chaos` are engagement content with **no economy footprint** — by design, neither grants cats, packs, coins, or XP directly (only their misc quests pay, through the normal quest budget):
+
+- **`/fish`** — cast, wait 10–30s, then a 5-second "Pull!" window. Fish rarity rolls from the same `type_dict` weights as spawns, but a fish is just a trophy: `profile.fish_caught` / `profile.rarest_fish` feed two achievements (`fisherman`, `pro_fisher` at Legendary+) and the "Catch 5 /fish" misc quest. Reusing the cat rarity ladder makes fish rarity legible for free — players already know what a Legendary is worth emotionally.
+- **`/chaos`** — one global counter; every click adds a random 0–1000. Stored in a sentinel profile row (`guild_id=666`, owned by the bot user, reusing the `cookies` column) so it survives restarts with zero schema; the webui excludes bot-owned rows from every aggregate, so the sentinel never pollutes stats.
+
+**Design intent:** these are the "low-stakes discovery" tier — commands whose whole reward is the moment itself. Keeping them economy-free means they can be arbitrarily silly without balance review, and the misc quests pointing at them are the only bridge back into progression.
 
 ## Cat Store
 
@@ -258,17 +274,17 @@ Each cat type has a **base value** derived from the same formula `/trade` and `/
 
 The store applies a **`CATSTORE_PRICE_MULTIPLIER`** on top of `cat_value` (currently `2`) when computing every price it displays. This multiplier is scoped to catstore code only — trade/gift valuations and job reward magnitudes still use the unmultiplied `cat_value`. The store's working "face value" is therefore `catstore_face_value(type) = cat_value(type) * CATSTORE_PRICE_MULTIPLIER * tier_mult(type)`, where `tier_mult` is the per-rarity multiplier from `config/tuning.json → catstore_tier_mult`. Doubling the base multiplier doubles both sides of the storefront in lockstep, preserving the percentage-based discount/sell-cap math without touching arbitrage guards.
 
-**Per-rarity tier multiplier (`catstore_tier_mult`)** scales top-tier prices non-linearly so a single eGirl isn't a sub-day purchase for a maxed mafia player. The base multiplier is `1.0` for every rarity not in the table:
+**Per-rarity tier multiplier (`catstore_tier_mult`)** scales top-tier prices non-linearly so a single eGirl isn't a sub-day purchase for a maxed mafia player. The base multiplier is `1.0` for every rarity not in the table; the design-decision multipliers are:
 
-| Rarity   | Multiplier | Effective face (Lv4, 0%) | Buy price (Lv4) | Buy price (Lv0, −20%) | Buy price (Lv10, +30%) |
-| -------- | ---------- | ------------------------ | --------------- | ---------------------- | ---------------------- |
-| Mythic   | 1.5×       | ~612                     | 612             | 734                    | 428                    |
-| Divine   | 4×         | ~5,104                   | 5,104           | 6,125                  | 3,573                  |
-| Real     | 5×         | ~10,208                  | 10,208          | 12,250                 | 7,146                  |
-| Ultimate | 6×         | ~20,416                  | 20,416          | 24,499                 | 14,291                 |
-| eGirl    | 7×         | ~35,728                  | 35,728          | 42,874                 | 25,010                 |
+| Rarity   | Multiplier |
+| -------- | ---------- |
+| Mythic   | 1.5×       |
+| Divine   | 4×         |
+| Real     | 5×         |
+| Ultimate | 6×         |
+| eGirl    | 7×         |
 
-> **STALE:** the face-value columns above are stale. They were computed with the old `type_dict` sum (22 rarities, sum 4108). The sum is now 4334 (24 rarities, +Shadow and +Terminator), which shifts all `cat_value` results upward ~5.5%. The actual face = `(sum(type_dict.values()) // weight) * CATSTORE_PRICE_MULTIPLIER * tier_mult(type)` — this is computed live from the current `type_dict` sum, so the inline numbers will drift every time a rarity is added. Consider removing the inline face-value columns and linking to config instead (per the docs conventions: inline only numbers that encode a design decision, not derived values).
+Actual coin prices are derived live: `face = (sum(type_dict.values()) // weight) × CATSTORE_PRICE_MULTIPLIER × tier_mult(type)`, so every rarity added to `type_dict` shifts all faces slightly. Only the multipliers above encode a decision — see `config/tuning.json → catstore_tier_mult` for the live values and `/catstore` for current prices. (Ballpark for intuition: the eGirl face lands in the tens of thousands of coins — a week-scale purchase — while unmultiplied mid-rarities stay in the hundreds.)
 
 (Sell prices follow automatically because `store_sell_price` is a percentage of face.) The rebalance was driven by the same income/sink imbalance that motivated the pack price increases: at the pre-rebalance prices, eGirl cost ~4,100 coins, so a Tier‑4 player on a normal day could buy 3 of them. Bumping the top five rarities by 1.5× → 7× turns them into multi-day or week-scale purchases.
 

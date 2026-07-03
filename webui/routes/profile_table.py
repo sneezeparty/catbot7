@@ -34,8 +34,12 @@ INT_FIELDS = [
     "challenge_cooldown",
     "challenge_reward",
     "reminder_challenge",
+    "weekly_progress",        # weekly quest 🍀 progress (no cooldown — window-gated)
+    "scratchcards",           # unspent /scratch cards (weekly quest reward)
     # Streak / misc counters
     "catch_streak",
+    "bonus_catches",          # successful bonus-cat 🎁 minigames (+3 cats each)
+    "fish_caught",            # lifetime /fish catches
     # Rain / inventory
     "rain_minutes",
     "coins",
@@ -132,6 +136,7 @@ STR_FIELDS = [
     "vote_quest",
     "extra_quest",
     "challenge_quest",
+    "weekly_quest",
     "gift3_recipients",
     "custom",
     "perk1",
@@ -142,6 +147,7 @@ STR_FIELDS = [
     "bounty_type_two",
     "bounty_type_three",
     "bounty_type_bonus",
+    "rarest_fish",
 ]
 BOOL_FIELDS = [
     "reminders_enabled",

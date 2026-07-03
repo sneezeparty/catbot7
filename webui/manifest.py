@@ -144,6 +144,7 @@ SECTIONS: dict[str, dict] = {
             "profile.bonus_catches (integer — successful bonus-cat 🎁 minigames; in INT_FIELDS)",
             "profile.fish_caught (integer — lifetime /fish catches; in INT_FIELDS), profile.rarest_fish (VARCHAR(15) cattype name; in STR_FIELDS)",
             "profile.weekly_quest (VARCHAR(10) weekly quest id, '' = none; STR_FIELDS), profile.weekly_progress + profile.scratchcards (INT_FIELDS)",
+            "profile.vouchers (JSONB list of one-shot Mystery vouchers; JSONB_FIELDS), profile.rain_seconds (0-59 sub-minute rain bank; INT_FIELDS)",
             "profile.weekly_cattypes (smallint[] of cattype indices for the 'different' weekly quest — array column, shown raw in the detail view; no display grouping yet)",
             "NOTE: the row (guild_id=666, user_id=<bot>) is the /chaos global counter sentinel (cookies column) — not a real profile; harmless if it shows in searches",
         ],

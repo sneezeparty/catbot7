@@ -38,6 +38,8 @@ Pack tiers form their own ladder: Wooden → Stone → Bronze → Silver → Gol
 
 The old constraint here was "don't add packs that pay out in non-cat currency." The pack coin variant (below) deliberately superseded it: coins are now an accepted secondary payout **as long as total pack worth stays constant** — the split changes the *form* of the payout, never its size. The surviving rule: a pack's expected value is denominated in cat-value, and any non-cat payout must be an equal-value substitution inside that budget, not a bonus on top.
 
+The battlepass **Mystery** reward extends the same principle across reward *types*: it resolves to a pack ~72% of the time, else rain time / coins / XP / a scratchcard / a one-shot voucher, with the whole table budgeted in pack-value terms (EV ≈ 345 vs the 292 all-pack baseline; the sweetener lives in sub-3% outcomes). Weights and the odds/voucher details live in [battlepass.md → What a Mystery resolves to](battlepass.md#what-a-mystery-resolves-to) and `config/tuning.json → mystery_outcomes`; when adding a new outcome family, price it in pack-value and take its weight out of existing families rather than stacking on top.
+
 ### Pack coin variant
 
 Each pack open has a **50% chance** (tunable `pack_coin_variant_chance`) of becoming a **"coin crate"**: the pack's `goal_value` is split so the cat side rolls at `goal_value * (1 - coin_ratio)` and the remaining `totalvalue * coin_ratio` is paid out directly as coins. The coin ratio is **tier-scaled** via `_pack_coin_ratio(level_idx)`: linear interpolation from `PACK_COIN_RATIO_WOODEN` (0.5) at Wooden down to `PACK_COIN_RATIO_CELESTIAL` (0.2) at Celestial. **Special packs** (Christmas, Valentine, Chef, Birthday) always open as regular cat packs — `_pack_coin_ratio` returns 0 for them, coin variant is a no-op.
@@ -249,11 +251,13 @@ When adding a new XP source, new pack tier, or new currency interaction, sanity-
 - **Pack inflation:** total in-circulation packs should grow sub-linearly with catches. If a feature gives N packs per catch (vs the current ~0.01-ish), it's overpowered.
 - **Per-currency monopoly:** if a feature creates a new way to convert coins into rain minutes (or vice versa), the surviving segregation rule is breaking. Either widen the segregation or pick a different reward. Note: coins↔roulette_balance arbitrage is no longer a concern — those two pools were merged in migration 006.
 
-### Bakery loop (clicker sinks)
+### Cookies & coffees (pure clickers — bakery disabled)
 
-`/bakery` is a weekly Bake.gg partner integration: players accumulate **cookies** (`/cookie`) and **coffees** (`/brew`) via idle clicking plus a few Nice cats, then deliver a bakery order for a Silver Pack and a Bake.gg Cat Egg (redeemable on Bake.gg for a Chef Pack back in Cat Bot, once per user per week).
+**`/bakery` is disabled on this fork** (stubbed like `/plush`, July 2026). It's upstream's weekly Bake.gg partner integration, and Bake.gg's reward API only authorizes the public Cat Bot's `BAKE_GG_TOKEN` — a fork's delivery always 401s, so the order flow was a grind-to-a-dead-button trap once the `cookie`/`coffee` misc quests started funneling players toward full orders. The command body, the `BAKERY_COST_*` tunables, and the never-shipped `bakery_discount` job perk reference went with it; the `/bakegg` webhook handler stays as dead code for easy re-enable if a partner token ever materializes.
 
-**Design intent:** cookies and coffees are *deliberately worthless* clicker counters — the bakery order is the only sink, it's weekly-capped, and the pack payout is modest. The loop exists to give the joke commands a point and to cross-pollinate with the partner site, not to be an income source; the weekly cap is what keeps an unbounded clicker from ever mattering to the economy. (The `cookie`/`coffee` misc quests layer on the same counters — they pay quest XP for clicking, which is bounded by the misc slot's own cooldown.)
+That leaves **cookies** (`/cookie`) and **coffees** (`/brew`) as *deliberately worthless* vanity clicker counters. Their only progression value is the `cookie`/`coffee` misc quests, which pay quest XP for clicking and are bounded by the misc slot's own cooldown. Chef packs remain defined in `pack_data` but are unobtainable (existing holdings still open normally).
+
+**Design intent:** an unbounded clicker must never matter to the economy. Upstream achieves that with a weekly-capped sink; this fork achieves it by having no sink at all — the counters are the number-goes-up joke, and the quests are the bridge back into progression.
 
 ### Flavor commands (zero-economy loops)
 

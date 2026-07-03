@@ -42,6 +42,7 @@ INT_FIELDS = [
     "fish_caught",            # lifetime /fish catches
     # Rain / inventory
     "rain_minutes",
+    "rain_seconds",           # sub-minute rain bank (0-59) from Mystery drops; rolls into rain_minutes at 60
     "coins",
     "cookies",
     "coffees",
@@ -178,6 +179,7 @@ JSONB_FIELDS = [
     "job_perks",                # JSONB list of active mafia-reward perks; writer is main._perks_grant
     "season_stat_baseline",     # JSONB dict snapshot of bigint counters at season rollover; used to compute per-season deltas
     "season_trophies",          # JSONB list of {season, category, rank} trophy records; append-only, written by _award_season_trophies at rollover
+    "vouchers",                 # JSONB list of one-shot battlepass Mystery vouchers; writer is main._vouchers_grant
 ]
 
 

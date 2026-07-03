@@ -333,9 +333,6 @@ PRISM_OWNER_XP_PER_BOOST = int(config.tuning.get("prism_owner_xp_per_boost", 20)
 # keep working. See _job_grace_active.
 CATNIP_JOB_GRACE_SECONDS = int(config.tuning.get("catnip_job_grace_hours", 24)) * 3600
 COIN_PER_PACK = config.tuning["coin_per_pack"]
-BAKERY_COST_COOKIES = config.tuning["bakery_cost_cookies"]
-BAKERY_COST_COFFEES = config.tuning["bakery_cost_coffees"]
-BAKERY_COST_NICE = config.tuning["bakery_cost_nice_cats"]
 MAIN_LOOP_INTERVAL = config.tuning["main_loop_interval_seconds"]
 SPAWN_REVIVAL_INTERVAL = config.tuning.get("spawn_revival_interval_seconds", 60)
 SEASON_ANNOUNCE_INTERVAL = config.tuning.get("season_announce_interval_seconds", 3600)
@@ -355,6 +352,20 @@ BONUS_MINIGAME_DEADLINE_SECONDS = int(config.tuning.get("bonus_minigame_deadline
 # on every level — 2000 would roughly quadruple the post-cap pack faucet.
 EXTRA_LEVEL_XP = int(config.tuning.get("extra_level_xp", 3000))
 EXTRA_LEVEL_REWARD = str(config.tuning.get("extra_level_reward", "Mystery"))
+# Mystery outcome table 🎁: what a "Mystery" battlepass reward resolves to.
+# double_chance is a separate pre-roll (so it's EXACTLY that probability and
+# nested rolls can simply skip it); weights are relative within one roll;
+# sub-tier dicts map "value" -> weight. BALANCE RULE: the max XP tier (doubled)
+# must stay below the cheapest Mystery-bearing level cost (2,500 XP at S2+ L31)
+# or an XP outcome could chain levels faster than it costs them.
+MYSTERY_OUTCOMES = config.tuning.get("mystery_outcomes", {})
+MYSTERY_DOUBLE_CHANCE = float(MYSTERY_OUTCOMES.get("double_chance", 0.05))
+MYSTERY_WEIGHTS = MYSTERY_OUTCOMES.get("weights", {"pack": 72, "rain": 9, "coins": 7, "xp": 7.5, "voucher": 3, "scratchcard": 1.5})
+MYSTERY_RAIN_TIERS = MYSTERY_OUTCOMES.get("rain_seconds", {"15": 60, "30": 30, "60": 10})
+MYSTERY_COIN_TIERS = MYSTERY_OUTCOMES.get("coins", {"500": 60, "1000": 24, "2000": 11, "2500": 5})
+MYSTERY_XP_TIERS = MYSTERY_OUTCOMES.get("xp", {"250": 60, "500": 30, "1000": 10})
+MYSTERY_VOUCHER_TIERS = MYSTERY_OUTCOMES.get("vouchers", {"double_pack": 60, "bounty_skip": 32, "egirl_bonus": 8})
+MYSTERY_EGIRL_TIER = int(MYSTERY_OUTCOMES.get("egirl_bonus_tier", 3))
 # Weekly quest 🍀 fixed reward: XP + /scratch cards per completion. Fixed
 # (never perk-scaled or weekend-doubled) — it's the marquee weekly payout.
 WEEKLY_QUEST_XP = int(config.tuning.get("weekly_quest_xp", 2000))
@@ -3196,6 +3207,69 @@ def _perks_save(profile: Profile, perks: list[dict]) -> None:
     profile.job_perks = list(perks)
 
 
+# ---------------------------------------------------------------------------
+# Vouchers 🎟️ — one-shot effects granted by battlepass Mystery rewards.
+# Stored on profile.vouchers (JSONB list, migration 035) as
+# {"id": "double_pack" | "egirl_bonus" | "bounty_skip", "granted_at": int}.
+# No expiry, no charges: consuming = removing the first matching entry.
+# Stacking is allowed (each grant appends, each trigger consumes one).
+# Wiped at season rollover (they're pack-adjacent value; packs wipe too).
+
+VOUCHER_LABELS = {
+    "double_pack": ("🎟️", "Double Pack", "your next pack opens with doubled contents"),
+    "egirl_bonus": ("🎰", "eGirl Bonus", "your next /catslots spin triggers the eGirl bonus round"),
+    "bounty_skip": ("🐾", "Bounty Skip", "your next catch autocompletes a catnip bounty"),
+}
+
+
+def _vouchers_load(profile: Profile) -> list[dict]:
+    """Safe read. Returns a fresh list. [] if the column doesn't exist yet
+    (pre-migration-035)."""
+    raw = _jobs_col(profile, "vouchers", [])
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) or []
+        except (ValueError, TypeError):
+            raw = []
+    if not isinstance(raw, list):
+        return []
+    return [dict(e) for e in raw if isinstance(e, dict)]
+
+
+def _vouchers_save(profile: Profile, vouchers: list[dict]) -> None:
+    """Assigns profile.vouchers. Caller is responsible for save()."""
+    profile.vouchers = list(vouchers)
+
+
+def _vouchers_has(profile: Profile, voucher_id: str) -> bool:
+    return any(e.get("id") == voucher_id for e in _vouchers_load(profile))
+
+
+def _vouchers_grant(profile: Profile, voucher_id: str) -> bool:
+    """Append one voucher. Returns False (no-op) pre-migration-035 so a
+    Mystery outcome can fall back to something grantable."""
+    try:
+        _ = profile.vouchers
+    except (KeyError, AttributeError):
+        return False
+    vouchers = _vouchers_load(profile)
+    vouchers.append({"id": voucher_id, "granted_at": int(time.time())})
+    _vouchers_save(profile, vouchers)
+    return True
+
+
+def _vouchers_consume(profile: Profile, voucher_id: str) -> bool:
+    """Remove the first matching voucher. Returns True if one was spent.
+    Caller is responsible for save()."""
+    vouchers = _vouchers_load(profile)
+    for i, e in enumerate(vouchers):
+        if e.get("id") == voucher_id:
+            vouchers.pop(i)
+            _vouchers_save(profile, vouchers)
+            return True
+    return False
+
+
 def _perks_is_active(entry: dict, now: int) -> bool:
     """Internal: True iff this perk row should remain in the active list."""
     exp = int(entry.get("expires_at", 0) or 0)
@@ -4195,16 +4269,99 @@ def grant_bonus_pack(user: Profile) -> tuple[str, str]:
     return pack_name, desc
 
 
-def grant_mystery_pack(user: Profile) -> str:
-    """Resolve the battlepass "Mystery" overflow reward: one random non-special
-    pack weighted toward the cheap tiers (1/totalvalue). Increments the pack
-    counter (does NOT save) and returns the chosen tier name. Shared by both
-    level-up paths (progress + grant_achievement_xp) so the odds can't drift."""
+def resolve_mystery(user: Profile, *, _depth: int = 0) -> tuple[list[str], int]:
+    """Resolve one battlepass "Mystery" grant into a concrete outcome:
+    usually a pack, sometimes rain time / coins / a scratchcard / XP / a
+    voucher, and a 5% pre-roll for a Double Mystery (two outcomes).
+
+    Applies all non-XP effects to `user` in place (does NOT save — callers
+    save). Returns (desc_lines, bonus_xp). bonus_xp MUST be folded into the
+    caller's LOCAL xp_progress accumulator — NEVER call grant_achievement_xp
+    or progress from here: both level loops mutate this same profile object
+    with no isolation, so re-entering them double-counts levels.
+
+    Shared by both level-up paths (progress + grant_achievement_xp) so the
+    odds can't drift. Weights live in config/tuning.json -> mystery_outcomes.
+    """
+    mystery = get_emoji("mysterypack")
+
+    # Double Mystery pre-roll: exactly MYSTERY_DOUBLE_CHANCE, top level only.
+    if _depth == 0 and random.random() < MYSTERY_DOUBLE_CHANCE:
+        lines = [f"You got a {mystery} -> 🎁🎁 **Double Mystery!**"]
+        total_xp = 0
+        for _ in range(2):
+            inner_lines, inner_xp = resolve_mystery(user, _depth=1)
+            lines.extend("› " + line for line in inner_lines)
+            total_xp += inner_xp
+        return lines, total_xp
+
+    def _roll_tier(tiers: dict) -> str | None:
+        # None (-> pack fallback) if an operator emptied/zeroed a tier dict
+        # in tuning.json — a config foot-gun must not crash a level-up
+        try:
+            return random.choices(list(tiers.keys()), weights=list(tiers.values()), k=1)[0]
+        except (IndexError, ValueError, TypeError):
+            return None
+
+    try:
+        family = random.choices(list(MYSTERY_WEIGHTS.keys()), weights=list(MYSTERY_WEIGHTS.values()), k=1)[0]
+    except (IndexError, ValueError, TypeError):
+        family = "pack"
+
+    if family == "rain":
+        # banked in seconds; every full 60s rolls into a real (per-server
+        # bonus) rain minute — /rain itself only ever deals in whole minutes
+        tier = _roll_tier(MYSTERY_RAIN_TIERS)
+        try:
+            if tier is not None:
+                seconds = int(tier)
+                bank = int(user.rain_seconds or 0) + seconds
+                rolled_over = bank // 60
+                user.rain_seconds = bank % 60
+                suffix = ""
+                if rolled_over:
+                    user.rain_minutes += rolled_over
+                    suffix = f" (+{rolled_over} rain minute{'s' if rolled_over != 1 else ''}!)"
+                return [f"You got a {mystery} -> ☔ +{seconds}s of rain time!{suffix}"], 0
+        except (KeyError, AttributeError):
+            pass  # pre-migration-035: fall back to a pack
+        family = "pack"
+
+    if family == "coins":
+        tier = _roll_tier(MYSTERY_COIN_TIERS)
+        if tier is not None:
+            amount = int(tier)
+            user.coins = int(user.coins or 0) + amount
+            _bump(user, "coins_earned", amount)
+            return [f"You got a {mystery} -> 🪙 {amount:,} coins!"], 0
+        family = "pack"
+
+    if family == "xp":
+        tier = _roll_tier(MYSTERY_XP_TIERS)
+        if tier is not None:
+            return [f"You got a {mystery} -> ⬆️ +{int(tier)} XP!"], int(tier)
+        family = "pack"
+
+    if family == "scratchcard":
+        try:
+            user.scratchcards += 1
+            return [f"You got a {mystery} -> 🍀 a /scratch card!"], 0
+        except (KeyError, AttributeError):
+            family = "pack"  # pre-migration-034: fall back to a pack
+
+    if family == "voucher":
+        voucher_id = _roll_tier(MYSTERY_VOUCHER_TIERS)
+        if voucher_id and _vouchers_grant(user, voucher_id):
+            emoji, name, blurb = VOUCHER_LABELS.get(voucher_id, ("🎟️", voucher_id, "???"))
+            return [f"You got a {mystery} -> {emoji} a **{name}** voucher — {blurb}!"], 0
+        family = "pack"  # pre-migration-035 (or emptied tier dict): fall back to a pack
+
+    # default / fallback: the classic pack pull, weighted toward cheap tiers
     pack_options = [pack["name"] for pack in pack_data if not pack["special"]]
     pack_weights = [1 / pack["totalvalue"] for pack in pack_data if not pack["special"]]
     pack_chosen = random.choices(pack_options, weights=pack_weights, k=1)[0]
     user[f"pack_{pack_chosen.lower()}"] += 1
-    return pack_chosen
+    return [f"You got a {mystery} -> {get_emoji(pack_chosen.lower() + 'pack')} {pack_chosen} pack! Do /packs to open it!"], 0
 
 
 # Per-tier color for the bonus-pack-drop embed shown on a lucky catch. The
@@ -4373,13 +4530,19 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         user.battlepass += 1
         xp_progress -= active_level_data["xp"]
         user.progress = xp_progress
-        pack_chosen = None
+        mystery_lines = None
         if active_level_data["reward"] in cattypes:
             user[f"cat_{active_level_data['reward']}"] += active_level_data["amount"]
         elif active_level_data["reward"] == "Rain":
             user.rain_minutes += active_level_data["amount"]
         elif active_level_data["reward"] == "Mystery":
-            pack_chosen = grant_mystery_pack(user)
+            mystery_lines, mystery_xp = resolve_mystery(user)
+            if mystery_xp:
+                # fold into the LOCAL accumulator (never re-enter the level
+                # machinery — see resolve_mystery's docstring); this can
+                # legitimately chain the next level via the while re-check
+                xp_progress += mystery_xp
+                user.progress = xp_progress
         else:
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
         # Optional "extra_reward" stack — a level can grant a second reward on
@@ -4404,8 +4567,8 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             description = (
                 f"You got {get_emoji(active_level_data['reward'].lower() + 'cat')} {active_level_data['amount']} {active_level_data['reward']}!"
             )
-        elif pack_chosen:
-            description = f"You got a {get_emoji('mysterypack')} -> {get_emoji(pack_chosen.lower() + 'pack')} {pack_chosen} pack! Do /packs to open it!"
+        elif mystery_lines:
+            description = "\n".join(mystery_lines)
         else:
             description = (
                 f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -4971,6 +5134,15 @@ async def refresh_quests(user):
         except (KeyError, AttributeError):
             pass
 
+        # Vouchers 🎟️ (migration 035) wipe with the season too — they're
+        # pack-adjacent value. rain_seconds is deliberately PRESERVED, same
+        # as rain_minutes.
+        try:
+            _ = user.vouchers
+            user.vouchers = []
+        except (KeyError, AttributeError):
+            pass
+
         # 0.6.5 — per-season economy wipe. Coins reset to the season starting
         # allowance (SEASON_STARTING_COINS), catnip and jobs state reset, pack
         # queue empties. Cats / stocks / prisms / discovered / achievements /
@@ -5254,13 +5426,18 @@ async def progress(
             xp_progress -= active_level_data["xp"]
             user.progress = xp_progress
             cat_emojis = None
-            pack_chosen = None
+            mystery_lines = None
             if active_level_data["reward"] in cattypes:
                 user[f"cat_{active_level_data['reward']}"] += active_level_data["amount"]
             elif active_level_data["reward"] == "Rain":
                 user.rain_minutes += active_level_data["amount"]
             elif active_level_data["reward"] == "Mystery":
-                pack_chosen = grant_mystery_pack(user)
+                mystery_lines, mystery_xp = resolve_mystery(user)
+                if mystery_xp:
+                    # fold into the LOCAL accumulator (never re-enter the
+                    # level machinery — see resolve_mystery's docstring)
+                    xp_progress += mystery_xp
+                    user.progress = xp_progress
             else:
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
             # Optional "extra_reward" stack — same shape as the primary. See
@@ -5286,8 +5463,8 @@ async def progress(
                     description = (
                         f"You got {get_emoji(active_level_data['reward'].lower() + 'cat')} {active_level_data['amount']} {active_level_data['reward']}!"
                     )
-                elif pack_chosen:
-                    description = f"You got a {get_emoji('mysterypack')} -> {get_emoji(pack_chosen.lower() + 'pack')} {pack_chosen} pack! Do /packs to open it!"
+                elif mystery_lines:
+                    description = "\n".join(mystery_lines)
                 else:
                     description = (
                         f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -10728,6 +10905,9 @@ async def packs(message: discord.Interaction):
         bonus_cat_active = "pack_bonus_cat" in active_perks
         polish_pending = "pack_tier_upgrade" in active_perks
         floor_pending = "pack_floor" in active_perks
+        # Double Pack voucher 🎟️ (Mystery reward): like the charge perks, it
+        # fires on the first open of the batch and is exhausted.
+        double_pending = _vouchers_has(user, "double_pack")
         cap_idx = next((i for i, p in enumerate(pack_data) if p["name"].lower() == "silver"), len(pack_data) - 1)
         perk_msgs: list[str] = []
         bonus_cat_total = 0
@@ -10767,6 +10947,12 @@ async def packs(message: discord.Interaction):
                     chosen_type = "Nice"
                     perk_msgs.append("🚫 No Fines: floor lifted one open to Nice.")
                     floor_pending = False
+
+                if double_pending and _vouchers_consume(user, "double_pack"):
+                    cat_amount *= 2
+                    coin_amount *= 2
+                    perk_msgs.append("🎟️ Double Pack voucher: first pack's contents doubled!")
+                    double_pending = False
 
                 total_upgrades += upgrades
                 coin_total += coin_amount
@@ -11065,6 +11251,15 @@ async def packs(message: discord.Interaction):
             chosen_type = "Nice"
             perk_msgs.append("🚫 No Fines: floor upgraded to Nice.")
 
+        # Double Pack voucher 🎟️ (Mystery reward): doubles this open's whole
+        # contents — cats AND the coin-variant payout. Rolled after the tier
+        # bump / floor lift / sub-1 lottery have settled, so it's a true
+        # "double what you got", never a change to the odds.
+        if _vouchers_consume(user, "double_pack"):
+            cat_amount *= 2
+            coin_amount *= 2
+            perk_msgs.append("🎟️ Double Pack voucher: contents doubled!")
+
         bonus_type = None
         bonus_amount = 0
         if "pack_bonus_cat" in _perks_active_ids(user):
@@ -11357,6 +11552,8 @@ async def battlepass(message: discord.Interaction):
                 description += f"Reward: ☔ {level_data['amount']} minutes of rain\n\n"
             elif level_data["reward"] in cattypes:
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'cat')} {level_data['amount']} {level_data['reward']} cats\n\n"
+            elif level_data["reward"] == "Mystery":
+                description += f"Reward: {get_emoji('mysterypack')} Mystery — could be anything!\n\n"
             else:
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'pack')} {level_data['reward']} pack\n\n"
 
@@ -11377,6 +11574,18 @@ async def battlepass(message: discord.Interaction):
                 description += f"*Extra:* {get_emoji('mysterypack')} per {EXTRA_LEVEL_XP} XP"
             else:
                 description += f"*Extra:* {get_emoji(EXTRA_LEVEL_REWARD.lower() + 'pack')} per {EXTRA_LEVEL_XP} XP"
+
+        # held vouchers 🎟️ (Mystery rewards) — only shown when non-empty
+        held_vouchers = _vouchers_load(user)
+        if held_vouchers:
+            counts = {}
+            for v in held_vouchers:
+                counts[v.get("id", "?")] = counts.get(v.get("id", "?"), 0) + 1
+            bits = []
+            for vid, n in counts.items():
+                emoji, name, _ = VOUCHER_LABELS.get(vid, ("🎟️", vid, ""))
+                bits.append(f"{emoji} {name}" + (f" ×{n}" if n > 1 else ""))
+            description += "\n🎟️ **Vouchers:** " + ", ".join(bits)
 
         embedVar = discord.Embed(
             title=f"Cattlepass Season {user.season}",
@@ -17061,114 +17270,12 @@ def get_timestamp_of_next_week():
     return int(next_monday_dt.timestamp())
 
 
-@bot.tree.command(description="Deliver orders from your bakery to get Cat Eggs and Packs!")
+@bot.tree.command(description="(disabled on this self-hosted instance)")
 async def bakery(message: discord.Interaction):
-    user = await User.get_or_create(user_id=message.user.id)
-    profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
-    if user.queued_chef_pack:
-        profile.pack_chef += 1
-        user.queued_chef_pack = False
-        await user.save()
-        await profile.save()
-        try:
-            await message.channel.send(f"{message.user.mention} got +1 {get_emoji('chefpack')} Chef Pack from Bake.gg!")
-        except Exception:
-            pass
-
-    if user.last_bakegg_send == get_current_week():
-        # order already delivered for this week
-        await message.response.send_message(f"You already delivered this order. Next order is <t:{get_timestamp_of_next_week()}:R>.", ephemeral=True)
-        return
-
-    async def deliver(interaction: discord.Interaction):
-        if interaction.user != message.user:
-            await do_funny(interaction)
-            return
-
-        await interaction.response.defer()
-
-        await profile.refresh_from_db()
-        await user.refresh_from_db()
-        # bakery_discount (job perk, charge): reduces the per-ingredient cost
-        # by the perk's pct. Consumed only on the actual delivery (after the
-        # readiness check) so cancelled clicks don't burn the charge.
-        _bakery_disc = 0.0
-        if "bakery_discount" in _perks_active_ids(profile):
-            _bakery_disc = float(_perks_strength(profile, "bakery_discount", "discount_pct", 0.0) or 0.0)
-        _bd_cost_cookies = max(0, math.ceil(BAKERY_COST_COOKIES * (1 - _bakery_disc)))
-        _bd_cost_coffees = max(0, math.ceil(BAKERY_COST_COFFEES * (1 - _bakery_disc)))
-        _bd_cost_nice    = max(0, math.ceil(BAKERY_COST_NICE    * (1 - _bakery_disc)))
-        if profile.cookies < _bd_cost_cookies or profile.coffees < _bd_cost_coffees or profile.cat_Nice < _bd_cost_nice:
-            await interaction.followup.send("Your order is not ready yet.", ephemeral=True)
-            return
-        if user.last_bakegg_send == get_current_week():
-            await interaction.followup.send("You've already delivered this order.", ephemeral=True)
-            return
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    "https://auth.bake.gg:2053/reward/catbot",
-                    headers={"Authorization": os.environ.get("BAKE_GG_TOKEN", "")},  # i dont believe anyone would ever need to change this
-                    json={"user": str(interaction.user.id)},
-                ) as response:
-                    if response.status != 200:
-                        print(response.status, await response.text())
-                        raise ValueError
-
-                    profile.cookies -= _bd_cost_cookies
-                    profile.coffees -= _bd_cost_coffees
-                    profile.cat_Nice -= _bd_cost_nice
-                    profile.pack_silver += 1
-                    # Consume the bakery_discount charge here, post-deduction
-                    # but pre-save, so the next /bakery sees it gone.
-                    if _bakery_disc > 0:
-                        _perks_consume_charge(profile, "bakery_discount")
-                    await profile.save()
-
-                    user.last_bakegg_send = get_current_week()
-                    await user.save()
-
-                    view = LayoutView(timeout=1)
-                    view.add_item(
-                        Container(
-                            "## ✅ Order Delivered!",
-                            f"+1 {get_emoji('silverpack')} Silver pack, +1 {get_emoji('bakegg_egg')} Bake.gg Cat Egg",
-                            f"Next order <t:{get_timestamp_of_next_week()}:R>",
-                            "===",
-                            f"➡️ Opening any {get_emoji('bakegg_egg')} Cat Egg in Bake.gg will give you an **exclusive {get_emoji('chefpack')} Chef Pack** in Cat Bot, so head over to not miss out!",
-                            "-# 1 Chef Pack per user per week",
-                            "===",
-                            Button(label="Bake.gg", url="https://bake.gg/"),
-                        )
-                    )
-                    await interaction.edit_original_response(view=view)
-                    await achemb(message, "baker", "followup")
-            except Exception:
-                await interaction.followup.send("Failed! Try again later.", ephemeral=True)
-                raise
-
-    view = LayoutView(timeout=VIEW_TIMEOUT)
-    order_complete = profile.cookies >= BAKERY_COST_COOKIES and profile.coffees >= BAKERY_COST_COFFEES and profile.cat_Nice >= BAKERY_COST_NICE
-    button = Button(label="Deliver!", style=ButtonStyle.green, disabled=not order_complete)
-    button.callback = deliver
-    embed = Container(
-        "## 📝 Bakery Order",
-        "In collaboration with [Bake.gg](https://bake.gg)",
-        "__Order Details__",
-        f"""{get_emoji("bakegg_cookie")} {min(profile.cookies, BAKERY_COST_COOKIES)}/{BAKERY_COST_COOKIES} {"✅" if profile.cookies >= BAKERY_COST_COOKIES else "(`/cookie`)"}
-{get_emoji("bakegg_coffee")} {min(profile.coffees, BAKERY_COST_COFFEES)}/{BAKERY_COST_COFFEES} {"✅" if profile.coffees >= BAKERY_COST_COFFEES else "(`/brew`)"}
-{get_emoji("nicecat")} {min(profile.cat_Nice, BAKERY_COST_NICE)}/{BAKERY_COST_NICE} {"✅" if profile.cat_Nice >= BAKERY_COST_NICE else ""}""",
-        "===",
-        "__Order Reward__",
-        f"""{get_emoji("bakegg_egg")} 1 Bake.gg Cat Egg
-{get_emoji("silverpack")} 1 Silver Pack""",
-        "-# orders can only be done once a week per user",
-        "===",
-        button,
-    )
-    view.add_item(embed)
-    await message.response.send_message(view=view)
+    # The Bake.gg partner API only authorizes the public Cat Bot's
+    # BAKE_GG_TOKEN, so orders can never be delivered from a fork —
+    # /cookie and /brew (and their quests) still work as plain clickers.
+    await message.response.send_message("This command is disabled on this self-hosted instance.", ephemeral=True)
 
 
 @bot.tree.command(description="Gamble your life savings away in our totally-not-rigged catsino!")
@@ -17580,6 +17687,12 @@ async def catslots(
             profile.catslots_coins_bet += total_bet
             await profile.save()
 
+            # eGirl Bonus voucher 🎟️: capture eligibility BEFORE the quest
+            # progress calls below — a voucher granted by this spin's own
+            # quest XP (level-up Mystery) must not be consumed by the spin
+            # that earned it.
+            egirl_voucher_pending = _vouchers_has(profile, "egirl_bonus")
+
             try:
                 await achemb(interaction, "catslots", "followup")
                 await progress(message, profile, "catslots")
@@ -17614,7 +17727,15 @@ async def catslots(
             # catslots_force_bonus_users: admin-set override that overwrites N
             # random visible cells with eGirl so the next spin triggers the
             # bonus round at the requested tier. Single-use — popped on read.
+            # The eGirl Bonus voucher rides the same mechanism (admin wins).
             force_egirls = catslots_force_bonus_users.pop(lock_key, 0)
+            voucher_bonus_note = ""
+            if force_egirls not in (3, 4, 5) and egirl_voucher_pending and _vouchers_consume(profile, "egirl_bonus"):
+                # persist consumption BEFORE the animation so a crash
+                # mid-spin can't refund an already-fired voucher
+                await profile.save()
+                force_egirls = MYSTERY_EGIRL_TIER if MYSTERY_EGIRL_TIER in (3, 4, 5) else 3
+                voucher_bonus_note = "🎟️ **eGirl Bonus voucher consumed!**\n"
             if force_egirls in (3, 4, 5):
                 visible_cells = [(c, r) for c in range(5) for r in range(3)]
                 for c, r in random.sample(visible_cells, force_egirls):
@@ -17702,6 +17823,9 @@ async def catslots(
                 desc = "✅ **You win!**\n\n" + desc
             else:
                 desc = "💨 **You lose!**\n\n" + desc
+
+            if voucher_bonus_note:
+                desc += voucher_bonus_note + "\n"
 
             if wins:
                 desc += "__Winning lines:__\n"
@@ -18923,6 +19047,11 @@ async def bounty(message, user, cattype):
         _bounty_boost_extra_p = max(0.0, _bb_mult - 1.0)
     def _bb_extra() -> int:
         return 1 if (_bounty_boost_extra_p > 0 and random.random() < _bounty_boost_extra_p) else 0
+    # Bounty Skip voucher 🎟️ (Mystery reward): autocompletes the first
+    # incomplete bounty slot this catch touches, whatever cat was caught.
+    # Held ("banked") for free while no catnip run is active — the loop
+    # below simply doesn't run then. The bonus bounty is never skipped.
+    bounty_skip_pending = _vouchers_has(user, "bounty_skip")
     complete = 0
     completed = 0
     title = []
@@ -18943,6 +19072,16 @@ async def bounty(message, user, cattype):
             progress = user.bounty_progress_three
             total = user.bounty_total_three
             type = user.bounty_type_three
+        if progress < total and bounty_skip_pending and _vouchers_consume(user, "bounty_skip"):
+            bounty_skip_pending = False
+            progress = total
+            complete += 1
+            if id == 1:
+                title.append(f"Catch {total} {type} cats 🎟️")
+            elif id == 2:
+                title.append(f"Catch {total} {type} or rarer cats 🎟️")
+            else:
+                title.append(f"Catch {total} cats 🎟️")
         if progress < total:
             if id == 0:
                 progress = min(total, progress + 1 + _bb_extra())

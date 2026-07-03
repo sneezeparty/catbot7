@@ -169,7 +169,7 @@ Each NPC's perk pool encodes who they are (same idea as `reward_recipes`, expres
 - **Whiskers** — reliability + pack-flavor. heat_shield, complication_insurance, pack_tier_upgrade, pack_floor, crew_insurance, eagle_eye. The disciplinarian who teaches the player to be careful.
 - **Lucian Jr** — impulsive, pack-heavy, mischievous. free_pack, pack_bonus_cat, pack_drop_boost, pack_tier_upgrade, daily_cap_extension, lightning_hands, reroll_board. The "dad doesn't know I'm doing this" guy.
 - **Jinx** — chill, catnip-side. cooling_off, catnip_extension, free_catnip, streak_protector, combo_shield. Low-heat low-stress, pairs naturally with the cat side of the game.
-- **Jeremy** — coins everywhere. roulette_luck, roulette_mercy, free_spin, catstore_sell_premium, cat_rain_coin_yield, stock_dividend_boost, bakery_discount. The money guy with a wink.
+- **Jeremy** — coins everywhere. roulette_luck, roulette_mercy, free_spin, catstore_sell_premium, cat_rain_coin_yield, stock_dividend_boost. The money guy with a wink. (A `bakery_discount` perk was documented here historically but never shipped in `config/jobs.json`; the /bakery command it would have discounted is disabled on this fork.)
 - **Lucian Sr** — vendetta / rarity / consequence. send_power_boost, rep_windfall, rarity_bump, bounty_boost, bounty_refresh, quest_xp_boost. Old-school don who knows the rep economy.
 - **Sofia** — the dealer. catstore_discount_stack, pack_bonus_cat, discovery_shortcut, double_cat, perk_amplifier, catch_xp_boost. Catalog + cat-flavor perks.
 - **Big Score (Whiskers, T5)** — capstone-flavored, all rare. heat_reset, crew_insurance, pack_tier_upgrade (Celestial cap), double_cat (24h variant). One-shot per season, so the pool is brutal.

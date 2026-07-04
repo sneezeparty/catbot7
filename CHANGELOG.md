@@ -37,6 +37,7 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **Quest reminder DMs for catch, misc, and challenge quests have been removed.** Cat Bot no longer sends "A new quest is available in {server_name}!" DMs when the 12h quest cooldown expires for the catch, misc, or challenge slots. The vote reminder DM is unchanged — it remains the only opt-in DM reminder the bot sends. The **Enable/Disable Reminders** toggle on `/vote` and `/battlepass` now gates only the vote reminder; user-set `/remind` DMs and the post-vote "Thanks for voting!" receipt DM are unaffected. Players who tap "Postpone" on a stale pre-removal quest-reminder button will receive an ephemeral "this reminder type is no longer supported" message.
 
 ### Internal
+- The top.gg vote-replay poller no longer logs "Fetched 1 votes, cursor …" every 5 minutes. Top.gg's cursor API re-returns the most recent vote on every poll, so that count never meant "new votes." The poller now counts genuinely new votes (using the same 1-hour dedup rule `do_vote` applies) and logs at INFO only when one was actually processed; the idle heartbeat moved to DEBUG.
 - Removed a dead-code guard in `refresh_quests` (`if current_date.day < start_date.day: full_months_passed -= 1`). The season epoch is `datetime.datetime(2026, 4, 1)` so `start_date.day` is always `1`; the comparison can never be true. Zero behavior change, one less surprise for the next reader.
 
 ## [0.6.18.16273113062026]

@@ -6728,18 +6728,30 @@ async def background_loop():
                     data = await r.json()
                     r.close()
 
+                    # NOTE: top.gg's cursor API re-returns the page containing
+                    # the most recent vote on every poll, so the_votes is
+                    # almost always non-empty even when nothing new happened.
+                    # do_vote() dedups stale ones (< 1h since the user's last
+                    # counted vote) — mirror that check here so the log only
+                    # speaks up when a vote was actually processed.
                     the_votes = data.get("data", [])
+                    new_votes = 0
                     for vote_data in the_votes:
                         if not vote_data.get("created_at", 0) or not vote_data.get("platform_id", 0):
                             continue
                         created_at = datetime.datetime.fromisoformat(vote_data["created_at"]).timestamp()
                         vote_user = await User.get_or_create(user_id=int(vote_data["platform_id"]))
+                        if created_at - vote_user.vote_time_topgg >= 3600:
+                            new_votes += 1
                         await do_vote(vote_user, created_at)
 
                     last_vote_cursor = data.get("cursor", "")
                     with open("cursor.txt", "w") as f:
                         f.write(last_vote_cursor)
-                    logging.info(f"Fetched {len(the_votes)} votes, cursor {last_vote_cursor}")
+                    if new_votes:
+                        logging.info("Vote replay: processed %d new vote%s", new_votes, "s" if new_votes != 1 else "")
+                    else:
+                        logging.debug("Vote replay: nothing new (%d stale), cursor %s", len(the_votes), last_vote_cursor)
 
             except Exception:
                 logging.warning("Posting to top.gg failed.")

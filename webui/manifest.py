@@ -53,7 +53,7 @@ SECTIONS: dict[str, dict] = {
             "prism.user_id, prism.guild_id, prism.time, prism.catches_boosted, prism.name",
             "jobinstance.state, jobinstance.outcome, jobinstance.category, jobinstance.tier, jobinstance.complication, jobinstance.resolved_at, jobinstance.user_id, jobinstance.guild_id",
             "profile.last_catch, profile.total_catches, profile.coins (per-guild aggregates)",
-            "metric_snapshot.bucket_time + all metric columns (time-series via LAG); also last-24h tile row diffs latest vs ~24h-old row of (total_catches, total_packs, jobs_completed_lifetime, jobs_failed_lifetime, total_prisms)",
+            "metric_snapshot.bucket_time + all metric columns (time-series via LAG); coins_in_circulation is written EXCLUDING config.ECONOMY_OUTLIER_USER_IDS (main.py snapshot writer); also last-24h tile row diffs latest vs ~24h-old row of (total_catches, total_packs, jobs_completed_lifetime, jobs_failed_lifetime, total_prisms)",
             "order.time, order.type_buy (orders per day)",
             "activity.py: JOB_STATES — keep in sync with jobinstance.state values used in main.py",
         ],
@@ -88,7 +88,7 @@ SECTIONS: dict[str, dict] = {
         "routes": ["GET /economy"],
         "templates": ["economy.html"],
         "data_sources": [
-            "profile.coins, profile.coins_earned, profile.stock_coins_earned, profile.stock_coins_spent",
+            "profile.coins (SUM for 'In circulation' tile EXCLUDES config.ECONOMY_OUTLIER_USER_IDS via state.economy_outlier_ids()), profile.coins_earned, profile.stock_coins_earned, profile.stock_coins_spent",
             "profile.roulette_coins_won, profile.roulette_coins_bet, profile.catslots_coins_won, profile.catslots_coins_bet",
             "profile.scratchcards (SUM — 'Scratchcards outstanding' tile)",
             "pricehistory.ticker, pricehistory.price, pricehistory.time",

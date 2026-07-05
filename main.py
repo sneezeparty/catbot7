@@ -5815,7 +5815,7 @@ async def _metrics_snapshot_tick():
                 SELECT
                   COALESCE(SUM(total_catches), 0)            AS total_catches,
                   COALESCE(SUM(packs_opened), 0)             AS total_packs,
-                  COALESCE(SUM(GREATEST(coins, 0)), 0)       AS coins,
+                  COALESCE(SUM(GREATEST(coins, 0)) FILTER (WHERE user_id <> ALL($5::bigint[])), 0) AS coins,
                   COALESCE(SUM(catnip_total_cats), 0)        AS catnip_total,
                   COALESCE(SUM(jobs_completed), 0)           AS jobs_completed,
                   COALESCE(SUM(jobs_failed), 0)              AS jobs_failed,
@@ -5829,7 +5829,7 @@ async def _metrics_snapshot_tick():
                 FROM profile
                 WHERE user_id <> $4
                 """,
-                now_ts - 86400, week_start, month_start, bot_user_id,
+                now_ts - 86400, week_start, month_start, bot_user_id, list(config.ECONOMY_OUTLIER_USER_IDS),
             )
             user_count = await conn.fetchval(
                 'SELECT COUNT(*) FROM "user" WHERE user_id <> $1', bot_user_id
@@ -6892,7 +6892,10 @@ async def background_loop():
                 pass
 
             try:
-                process = await asyncio.create_subprocess_shell(f"PGPASSWORD={config.DB_PASS} pg_dump -U cat_bot -Fc -Z 9 -f {backup_file} cat_bot")
+                process = await asyncio.create_subprocess_shell(
+                    f"pg_dump -U cat_bot -Fc -Z 9 -f {backup_file} cat_bot",
+                    env={**os.environ, "PGPASSWORD": config.DB_PASS},
+                )
                 await process.wait()
 
                 if exportbackup:
@@ -7390,6 +7393,11 @@ async def on_message(message: discord.Message):
 
     # here are some automation hooks for giving out purchases and similiar
     if config.RAIN_CHANNEL_ID and message.channel.id == config.RAIN_CHANNEL_ID and text.lower().startswith("cat!rain"):
+        # Poster allowlist: only the owner or a configured automation id (e.g. a
+        # payment webhook/bot) may drive this global premium/rain grant. Without
+        # this, anyone able to post in RAIN_CHANNEL_ID could mint premium.
+        if message.author.id != OWNER_ID and message.author.id not in config.RAIN_AUTOMATION_IDS:
+            return
         arguements = text.split(" ")
         user = await User.get_or_create(user_id=int(arguements[1]))
         rain_duration = arguements[2]
@@ -11339,10 +11347,22 @@ async def packs(message: discord.Interaction):
         if not embed:
             return
 
-        await message.edit_original_response(embed=embed, view=None)
-        await asyncio.sleep(1)
+        # `message` is the original /packs slash-command interaction, whose
+        # token is only valid for ~15 min — but the Open-All buttons live on a
+        # VIEW_TIMEOUT (24h) view. If the user confirms after that 15-min
+        # window, message.edit_original_response 401s (Invalid Webhook Token)
+        # — and the packs have ALREADY been opened + saved in
+        # process_pack_opening above, so a raised error would eat the result
+        # screen. Fall back to the fresh button-click interaction so the
+        # summary still lands.
         view, _ = gen_view(user)
-        await message.edit_original_response(view=view)
+        try:
+            await message.edit_original_response(embed=embed, view=view)
+        except discord.HTTPException:
+            try:
+                await interaction.followup.send(embed=embed, view=view)
+            except discord.HTTPException:
+                logging.exception("open_all_packs: could not deliver result embed (channel=%s)", getattr(interaction.channel, "id", None))
 
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     view, has_special = gen_view(user)
@@ -18364,6 +18384,9 @@ async def catslots_force_bonus(
     egirls: Optional[int] = 3,
     user: Optional[discord.Member] = None,
 ):
+    if message.user.id != OWNER_ID:
+        await message.response.send_message("This command is owner-only.", ephemeral=True)
+        return
     if egirls not in (3, 4, 5):
         await message.response.send_message(
             "egirls must be 3, 4, or 5.", ephemeral=True
@@ -21034,7 +21057,7 @@ async def recieve_vote(request):
         raw_body = await request.read()
         body = f"{signature_parts['t']}.{raw_body.decode()}".encode("utf-8")
         key = config.WEBHOOK_VERIFY.encode("utf-8")
-        if hmac.new(key, body, hashlib.sha256).hexdigest() != signature_parts["v1"]:
+        if not hmac.compare_digest(hmac.new(key, body, hashlib.sha256).hexdigest(), signature_parts["v1"]):
             raise ValueError
     except Exception:
         return web.Response(text="bad", status=403)
@@ -21144,7 +21167,8 @@ async def do_vote(user: User, created_at: float):
 
 
 async def check_supporter(request):
-    if request.headers.get("authorization", "") != config.WEBHOOK_VERIFY:
+    secret = config.WEBHOOK_VERIFY or ""
+    if not secret or not hmac.compare_digest(request.headers.get("authorization", ""), secret):
         return web.Response(text="bad", status=403)
     request_json = await request.json()
 
@@ -21153,7 +21177,8 @@ async def check_supporter(request):
 
 
 async def bake_gg_reward(request):
-    if request.headers.get("Authorization", "") != os.environ.get("BAKE_GG_WEBHOOK_TOKEN", ""):
+    expected = os.environ.get("BAKE_GG_WEBHOOK_TOKEN", "")
+    if not expected or not hmac.compare_digest(request.headers.get("Authorization", ""), expected):
         return web.Response(text="Invalid or missing authorization token", status=401)
 
     try:

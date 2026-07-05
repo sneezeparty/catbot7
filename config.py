@@ -49,8 +49,20 @@ BACKUP_ID = int(os.environ["backup_channel_id"]) if os.environ.get("backup_chann
 DONOR_CHANNEL_ID = int(os.environ["donor_channel_id"]) if os.environ.get("donor_channel_id") else None
 
 # cat bot will also log all rain uses/movements here
-# cat!rain commands here can be used without author check and will dm reciever a thanks message
+# cat!rain commands posted here (by the owner or an id in RAIN_AUTOMATION_IDS)
+# grant rain/premium to the target user and dm them a thanks message
 RAIN_CHANNEL_ID = int(os.environ["rain_channel_id"]) if os.environ.get("rain_channel_id") else None
+
+# Discord user/webhook ids (comma- or space-separated) allowed to trigger the
+# `cat!rain` fulfillment hook in RAIN_CHANNEL_ID besides the owner. Set to your
+# payment-automation bot/webhook id(s); empty means owner-only.
+RAIN_AUTOMATION_IDS = {int(x) for x in os.environ.get("rain_automation_ids", "").replace(",", " ").split()}
+
+# Discord user ids (comma/space-separated) treated as economy outliers — excluded
+# from the admin dashboard's "coins in circulation" total + graph so a handful of
+# admin-granted/test wallets don't dwarf the real economy. Display-only: does NOT
+# affect gameplay. Read by the webui and by the metric_snapshot writer.
+ECONOMY_OUTLIER_USER_IDS = {int(x) for x in os.environ.get("economy_outlier_user_ids", "").replace(",", " ").split()}
 
 # top.gg voting: /vote, the vote battlepass quest, catch-message vote button,
 # webhook + vote-replay loop. On by default; set voting_enabled=0 to turn off.
@@ -75,5 +87,6 @@ SUPPORT_INVITE = os.environ.get("support_invite", "")
 # backdoors (cat!restart, cat!eval, cat!news, cat!custom, cat!print, cat!sweep,
 # cat!rain). Auto-overridden in on_ready() from the Discord application's
 # team-owner / owner. This value is the fallback that's live in the brief
-# window between startup (or `cat!restart`) and on_ready completing.
-OWNER_ID = int(os.environ.get("owner_id", "266016971294900224"))
+# window between startup (or `cat!restart`) and on_ready completing. Defaults to
+# 0 (fail-closed: authorizes nobody) — set owner_id in .env to your Discord id.
+OWNER_ID = int(os.environ.get("owner_id", "0"))

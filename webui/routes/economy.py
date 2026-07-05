@@ -45,13 +45,14 @@ async def index(request):
     by_ticker: list = []      # order-book buy/sell counts
 
     bot_id = state.bot_user_id_or_zero()
+    outlier_ids = state.economy_outlier_ids()
 
     if pool is not None:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT
-                  COALESCE(SUM(GREATEST(coins, 0)), 0)  AS coins,
+                  COALESCE(SUM(GREATEST(coins, 0)) FILTER (WHERE user_id <> ALL($2::bigint[])), 0)  AS coins,
                   COALESCE(SUM(roulette_coins_won), 0)  AS roulette_won,
                   COALESCE(SUM(roulette_coins_bet), 0)  AS roulette_bet,
                   COALESCE(SUM(catslots_coins_won), 0)  AS catslots_won,
@@ -60,7 +61,7 @@ async def index(request):
                 FROM profile
                 WHERE user_id <> $1
                 """,
-                bot_id,
+                bot_id, outlier_ids,
             )
             econ = {k: int(row[k] or 0) for k in econ}
             # order.user_id is profile.id, not Discord user_id, so the bot

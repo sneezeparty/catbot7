@@ -16,8 +16,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import collections
 import importlib
 import logging
+import sys
 import time
 
 import discord
@@ -112,7 +114,12 @@ def before_send(event, hint):
 
 
 if config.SENTRY_DSN:
-    sentry_sdk.init(dsn=config.SENTRY_DSN, before_send=before_send)
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        before_send=before_send,
+        include_local_variables=False,
+        send_default_pii=False,
+    )
 
 
 bot = commands.AutoShardedBot(
@@ -124,6 +131,54 @@ bot = commands.AutoShardedBot(
     member_cache_flags=discord.MemberCacheFlags.none(),
     allowed_mentions=discord.AllowedMentions.none(),
 )
+
+
+# ---------------------------------------------------------------------------
+# fetch_user rate-limit forensics
+# ---------------------------------------------------------------------------
+# The `GET /users/{id}` route occasionally 429s. Both of main.py's
+# bot.fetch_user() call sites cache-then-reuse (they only fetch when a field is
+# empty), so a 429 means a *burst* — many ids at once, or the same id re-fetched
+# in a race. discord.py's warning tells us we were limited but not which of our
+# call sites fired it. This wrapper (a) tallies calls per call-site + per user
+# id on `config` — inspect live via `cat!eval config.fetch_user_counts` /
+# `config.fetch_user_id_counts` — and (b) logs a WARNING with the breakdown the
+# moment calls burst past a threshold in a short window, so the culprit lands
+# right next to the discord.http 429 line. Lives in bot.py so it survives
+# cat!restart (the bot instance persists; only the `main` extension reloads).
+# Remove this whole block once the offending call site is fixed.
+if not getattr(config, "_fetch_user_wrapped", False):
+    config.fetch_user_counts = collections.Counter()          # "file:line in func()" -> total
+    config.fetch_user_id_counts = collections.Counter()       # user_id -> total fetches
+    config.fetch_user_recent = collections.deque(maxlen=256)  # (monotonic_ts, callsite, user_id)
+    _FETCH_BURST_WINDOW = 10.0   # seconds
+    _FETCH_BURST_THRESHOLD = 8   # calls within the window before we shout
+    _orig_fetch_user = bot.fetch_user
+
+    async def _tracked_fetch_user(user_id, *args, **kwargs):
+        # Caller is captured synchronously (before any await) so the frame is
+        # exactly the line that called bot.fetch_user — main.py:825 (DM channel)
+        # or main.py:8079 (blessing), or any future site.
+        frame = sys._getframe(1)
+        callsite = f"{frame.f_code.co_filename.rsplit('/', 1)[-1]}:{frame.f_lineno} in {frame.f_code.co_name}()"
+        now = time.monotonic()
+        config.fetch_user_counts[callsite] += 1
+        config.fetch_user_id_counts[user_id] += 1
+        recent = config.fetch_user_recent
+        recent.append((now, callsite, user_id))
+        window = [r for r in recent if now - r[0] <= _FETCH_BURST_WINDOW]
+        if len(window) >= _FETCH_BURST_THRESHOLD and now - getattr(config, "_last_fetch_burst_warn", 0.0) >= _FETCH_BURST_WINDOW:
+            config._last_fetch_burst_warn = now
+            by_site = collections.Counter(r[1] for r in window)
+            by_id = collections.Counter(r[2] for r in window)
+            logging.warning(
+                "fetch_user burst: %d calls in <%.0fs | by call-site: %s | top ids: %s",
+                len(window), _FETCH_BURST_WINDOW, dict(by_site.most_common(5)), dict(by_id.most_common(5)),
+            )
+        return await _orig_fetch_user(user_id, *args, **kwargs)
+
+    bot.fetch_user = _tracked_fetch_user  # pyright: ignore
+    config._fetch_user_wrapped = True
 
 
 @bot.event

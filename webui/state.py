@@ -43,6 +43,14 @@ def bot_user_id_or_zero() -> int:
     return get_bot_user_id() or 0
 
 
+def economy_outlier_ids() -> list[int]:
+    """Discord user_ids the operator flagged as economy outliers (env
+    `economy_outlier_user_ids`). Excluded from the coins-in-circulation total +
+    graph so admin-granted/test wallets don't dominate. Empty list is a no-op —
+    a `user_id <> ALL('{}')` predicate is true for every row."""
+    return sorted(getattr(config, "ECONOMY_OUTLIER_USER_IDS", set()) or set())
+
+
 def get_main():
     """Return the live main module (re-resolved per call to survive reloads)."""
     import sys
@@ -71,6 +79,7 @@ __all__ = [
     "get_bot",
     "get_bot_user_id",
     "bot_user_id_or_zero",
+    "economy_outlier_ids",
     "get_main",
     "get_pool",
     "get_hard_restart_time",

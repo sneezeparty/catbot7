@@ -10,7 +10,10 @@ This doc covers design intent. For runtime values (event weights, difficulty ran
 
 A single 12h cadence drives **both** the offer-pool refresh and the per-window commit cap. Windows are anchored at 00:00 and 12:00 UTC (43,200 evenly divides 86,400). One timer on the board, one moment when everything resets: new offers AND a fresh count toward the cap.
 
-This matches the `quest_cooldown_seconds` (12h) used by `/battlepass`, so the two systems beat at the same pace from a player's perspective. The cap is **3 commits per 12h window** (configurable via `config/jobs.json → max_commits_per_window`), which works out to up to 6 commits per UTC day — slightly more generous than the prior 3/UTC day cap, in exchange for collapsing the two confusing timers (offer-refresh and daily-reset) into one.
+> **STALE:** the following describes a removed mechanic and should be deleted or rewritten:
+> This matched the `quest_cooldown_seconds` (12h) used by `/battlepass`, so the two systems beat at the same pace from a player's perspective. As of the July 2026 daily-reset rework, `/battlepass`'s five daily quest slots reroll **once per calendar day** at a fixed daily boundary regardless of completion (see [battlepass.md § Quest slots](battlepass.md#quest-slots)) — `quest_cooldown_seconds` now only gates the vote-quest real-vote eligibility check and a legacy pre-migration fallback, not the general reroll cadence. The two systems no longer beat at the same pace; jobs' 12h window remains twice as frequent as battlepass's daily reset.
+
+The cap is **3 commits per 12h window** (configurable via `config/jobs.json → max_commits_per_window`), which works out to up to 6 commits per UTC day — slightly more generous than the prior 3/UTC day cap, in exchange for collapsing the two confusing timers (offer-refresh and daily-reset) into one.
 
 History: before the 12h alignment, /jobs used a 6h offer refresh window AND a separate 24h commit cap anchored at UTC midnight. The board showed both timers and they drifted apart, so a player who'd played late in their local night (early UTC morning) would see "Refreshes in 5h" alongside "Daily limit hit, resets in 11h" on their next morning visit — two anchors, two countdowns, neither matching the player's wall clock.
 

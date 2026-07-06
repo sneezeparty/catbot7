@@ -3733,6 +3733,41 @@
         "xp_min": 320,
         "xp_max": 380,
         "progress": 1
+      },
+      "under2": {
+        "emoji": "\u26a1",
+        "title": "Catch in under 2 seconds",
+        "xp_min": 340,
+        "xp_max": 390,
+        "progress": 1
+      },
+      "under5": {
+        "emoji": "\u23f2\ufe0f",
+        "title": "Catch a cat in under 5 seconds",
+        "xp_min": 280,
+        "xp_max": 330,
+        "progress": 1
+      },
+      "epic3": {
+        "emoji": "epiccat",
+        "title": "Catch 3 Epic or rarer cats",
+        "xp_min": 300,
+        "xp_max": 360,
+        "progress": 3
+      },
+      "bonus_win": {
+        "emoji": "\ud83c\udfaf",
+        "title": "Win a bonus minigame",
+        "xp_min": 300,
+        "xp_max": 360,
+        "progress": 1
+      },
+      "variety5": {
+        "emoji": "\ud83c\udf08",
+        "title": "Catch 5 different cat types",
+        "xp_min": 300,
+        "xp_max": 360,
+        "progress": 5
       }
     },
     "weekly": {
@@ -3745,8 +3780,8 @@
       },
       "brave+": {
         "emoji": "bravecat",
-        "title": "Catch 5 cats rarer than Brave",
-        "progress": 5,
+        "title": "Catch 10 cats rarer than Brave",
+        "progress": 10,
         "start_time": 604800,
         "end_time": 1209600
       },

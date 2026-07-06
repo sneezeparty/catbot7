@@ -98,6 +98,8 @@ cattype_lc_dict = {i.lower(): i for i in cattypes}
 # challenge quest trigger. The list in type_dict is ordered most-common to
 # rarest, so slicing from Legendary onward gives the full rarer-than-Epic set.
 LEGENDARY_PLUS = frozenset(cattypes[cattypes.index("Legendary"):])
+# Same idea from "Epic" downward (rarer), for the `epic3` challenge quest.
+EPIC_PLUS = frozenset(cattypes[cattypes.index("Epic"):])
 
 # XP awarded per cat for the "sacrifice" battlepass quest. Hidden from users —
 # they only see "depends on the cat". Range is 25 (most common) to 300 (rarest).
@@ -4743,8 +4745,24 @@ async def achemb(message, ach_id, send_type, author_string=None):
                 result = await message.channel.send(embed=embed)
         if send_type == "response":
             result = await message.response.send_message(embed=embed, ephemeral=not do)
-    except Exception:
-        logging.exception("achemb send failed for %s (send_type=%s)", ach_id, send_type)
+    except Exception as e:
+        # Interaction tokens die 15 min after the command fires. Long-lived
+        # views (e.g. /trade, /gift) hand achemb the ORIGINAL slash-command
+        # interaction, so a trade that takes >15 min to finish makes
+        # message.followup 401 with "Invalid Webhook Token" (code 50027).
+        # Recover a public ach by posting straight to the channel; an
+        # ephemeral can't be salvaged without a live token, so it's dropped
+        # (it was invisible-to-others noise anyway).
+        token_dead = isinstance(e, discord.HTTPException) and (e.code == 50027 or e.status == 401)
+        if result is None and do and send_type in ("followup", "ephemeral", "response"):
+            try:
+                result = await message.channel.send(embed=embed)
+            except Exception:
+                logging.exception("achemb channel fallback failed for %s", ach_id)
+        if token_dead:
+            logging.info("achemb %s: interaction token expired (send_type=%s)", ach_id, send_type)
+        else:
+            logging.exception("achemb send failed for %s (send_type=%s)", ach_id, send_type)
 
     # XP + level-up sit in their own try so a Discord send failure here doesn't
     # silently swallow the level-up notification (and we can see the traceback).
@@ -4815,25 +4833,62 @@ def _weekly_quest_safe(user) -> str:
         return ""
 
 
+def _quests_day_safe(user):
+    # None when the quests_day column doesn't exist yet (migration 036 unrun),
+    # which disables the pure-daily reset and falls back to the legacy 12h
+    # post-completion cadence. Same probe-read pattern as _vote_quest_safe.
+    try:
+        return int(user.quests_day or 0)
+    except (KeyError, AttributeError):
+        return None
+
+
+def _quests_variety_safe(user) -> list:
+    # Distinct rarity indices caught since the last daily reset — backs the
+    # `variety5` challenge quest. [] when the column is missing (migration 036).
+    try:
+        return list(user.quests_variety_types or [])
+    except (KeyError, AttributeError):
+        return []
+
+
+def _set_quests_variety_safe(user, value) -> bool:
+    try:
+        user.quests_variety_types = value
+        return True
+    except (KeyError, AttributeError):
+        return False
+
+
 async def _append_weekly_catch_quests(user, cattype, quests):
     # weekly quests 🍀: every catch counts for "catch"; "brave+" by rarity
     # index (computed, not hardcoded — the fork's cattype list grew); the
     # "different" dedup mutates weekly_cattypes and must save BEFORE
-    # multi_progress refetches, or the append gets clobbered. Shared by the
-    # main and belated catch paths.
+    # multi_progress refetches, or the append gets clobbered. Also hosts the
+    # `variety5` challenge quest's daily distinct-type dedup (same shape, on the
+    # daily-reset quests_variety_types field). Shared by main + belated paths.
     quests.append("catch")
     if cattype not in cattypes:
         return
     idx = cattypes.index(cattype)
     if idx > cattypes.index("Brave"):
         quests.append("brave+")
+    dirty = False
     if _weekly_quest_safe(user) == "different":
         current = user.weekly_cattypes.copy()
         if idx not in current:
             current.append(idx)
             user.weekly_cattypes = current
             quests.append("different")
-            await user.save()
+            dirty = True
+    # variety5 challenge quest: distinct cat types caught since the daily reset.
+    if user.challenge_quest == "variety5":
+        seen = _quests_variety_safe(user)
+        if idx not in seen and _set_quests_variety_safe(user, seen + [idx]):
+            quests.append("variety5")
+            dirty = True
+    if dirty:
+        await user.save()
 
 
 async def generate_quest(user: Profile, quest_type: str):
@@ -5231,21 +5286,61 @@ async def refresh_quests(user):
         _set_vote_quest_safe(user, "")
         user.vote_cooldown = 1
         user.vote_reward = 0
-    if QUEST_COOLDOWN < user.catch_cooldown + QUEST_COOLDOWN < time.time():
+    # Pure-daily quest reset (migration 036): every daily slot rerolls once per
+    # day regardless of completion, so incomplete quests don't carry over. The
+    # day index rides the same +4h clock as the season/weekly boundaries (a raw
+    # UTC-midnight boundary would drift on this non-UTC host). Guarded on the
+    # quests_day column: an un-migrated DB returns None and falls back to the
+    # legacy "reroll 12h after completion" cadence for every slot.
+    stored_qday = _quests_day_safe(user)
+    if stored_qday is not None:
+        today_qday = int((time.time() + 4 * 3600) // 86400)
+        if stored_qday != today_qday:
+            # Force-reroll every daily slot (complete or not) via the cooldown=1
+            # sentinel + zeroed progress — mirrors the retired-quest guards
+            # above. Weekly is exempt (monthly-windowed, handled below).
+            user.catch_cooldown = 1
+            user.catch_progress = 0
+            user.misc_cooldown = 1
+            user.misc_progress = 0
+            user.extra_cooldown = 1
+            user.extra_progress = 0
+            user.casino_progress_temp = 0
+            user.gift3_recipients = ""
+            user.challenge_cooldown = 1
+            user.challenge_progress = 0
+            user.vote_cooldown = 1
+            _set_quests_variety_safe(user, [])
+            user.quests_day = today_qday
+            await user.save()
+
+    def _needs_roll(cooldown, empty):
+        # `empty`: slot holds no quest (needs first generation). With the daily
+        # reset active a slot regenerates only on the sentinel/empty (the daily
+        # flip above stamps cooldown=1); pre-migration it keeps the legacy
+        # 12h-after-completion inequality so nothing changes until 036 is run.
+        if empty or cooldown == 1:
+            return True
+        if stored_qday is None:
+            return QUEST_COOLDOWN < cooldown + QUEST_COOLDOWN < time.time()
+        return False
+
+    if _needs_roll(user.catch_cooldown, not user.catch_quest):
         await generate_quest(user, "catch")
-    if QUEST_COOLDOWN < user.misc_cooldown + QUEST_COOLDOWN < time.time():
+    if _needs_roll(user.misc_cooldown, not user.misc_quest):
         await generate_quest(user, "misc")
-    if QUEST_COOLDOWN < user.extra_cooldown + QUEST_COOLDOWN < time.time():
+    if _needs_roll(user.extra_cooldown, not user.extra_quest):
         await generate_quest(user, "extra")
     # vote slot regenerates LAST so the substitute pool can exclude the
     # freshly-rolled misc_quest (avoids the same quest landing in two slots).
-    if QUEST_COOLDOWN < user.vote_cooldown + QUEST_COOLDOWN < time.time():
+    # empty=False: an empty vote_quest means "real Vote on Top.gg quest", a
+    # valid state — not an unset slot.
+    if _needs_roll(user.vote_cooldown, False):
         await generate_quest(user, "vote")
     # Challenge slot was added after the original schema, so existing profiles
-    # have challenge_cooldown=0 (which the inequality above misses) and an
-    # empty challenge_quest. Treat empty as "needs first generation" so the
-    # /battlepass UI never sees an unset slot.
-    if not user.challenge_quest or QUEST_COOLDOWN < user.challenge_cooldown + QUEST_COOLDOWN < time.time():
+    # have challenge_cooldown=0 and an empty challenge_quest — treat empty as
+    # "needs first generation" so the /battlepass UI never sees an unset slot.
+    if _needs_roll(user.challenge_cooldown, not user.challenge_quest):
         await generate_quest(user, "challenge")
 
     # Weekly quest rotation (upstream cattlepass v2.1). Windows are seconds
@@ -7342,6 +7437,7 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
             icon = get_emoji(cattype.lower() + "cat")
             await interaction.response.send_message(f"✅ {interaction.user.mention} got +3 {icon} {cattype} bonus cats.")
             await progress(interaction, profile, "bonus")
+            await progress(interaction, profile, "bonus_win")
             if cattype == "Rare":
                 await achemb(interaction, "math_jumpscare", "followup")
         else:
@@ -7705,10 +7801,14 @@ async def on_message(message: discord.Message):
                     belated_time = belated.get("time", 10) + current_time - belated.get("timestamp", 0)
                     if belated_time < 10:
                         quests.append("under10")
-                    # lightning_hands widens the under-3 window by the perk's multiplier.
-                    _under3_window = 3.0 * float(_perks_apply_catch_modifiers(user, channel.cattype or "")["lightning_hands_mult"])
-                    if belated_time < _under3_window:
+                    # lightning_hands widens the under-N windows by the perk's multiplier.
+                    _lh_mult = float(_perks_apply_catch_modifiers(user, channel.cattype or "")["lightning_hands_mult"])
+                    if belated_time < 3.0 * _lh_mult:
                         quests.append("under3")
+                    if belated_time < 2.0 * _lh_mult:
+                        quests.append("under2")
+                    if belated_time < 5:
+                        quests.append("under5")
                     # `slow` (>60s) can't physically fire here — belated catches
                     # only register when the original catch happened within 3s.
                     if random.randint(0, 1) == 0:
@@ -7719,6 +7819,8 @@ async def on_message(message: discord.Message):
                         quests.append("rare+")
                     if channel.cattype in LEGENDARY_PLUS:
                         quests.append("legendary+")
+                    if channel.cattype in EPIC_PLUS:
+                        quests.append("epic3")
                     if user.catnip_active > time.time():
                         quests.append("catnip_catch")
                     total_count = await Prism.count("guild_id = $1", message.guild.id)
@@ -8520,10 +8622,14 @@ async def on_message(message: discord.Message):
                     quests.append("good")
                 if time_caught >= 0 and time_caught < 10:
                     quests.append("under10")
-                # lightning_hands widens the under-3 window by the perk's multiplier.
+                # lightning_hands widens the under-N windows by the perk's multiplier.
                 _under3_window = 3.0 * _perk_mods["lightning_hands_mult"]
                 if time_caught >= 0 and time_caught < _under3_window:
                     quests.append("under3")
+                if time_caught >= 0 and time_caught < 2.0 * _perk_mods["lightning_hands_mult"]:
+                    quests.append("under2")
+                if time_caught >= 0 and time_caught < 5:
+                    quests.append("under5")
                 if time_caught >= 60:
                     quests.append("slow")
                 if time_caught >= 0 and int(time_caught) % 2 == 0:
@@ -8534,6 +8640,8 @@ async def on_message(message: discord.Message):
                     quests.append("rare+")
                 if channel.cattype in LEGENDARY_PLUS:
                     quests.append("legendary+")
+                if channel.cattype in EPIC_PLUS:
+                    quests.append("epic3")
                 if user.catnip_active > time.time():
                     quests.append("catnip_catch")
                 if did_boost:
@@ -11452,6 +11560,19 @@ async def battlepass(message: discord.Interaction):
 
         description = f"Season ends <t:{timestamp}:R>\n\n"
 
+        # Completed daily quests refresh at the next daily boundary (pure-daily
+        # reset, migration 036) — the +4h-aligned day used by refresh_quests —
+        # capped at season end. Pre-migration (quests_day column absent) we fall
+        # back to the legacy per-slot cooldown+QUEST_COOLDOWN display.
+        _daily_reset_on = _quests_day_safe(user) is not None
+        _next_daily_reset = min((int((time.time() + 4 * 3600) // 86400) + 1) * 86400 - 4 * 3600, timestamp)
+
+        def _refresh_at(cooldown):
+            if _daily_reset_on:
+                return _next_daily_reset
+            legacy = cooldown + QUEST_COOLDOWN
+            return legacy if legacy < timestamp else timestamp
+
         # weekly quest 🍀 — hidden entirely during the days-28+ dead zone
         # (weekly_quest == '') and pre-migration 034 (_weekly_quest_safe '').
         _wq_display = _weekly_quest_safe(user)
@@ -11483,7 +11604,7 @@ async def battlepass(message: discord.Interaction):
             sub_quest = config.battle["quests"]["misc"].get(_vq_display)
             if sub_quest:
                 if user.vote_cooldown != 0:
-                    description += f"✅ ~~{sub_quest['title']}~~\n- Refreshes <t:{int(user.vote_cooldown + QUEST_COOLDOWN)}:R>\n"
+                    description += f"✅ ~~{sub_quest['title']}~~\n- Refreshes <t:{int(_refresh_at(user.vote_cooldown))}:R>\n"
                 else:
                     description += f"{get_emoji(sub_quest['emoji'])} {sub_quest['title']}\n- Reward: {user.vote_reward} XP\n"
         elif config.VOTING_ENABLED:
@@ -11491,7 +11612,7 @@ async def battlepass(message: discord.Interaction):
             if global_user.daily_catch_streak >= 5:
                 streak_string = f" (🔥 {global_user.daily_catch_streak}x streak)"
             if user.vote_cooldown != 0:
-                description += f"✅ ~~Vote on Top.gg~~\n- Refreshes <t:{int(user.vote_cooldown + QUEST_COOLDOWN)}:R>{streak_string}\n"
+                description += f"✅ ~~Vote on Top.gg~~\n- Refreshes <t:{int(_refresh_at(user.vote_cooldown))}:R>{streak_string}\n"
             else:
                 # inform double vote xp during weekends
                 is_weekend = now.weekday() >= 4
@@ -11517,7 +11638,7 @@ async def battlepass(message: discord.Interaction):
         # catch
         catch_quest = config.battle["quests"]["catch"][user.catch_quest]
         if user.catch_cooldown != 0:
-            description += f"✅ ~~{catch_quest['title']}~~\n- Refreshes <t:{int(user.catch_cooldown + QUEST_COOLDOWN if user.catch_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n"
+            description += f"✅ ~~{catch_quest['title']}~~\n- Refreshes <t:{int(_refresh_at(user.catch_cooldown))}:R>\n"
         else:
             progress_string = ""
             if catch_quest["progress"] != 1:
@@ -11534,7 +11655,7 @@ async def battlepass(message: discord.Interaction):
         # misc
         misc_quest = config.battle["quests"]["misc"][user.misc_quest]
         if user.misc_cooldown != 0:
-            description += f"✅ ~~{misc_quest['title']}~~\n- Refreshes <t:{int(user.misc_cooldown + QUEST_COOLDOWN if user.misc_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n"
+            description += f"✅ ~~{misc_quest['title']}~~\n- Refreshes <t:{int(_refresh_at(user.misc_cooldown))}:R>\n"
         else:
             progress_string = ""
             if misc_quest["progress"] != 1:
@@ -11544,7 +11665,7 @@ async def battlepass(message: discord.Interaction):
         # extra (third slot)
         extra_quest = config.battle["quests"]["extra"][user.extra_quest]
         if user.extra_cooldown != 0:
-            description += f"✅ ~~{extra_quest['title']}~~\n- Refreshes <t:{int(user.extra_cooldown + QUEST_COOLDOWN if user.extra_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n"
+            description += f"✅ ~~{extra_quest['title']}~~\n- Refreshes <t:{int(_refresh_at(user.extra_cooldown))}:R>\n"
         else:
             progress_string = ""
             if extra_quest["progress"] != 1:
@@ -11558,7 +11679,7 @@ async def battlepass(message: discord.Interaction):
         # challenge (fifth slot — harder catch-condition quests)
         challenge_quest = config.battle["quests"]["challenge"][user.challenge_quest]
         if user.challenge_cooldown != 0:
-            description += f"✅ ~~{challenge_quest['title']}~~\n- Refreshes <t:{int(user.challenge_cooldown + QUEST_COOLDOWN if user.challenge_cooldown + QUEST_COOLDOWN < timestamp else timestamp)}:R>\n\n"
+            description += f"✅ ~~{challenge_quest['title']}~~\n- Refreshes <t:{int(_refresh_at(user.challenge_cooldown))}:R>\n\n"
         else:
             progress_string = ""
             if challenge_quest["progress"] != 1:

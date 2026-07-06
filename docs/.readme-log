@@ -71,3 +71,8 @@
 2026-07-03 11:26  Skipped: gameplay-divergence: misc battlepass quest pool churn (news/reminder/rate/catball/slots quests dropped, roll6/roulette3/pig50/cookie/coffee/fish/chaos quests added, no /plush quest added despite upstream, gift/ping/tiktok kept) — implementation-level quest-pool curation, not an elevator-pitch-level divergence; CHANGELOG territory (re: main.py, config/battlepass.json)
 2026-07-03 11:26  Skipped: env-vars (no diff in config.py — new knobs bonus_cat_chance_coef/extra_level_xp/extra_level_reward/weekly_quest_xp/weekly_quest_scratchcards all live in config/tuning.json, not env) (re: main.py, config/tuning.json)
 2026-07-03 11:26  Skipped: config/aches.json (Math Jumpscare/Fisherman/Pro Fisher — three new achievements tied to already-covered mechanics, not a category-introducing batch)
+2026-07-06 08:09  Updated: migrations-table: added row for migration 036 (profile.quests_day + quests_variety_types for pure-daily battlepass quest reset + variety5 challenge quest) (re: migrations/036_quests_day.py)
+2026-07-06 08:09  Updated: gameplay-divergence: extended Battlepass quest slots row — daily slots (catch/misc/extra/challenge/vote) now reset once per day regardless of completion, challenge pool grown 5 -> 10 (re: main.py, config/battlepass.json, migrations/036_quests_day.py)
+2026-07-06 08:09  Skipped: schema.sql (quests_day/quests_variety_types columns already captured by migration 036 row) (re: schema.sql)
+2026-07-06 08:09  Skipped: bot.py (no diff to summarize) (re: bot.py)
+2026-07-06 08:09  Skipped: config.py (no diff to summarize) (re: config.py)

@@ -89,7 +89,7 @@ Each level has a configured reward: cats, packs, rain minutes, or a **Mystery** 
 
 ## Quest slots
 
-Each user has five quest slots active concurrently. Quests refresh on a per-slot **`QUEST_COOLDOWN`** timer after completion (defined in `config/tuning.json`).
+Each user has five quest slots active concurrently. As of the July 2026 daily-reset rework (migration 036), every slot rerolls **once per day** at the daily boundary — `int((time.time() + 4*3600) // 86400)`, the same +4h clock used by the season and weekly rollovers — regardless of whether the slot was completed. Incomplete quests do **not** carry over: `refresh_quests` compares the profile's stored `quests_day` against today's day-index and, on a mismatch, force-rerolls every daily slot (catch/misc/extra/challenge/vote) by stamping its cooldown to the `1` sentinel and zeroing progress. This replaces the older model, where a slot rerolled `QUEST_COOLDOWN` (12h) after *completion* and an unfinished quest could otherwise sit in its slot indefinitely. `QUEST_COOLDOWN` (`config/tuning.json`) still exists but is now only consulted for (a) the real-vote eligibility gate (see Vote slot, below) and (b) a legacy fallback cadence on any profile that predates migration 036 (`quests_day` column absent) — the rollout is backward compatible without a hard cutover.
 
 ### Catch slot
 
@@ -144,12 +144,17 @@ Added alongside `gift3` in May 2026. A 5th peer slot — not gated on catnip, vo
 | Quest | Reward | Condition axis |
 | --- | --- | --- |
 | `under3` | ~320–370 XP | Speed: catch in under 3 seconds |
+| `under2` | ~340–390 XP | Speed: catch in under 2 seconds |
+| `under5` | ~280–330 XP | Speed: catch in under 5 seconds |
 | `slow` | ~250–290 XP | Patience: catch after the cat has waited ≥ 60 seconds |
 | `legendary+` | ~380–400 XP | Rarity: catch a Legendary or rarer cat (`LEGENDARY_PLUS` frozenset, defined from `cattypes` in `main.py`) |
+| `epic3` | ~300–360 XP | Rarity: catch 3 Epic-or-rarer cats (progress=3, `EPIC_PLUS` frozenset) |
 | `catnip_catch` | ~280–340 XP | Context: catch 10 cats while catnip is active (progress=10) |
 | `streak10` | ~320–380 XP | Streak: catch_streak crosses a multiple of 10 (progress=1, fires from the streak-XP boundary in `progress()`) |
+| `bonus_win` | ~300–360 XP | Execution: solve a [bonus-cat](economy.md#bonus-cats) minigame correctly (fires from the same `progress(interaction, profile, "bonus_win")` call site as the weekly `bonus` quest) |
+| `variety5` | ~300–360 XP | Variety: catch 5 distinct cat types since the last daily reset (progress=5, tracked in `profile.quests_variety_types`, cleared by the daily reset — migration 036) |
 
-**Design intent:** the challenge slot is the *skill-ceiling* slot. All five quests are catch-condition flavored — they reward players who are fast, patient, lucky, or consistent — but the bar is deliberately higher than the base catch slot (250–400 XP vs. the catch slot's 230–400 XP, with harder trigger conditions). Having five distinct axes (speed, patience, rarity, catnip-context, streak) means any given cycle will test one aspect of how you play, not just "catch more".
+**Design intent:** the challenge slot is the *skill-ceiling* slot. All ten quests are catch-condition flavored — they reward players who are fast, patient, lucky, or consistent — but the bar is deliberately higher than the base catch slot (250–400 XP vs. the catch slot's 230–400 XP, with harder trigger conditions). The pool spans several distinct axes (speed — `under2`/`under3`/`under5`; patience — `slow`; rarity — `legendary+`/`epic3`; catnip-context; streak; execution; variety), so any given cycle will test one aspect of how you play, not just "catch more". (The pool grew from the original 5 to 10 quests in the July 2026 upstream feature port; the speed and rarity axes now each carry more than one entry.)
 
 `streak10` uses `progress=1` and fires once when `catch_streak` crosses a multiple of 10, rather than counting increments. This keeps it from needing to stay in sync with streak resets (a reset just means the player has to rebuild the streak).
 
@@ -197,15 +202,15 @@ The **`/battlepass` vote quest line** renders "Vote on Top.gg" as a clickable ma
 
 ### Weekly quest track
 
-A sixth quest track (ported from upstream cattlepass v2.1, July 2026), rendered above the daily slots in `/battlepass`. Unlike the five slots it is **not** governed by `QUEST_COOLDOWN`: the season-month is divided into four fixed 7-day windows (`start_time`/`end_time` seconds-from-month-start in `quests.weekly`, on the same UTC+4 clock as the season rollover), and each window hosts exactly one fixed quest, completable once. Days 28 through end-of-month are a deliberate dead zone (the `""` sentinel window) — no weekly quest is active and the section disappears from `/battlepass`.
+A sixth quest track (ported from upstream cattlepass v2.1, July 2026), rendered above the daily slots in `/battlepass`. Unlike the five daily slots — which reroll once per day at the daily boundary (see [Quest slots](#quest-slots), above) — the weekly track has its own independent cadence: the season-month is divided into four fixed 7-day windows (`start_time`/`end_time` seconds-from-month-start in `quests.weekly`, on the same UTC+4 clock as the season rollover), and each window hosts exactly one fixed quest, completable once. Days 28 through end-of-month are a deliberate dead zone (the `""` sentinel window) — no weekly quest is active and the section disappears from `/battlepass`.
 
-The live rotation: week 1 `catch` (catch 70 cats), week 2 `brave+` (5 cats rarer than Brave), week 3 `bonus` (succeed in 4 bonus-cat minigames — depends on [bonus cats](economy.md#bonus-cats), so a `bonus_cat_chance_coef = 0` kill-switch makes that week uncompletable), week 4 `different` (13 distinct cattypes, deduped via `profile.weekly_cattypes`).
+The live rotation: week 1 `catch` (catch 70 cats), week 2 `brave+` (10 cats rarer than Brave), week 3 `bonus` (succeed in 4 bonus-cat minigames — depends on [bonus cats](economy.md#bonus-cats), so a `bonus_cat_chance_coef = 0` kill-switch makes that week uncompletable), week 4 `different` (13 distinct cattypes, deduped via `profile.weekly_cattypes`).
 
 Reward is a flat **`weekly_quest_xp` (2,000) + `weekly_quest_scratchcards` (1)** per completion (`config/tuning.json`), deliberately **not** run through `_qxp_bonus` perk scaling or weekend doubling — at 2,000 XP a multiplier would swing more than every daily quest combined, so the marquee reward stays fixed. Weekly state (`weekly_quest`, `weekly_progress`, `weekly_cattypes`, `scratchcards` — migration 034) is wiped at season rollover with the other slots; unspent scratchcards are wiped too, because they are pack-lottery tickets and the season wipe empties packs (carrying them over would leak pack value across the economy reset).
 
 **`/scratch`** spends one scratchcard on a 5×5 pick-10 pair-matching board paying packs (Wooden through Celestial) or per-server bonus rain minutes, weighted heavily toward the cheap tiers. The payout is precomputed from the shuffle before the player picks a single tile — the board is theater. This is upstream's deliberate "can't lose to a slow connection" safety net: a player who falls asleep mid-board still gets everything their card rolled.
 
-**Design intent:** the weekly track is the *retention cadence* between the 12-hour slot rhythm and the monthly season arc — one chunky goal per week that survives a few missed days, where the daily slots don't. The reward routes through a lottery minigame instead of a direct payout because a fixed weekly payout would be pure homework; the scratch card converts the same expected value into a moment of variance the player initiates. Scratchcards have exactly one source (weekly completion) so the card economy can't inflate.
+**Design intent:** the weekly track is the *retention cadence* between the once-daily slot rhythm and the monthly season arc — one chunky goal per week that survives a few missed days, where the daily slots don't. The reward routes through a lottery minigame instead of a direct payout because a fixed weekly payout would be pure homework; the scratch card converts the same expected value into a moment of variance the player initiates. Scratchcards have exactly one source (weekly completion) so the card economy can't inflate.
 
 ## Quest selection
 
@@ -218,7 +223,7 @@ Reward is a flat **`weekly_quest_xp` (2,000) + `weekly_quest_scratchcards` (1)**
 
 Retiring a quest means **deleting it from the catalog**, not skip-listing it: `random.choice` over the catalog keys can't pick what isn't there, and the retired-quest guards in `refresh_quests` re-roll any profile still holding a deleted id. (The old `slots`/`reminder`/`plush` skip list and the `news` eligibility branch were removed with the July 2026 catalog refresh — they guarded quests that no longer exist.)
 
-The challenge slot has no per-quest eligibility skips — all five quests are completable by any player (Legendary+ cats are rare but spawnable by any server with cat spawning enabled).
+The challenge slot has no per-quest eligibility skips — all ten quests are completable by any player (Legendary+/Epic+ cats are rare but spawnable by any server with cat spawning enabled; `bonus_win` shares the weekly `bonus` quest's `bonus_cat_chance_coef` kill-switch caveat above).
 
 The vote slot's substitute pool has its own filtering rules (documented under the Vote slot section above): `progress == 1`, not retired, not `define` without API key, not the current `misc_quest`.
 
@@ -241,13 +246,14 @@ When a quest completes (or passive XP rolls over a level boundary):
 
 ## Anti-griefing & guardrails
 
-- Quest cooldowns are stored per-slot (`catch_cooldown`, `misc_cooldown`, `extra_cooldown`, `challenge_cooldown`). A cooldown of 0 means "in progress"; non-zero is the unix timestamp of completion.
-- Quest progress is **wiped on season rollover**, not on quest completion (completed quest just sets cooldown to `now`).
-- `casino_progress_temp` is the bitmask state for the casino extra quest. It resets when the quest completes (or season rolls).
-- `gift3_recipients` is the comma-separated list of distinct recipient IDs for the `gift3` extra quest. It resets on completion and on season rollover.
+- Quest cooldowns are stored per-slot (`catch_cooldown`, `misc_cooldown`, `extra_cooldown`, `challenge_cooldown`, plus `vote_cooldown`). A cooldown of 0 means "in progress"; non-zero is the unix timestamp of completion; `cooldown == 1` is the force-reroll sentinel, shared by the retired-quest guards and the daily reset below.
+- Quest progress is **wiped on season rollover, and — since migration 036 — once per calendar day** regardless of completion (see [Quest slots](#quest-slots), above). On a profile that predates migration 036 (`quests_day` column absent), the daily reset doesn't run and a slot instead rerolls the legacy way: `QUEST_COOLDOWN` after the quest was completed, with an unfinished quest sitting until the season rolls.
+- **Daily reset (migration 036).** `refresh_quests` stamps `profile.quests_day` with the current day-index (`int((time.time() + 4*3600) // 86400)`) every time it runs. When the stored value doesn't match today's, every daily slot (catch/misc/extra/challenge/vote) is force-rerolled — cooldown set to the `1` sentinel, progress zeroed — regardless of whether it was completed that day. `profile.quests_variety_types` (smallint[]) tracks distinct cat-rarity indices caught since the last daily reset, backing the `variety5` challenge quest; it's cleared by the same reset. The weekly track is exempt (it's month-windowed, not daily).
+- `casino_progress_temp` is the bitmask state for the casino extra quest. It resets when the quest completes (or season rolls, or the daily reset fires).
+- `gift3_recipients` is the comma-separated list of distinct recipient IDs for the `gift3` extra quest. It resets on completion, on season rollover, and on the daily reset.
 - The weekly track has no cooldown column at all — completion is gated by `weekly_progress` reaching the quest target, and rotation is gated by the calendar windows. One completion per window by construction.
 - Quest-reminder DMs exist only for the **vote** slot. The per-slot reminder columns (`reminder_catch`, `reminder_misc`, `reminder_challenge`) are inert leftovers in `schema.sql` from the removed multi-slot reminder system — no code reads or writes them, and `postpone_reminder()` only handles the `vote` custom_id.
 
 The vote slot additionally uses `profile.vote_quest` (text, default `''`) to hold the current substitute misc quest id. Empty string means "real vote cycle." The substitute completes single-action — no `vote_progress` column exists; the `progress=1` pool constraint removes the need for one.
 
-If you add a new quest slot, mirror this pattern: `<slot>_quest`, `<slot>_progress`, `<slot>_cooldown`, `<slot>_reward`, plus any quest-specific temp state. The challenge slot's migration is `migrations/003_challenge_slot.py` (idempotent ALTER TABLE per column, `.done` marker). The vote substitute column is `migrations/028_vote_substitute_slot.py`.
+If you add a new quest slot, mirror this pattern: `<slot>_quest`, `<slot>_progress`, `<slot>_cooldown`, `<slot>_reward`, plus any quest-specific temp state. The challenge slot's migration is `migrations/003_challenge_slot.py` (idempotent ALTER TABLE per column, `.done` marker). The vote substitute column is `migrations/028_vote_substitute_slot.py`. The daily-reset columns (`quests_day`, `quests_variety_types`) are `migrations/036_quests_day.py`.

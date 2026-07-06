@@ -120,3 +120,7 @@
 2026-07-03 00:00 Changed: "Battlepass overflow reward changed to Mystery pack per 3000 XP (was Stone pack per 6300 XP)" (re: main.py, config/tuning.json)
 2026-07-03 00:00 Changed: "El Patrón/Most Wanted (Lv10/11) bounty_difficulty and max_amount smoothed further; Lv10 x10 variation multiplier removed" (re: config/catnip.json, main.py)
 2026-07-03 00:00 Fixed: "Catnip payout rolls (Lucky/Gambling/Purrcise/Speedrunner/Rainy Catcher) were gated behind Big Score perk since May Jobs release" (re: main.py)
+2026-07-06 08:09 Added: "Five new challenge battlepass quests (under2/under5/epic3/bonus_win/variety5), pool 5->10" (re: main.py, config/battlepass.json)
+2026-07-06 08:09 Changed: "Battlepass daily quests reset on fixed daily clock (20:00 UTC) instead of on completion; requires migration 036_quests_day.py" (re: main.py, schema.sql)
+2026-07-06 08:09 Changed: "Weekly quest brave+ threshold doubled: catch 5 -> catch 10 cats rarer than Brave" (re: config/battlepass.json)
+2026-07-06 08:09 Fixed: "Achievement embeds fall back to a plain channel post when the interaction token has expired (e.g. long /trade sessions), instead of being silently dropped" (re: main.py)

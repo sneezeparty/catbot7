@@ -36,6 +36,7 @@ INT_FIELDS = [
     "reminder_challenge",
     "weekly_progress",        # weekly quest 🍀 progress (no cooldown — window-gated)
     "scratchcards",           # unspent /scratch cards (weekly quest reward)
+    "quests_day",             # day-index (+4h clock) daily quest slots were last rolled over; migration 036
     # Streak / misc counters
     "catch_streak",
     "bonus_catches",          # successful bonus-cat 🎁 minigames (+3 cats each)
@@ -180,6 +181,13 @@ JSONB_FIELDS = [
     "season_stat_baseline",     # JSONB dict snapshot of bigint counters at season rollover; used to compute per-season deltas
     "season_trophies",          # JSONB list of {season, category, rank} trophy records; append-only, written by _award_season_trophies at rollover
     "vouchers",                 # JSONB list of one-shot battlepass Mystery vouchers; writer is main._vouchers_grant
+    # Not actually JSONB (both are `smallint[]`), but asyncpg already hands back a
+    # plain list[int] for array columns, so they render fine through the same
+    # pill-list template block. Raw cattype-rarity indices (type_dict order), no
+    # name mapping in the webui. Cleared on their respective reset (weekly /
+    # daily); resolves a previously-flagged gap for weekly_cattypes.
+    "weekly_cattypes",          # distinct cattype indices caught this week (weekly 'different' quest)
+    "quests_variety_types",     # distinct cattype indices caught since the last daily reset (variety5 challenge quest); migration 036
 ]
 
 

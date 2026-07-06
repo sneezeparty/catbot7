@@ -392,7 +392,9 @@ CREATE TABLE public.profile (
     weekly_cattypes smallint[] DEFAULT '{}'::smallint[],
     scratchcards smallint DEFAULT 0,
     vouchers jsonb DEFAULT '[]'::jsonb NOT NULL,
-    rain_seconds smallint DEFAULT 0
+    rain_seconds smallint DEFAULT 0,
+    quests_day integer DEFAULT 0,
+    quests_variety_types smallint[] DEFAULT '{}'::smallint[]
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

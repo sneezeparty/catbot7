@@ -20,7 +20,9 @@ import collections
 import importlib
 import logging
 import sys
+import threading
 import time
+import traceback
 
 import discord
 import sentry_sdk
@@ -150,7 +152,7 @@ bot = commands.AutoShardedBot(
 if not getattr(config, "_fetch_user_wrapped", False):
     config.fetch_user_counts = collections.Counter()          # "file:line in func()" -> total
     config.fetch_user_id_counts = collections.Counter()       # user_id -> total fetches
-    config.fetch_user_recent = collections.deque(maxlen=256)  # (monotonic_ts, callsite, user_id)
+    config.fetch_user_recent = collections.deque(maxlen=256)  # (monotonic_ts, callsite, user_id, is_webui_names)
     _FETCH_BURST_WINDOW = 10.0   # seconds
     _FETCH_BURST_THRESHOLD = 8   # calls within the window before we shout
     _orig_fetch_user = bot.fetch_user
@@ -160,25 +162,98 @@ if not getattr(config, "_fetch_user_wrapped", False):
         # exactly the line that called bot.fetch_user — main.py:825 (DM channel)
         # or main.py:8079 (blessing), or any future site.
         frame = sys._getframe(1)
-        callsite = f"{frame.f_code.co_filename.rsplit('/', 1)[-1]}:{frame.f_lineno} in {frame.f_code.co_name}()"
+        filename = frame.f_code.co_filename
+        callsite = f"{filename.rsplit('/', 1)[-1]}:{frame.f_lineno} in {frame.f_code.co_name}()"
         now = time.monotonic()
         config.fetch_user_counts[callsite] += 1
         config.fetch_user_id_counts[user_id] += 1
         recent = config.fetch_user_recent
-        recent.append((now, callsite, user_id))
-        window = [r for r in recent if now - r[0] <= _FETCH_BURST_WINDOW]
-        if len(window) >= _FETCH_BURST_THRESHOLD and now - getattr(config, "_last_fetch_burst_warn", 0.0) >= _FETCH_BURST_WINDOW:
+        # The admin webui (webui/names.py) legitimately batch-resolves a
+        # leaderboard's usernames via asyncio.gather on every cold-cache page
+        # load — a concurrency-capped, cached burst, not the runaway this
+        # wrapper hunts (which is main.py's fetch sites). Tag those records by
+        # full path (a bare "names.py:" basename match would also exempt any
+        # future names.py elsewhere) and drop them from the burst trigger so a
+        # dashboard visit doesn't cry wolf; they're still tallied in
+        # fetch_user_counts above for the record.
+        is_webui_names = filename.endswith("webui/names.py")
+        recent.append((now, callsite, user_id, is_webui_names))
+        suspect = [r for r in recent if now - r[0] <= _FETCH_BURST_WINDOW and not r[3]]
+        if len(suspect) >= _FETCH_BURST_THRESHOLD and now - getattr(config, "_last_fetch_burst_warn", 0.0) >= _FETCH_BURST_WINDOW:
             config._last_fetch_burst_warn = now
-            by_site = collections.Counter(r[1] for r in window)
-            by_id = collections.Counter(r[2] for r in window)
+            by_site = collections.Counter(r[1] for r in suspect)
+            by_id = collections.Counter(r[2] for r in suspect)
             logging.warning(
                 "fetch_user burst: %d calls in <%.0fs | by call-site: %s | top ids: %s",
-                len(window), _FETCH_BURST_WINDOW, dict(by_site.most_common(5)), dict(by_id.most_common(5)),
+                len(suspect), _FETCH_BURST_WINDOW, dict(by_site.most_common(5)), dict(by_id.most_common(5)),
             )
         return await _orig_fetch_user(user_id, *args, **kwargs)
 
     bot.fetch_user = _tracked_fetch_user  # pyright: ignore
     config._fetch_user_wrapped = True
+
+
+# ---------------------------------------------------------------------------
+# event-loop stall watchdog
+# ---------------------------------------------------------------------------
+# "Can't keep up, shard ID 0 websocket is Ns behind" is discord.py's keep-alive
+# thread reporting that the event loop failed to run a trivial send_heartbeat
+# coroutine for N seconds — i.e. the loop was frozen that long. By the time the
+# warning lands the culprit is already gone, so we can't see what did it. This
+# catches it red-handed: an on-loop heartbeat task stamps a monotonic clock
+# every _LOOP_HB_INTERVAL; a real OS thread (which keeps running even while the
+# loop is frozen) watches that stamp and, the moment it goes stale past
+# _LOOP_STALL_THRESHOLD, dumps the loop thread's Python stack — exactly what was
+# executing when the loop stopped ticking.
+#
+# Reading the dump:
+#   * a real blocking call (requests.get, json on a huge blob, a big sync loop,
+#     a blocking DB/DNS call) => our code froze the loop; fix that call site.
+#   * plain asyncio/selector idle frames => our code WASN'T blocking; the OS
+#     parked the process (App Nap / QoS demotion to efficiency cores / timer
+#     coalescing) or the gateway socket stalled — i.e. host/network, not us.
+# One report per stall; re-arms after recovery. Lives in bot.py so it survives
+# cat!restart (only the `main` extension reloads; this thread/task do not).
+# Temporary diagnostic — remove once the stalls are explained.
+_LOOP_STALL_THRESHOLD = 3.0   # seconds the loop may be frozen before we shout
+_LOOP_HB_INTERVAL = 0.5       # how often the on-loop heartbeat stamps the clock
+
+
+async def _loop_heartbeat():
+    # Runs ON the event loop. If the loop is blocked, this stops stamping —
+    # which is precisely the staleness the watchdog thread looks for.
+    config._loop_thread_ident = threading.get_ident()
+    while True:
+        config._loop_heartbeat_ts = time.monotonic()
+        await asyncio.sleep(_LOOP_HB_INTERVAL)
+
+
+def _loop_watchdog():
+    # A plain daemon OS thread — unaffected by the event loop being frozen.
+    stall_start = None
+    while True:
+        time.sleep(0.5)
+        last = getattr(config, "_loop_heartbeat_ts", None)
+        if last is None:
+            continue
+        now = time.monotonic()
+        lag = now - last
+        if lag > _LOOP_STALL_THRESHOLD:
+            if stall_start is None:
+                # anchor to the last good heartbeat (when the loop actually
+                # froze), not `now` (detection time, already >threshold later),
+                # so the recovery line reports the full freeze duration.
+                stall_start = last
+                ident = getattr(config, "_loop_thread_ident", None)
+                frame = sys._current_frames().get(ident) if ident else None
+                stack = "".join(traceback.format_stack(frame)) if frame else "<loop-thread frame unavailable>"
+                logging.warning(
+                    "event loop STALLED >%.1fs (now ~%.1fs behind) — loop-thread stack at detection:\n%s",
+                    _LOOP_STALL_THRESHOLD, lag, stack.rstrip(),
+                )
+        elif stall_start is not None:
+            logging.warning("event loop recovered (was stalled ~%.1fs)", now - stall_start)
+            stall_start = None
 
 
 @bot.event
@@ -188,6 +263,13 @@ async def setup_hook():
     from webui import start_server
 
     asyncio.create_task(start_server(bot))
+
+    # event-loop stall watchdog (see block above) — start once per process.
+    if not getattr(config, "_loop_watchdog_installed", False):
+        config._loop_heartbeat_ts = time.monotonic()
+        asyncio.create_task(_loop_heartbeat())
+        threading.Thread(target=_loop_watchdog, name="loop-watchdog", daemon=True).start()
+        config._loop_watchdog_installed = True
 
 
 async def reload(reload_db):

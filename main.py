@@ -6790,23 +6790,33 @@ async def background_loop():
             del temp_belated_storage[id]
 
     if config.TOP_GG_MODERN_TOKEN:
+        # `stage` names the in-flight top.gg call so the except below can say
+        # *which* of the three requests blew up, not just that one did.
+        stage = "top.gg"
+        headers = {"Authorization": f"Bearer {config.TOP_GG_MODERN_TOKEN}"}
         async with aiohttp.ClientSession() as session:
             try:
                 if not config.MIN_SERVER_SEND or len(bot.guilds) > config.MIN_SERVER_SEND:
                     # send server count to top.gg
+                    stage = "metrics POST"
                     r = await session.post(
                         "https://top.gg/api/v1/projects/@me/metrics",
-                        headers={"Authorization": f"Bearer {config.TOP_GG_MODERN_TOKEN}"},
+                        headers=headers,
                         json={"server_count": len(bot.guilds), "shard_count": len(bot.shards)},
                     )
+                    if r.status >= 400:
+                        logging.warning("top.gg %s -> HTTP %d: %.200s", stage, r.status, await r.text())
                     r.close()
 
                 # post commands to top.gg
+                stage = "commands POST"
                 r = await session.post(
                     "https://top.gg/api/v1/projects/@me/commands",
-                    headers={"Authorization": f"Bearer {config.TOP_GG_MODERN_TOKEN}"},
+                    headers=headers,
                     json=[command.to_dict(bot.tree) for command in bot.tree._get_all_commands(guild=None) if command.to_dict(bot.tree)["type"] == 1],
                 )
+                if r.status >= 400:
+                    logging.warning("top.gg %s -> HTTP %d: %.200s", stage, r.status, await r.text())
                 r.close()
 
                 # fallback fetch votes
@@ -6816,40 +6826,60 @@ async def background_loop():
                     else:
                         timestamp = discord.utils.utcnow() - datetime.timedelta(minutes=5)
                         suffix = "startDate=" + timestamp.replace(tzinfo=None).isoformat()
+                    stage = "votes GET"
                     r = await session.get(
                         f"https://top.gg/api/v1/projects/@me/votes?{suffix}",
-                        headers={"Authorization": f"Bearer {config.TOP_GG_MODERN_TOKEN}"},
+                        headers=headers,
                     )
-                    data = await r.json()
-                    r.close()
-
-                    # NOTE: top.gg's cursor API re-returns the page containing
-                    # the most recent vote on every poll, so the_votes is
-                    # almost always non-empty even when nothing new happened.
-                    # do_vote() dedups stale ones (< 1h since the user's last
-                    # counted vote) — mirror that check here so the log only
-                    # speaks up when a vote was actually processed.
-                    the_votes = data.get("data", [])
-                    new_votes = 0
-                    for vote_data in the_votes:
-                        if not vote_data.get("created_at", 0) or not vote_data.get("platform_id", 0):
-                            continue
-                        created_at = datetime.datetime.fromisoformat(vote_data["created_at"]).timestamp()
-                        vote_user = await User.get_or_create(user_id=int(vote_data["platform_id"]))
-                        if created_at - vote_user.vote_time_topgg >= 3600:
-                            new_votes += 1
-                        await do_vote(vote_user, created_at)
-
-                    last_vote_cursor = data.get("cursor", "")
-                    with open("cursor.txt", "w") as f:
-                        f.write(last_vote_cursor)
-                    if new_votes:
-                        logging.info("Vote replay: processed %d new vote%s", new_votes, "s" if new_votes != 1 else "")
+                    if r.status >= 400:
+                        # An error page (5xx HTML, 429) isn't JSON — log the
+                        # status instead of letting `await r.json()` raise a
+                        # ContentTypeError, and leave the cursor untouched so we
+                        # don't lose our place / re-scan on the next poll.
+                        logging.warning("top.gg %s -> HTTP %d: %.200s", stage, r.status, await r.text())
+                        r.close()
                     else:
-                        logging.debug("Vote replay: nothing new (%d stale), cursor %s", len(the_votes), last_vote_cursor)
+                        data = await r.json()
+                        r.close()
 
-            except Exception:
-                logging.warning("Posting to top.gg failed.")
+                        # NOTE: top.gg's cursor API re-returns the page containing
+                        # the most recent vote on every poll, so the_votes is
+                        # almost always non-empty even when nothing new happened.
+                        # do_vote() dedups stale ones (< 1h since the user's last
+                        # counted vote) — mirror that check here so the log only
+                        # speaks up when a vote was actually processed.
+                        the_votes = data.get("data", [])
+                        new_votes = 0
+                        for vote_data in the_votes:
+                            if not vote_data.get("created_at", 0) or not vote_data.get("platform_id", 0):
+                                continue
+                            # top.gg stamps votes in UTC; some payloads carry no
+                            # tzinfo, and a naive .timestamp() would read them in
+                            # this host's local zone (the box isn't UTC) and skew
+                            # the 1h dedup + do_vote time. Pin naive stamps to UTC.
+                            voted_dt = datetime.datetime.fromisoformat(vote_data["created_at"])
+                            if voted_dt.tzinfo is None:
+                                voted_dt = voted_dt.replace(tzinfo=datetime.timezone.utc)
+                            created_at = voted_dt.timestamp()
+                            vote_user = await User.get_or_create(user_id=int(vote_data["platform_id"]))
+                            if created_at - vote_user.vote_time_topgg >= 3600:
+                                new_votes += 1
+                            await do_vote(vote_user, created_at)
+
+                        last_vote_cursor = data.get("cursor", "")
+                        with open("cursor.txt", "w") as f:
+                            f.write(last_vote_cursor)
+                        if new_votes:
+                            logging.info("Vote replay: processed %d new vote%s", new_votes, "s" if new_votes != 1 else "")
+                        else:
+                            logging.debug("Vote replay: nothing new (%d stale), cursor %s", len(the_votes), last_vote_cursor)
+
+            except Exception as e:
+                # Blanket catch over metrics POST + commands POST + vote-replay
+                # GET. `stage` says which call raised; include the exception so a
+                # recurrence is diagnosable (timeout vs connection reset vs JSON
+                # decode) instead of a bare "it failed".
+                logging.warning("Posting to top.gg failed [%s]: %r", stage, e)
 
     # payout stock market rewards/set up future rewards
     for stock_info in stock_data:

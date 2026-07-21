@@ -291,6 +291,8 @@ hints = [
     "Cat Bot can go offline! Don't panic if it does",
     "By default, cats spawn 1-10 minutes apart",
     "View the last catch as well as the next one with /last",
+    "Sitting on /scratch cards? /scratch turns them into cats, coins & more",
+    "Psst — you might have unscratched /scratch cards. Go check /scratch",
 ]
 
 # laod the jsons
@@ -4347,7 +4349,7 @@ def resolve_mystery(user: Profile, *, _depth: int = 0) -> tuple[list[str], int]:
     if family == "scratchcard":
         try:
             user.scratchcards += 1
-            return [f"You got a {mystery} -> 🍀 a /scratch card!"], 0
+            return [f"You got a {mystery} -> 🍀 **a /scratch card!** Reveal it with /scratch!"], 0
         except (KeyError, AttributeError):
             family = "pack"  # pre-migration-034: fall back to a pack
 
@@ -4498,6 +4500,36 @@ def build_levelup_pack_embed(user: Profile, pack_name: str) -> discord.Embed:
     return discord.Embed(description=description, color=color)
 
 
+# Scratch cards are easy to miss buried among level-up reward lines, so a grant
+# gets a loud, dedicated shout-out (people don't realise they even have any).
+# _scratch_card_banner is the content-message splash progress() sends below the
+# catch; _scratch_card_banner_embed is the embed variant for grant_achievement_xp,
+# which returns embeds to its caller instead of sending. Both name how many were
+# just won and the running unscratched count so /scratch feels worth opening.
+def _scratch_card_banner(user, gained: int) -> str:
+    n = "s" if gained != 1 else ""
+    it = "them" if gained != 1 else "it"
+    return (
+        f"## 🍀 SCRATCH CARD{n.upper()} GET! 🍀\n"
+        f"<@{user.user_id}> — you got **{gained}** /scratch card{n}! "
+        f"Reveal {it} with **/scratch** for cats, coins, rain & more.\n"
+        f"-# You now have {getattr(user, 'scratchcards', 0) or 0:,} unscratched."
+    )
+
+
+def _scratch_card_banner_embed(user, gained: int) -> discord.Embed:
+    n = "s" if gained != 1 else ""
+    it = "them" if gained != 1 else "it"
+    return discord.Embed(
+        title=f"🍀 Scratch card{n} get!",
+        description=(
+            f"You got **{gained}** /scratch card{n}! Reveal {it} with **/scratch** for "
+            f"cats, coins, rain & more.\nYou now have {getattr(user, 'scratchcards', 0) or 0:,} unscratched."
+        ),
+        color=Colors.green,
+    )
+
+
 async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed]:
     """Add achievement XP to user.progress and roll forward battlepass levels.
 
@@ -4526,6 +4558,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         return []
 
     embeds: list[discord.Embed] = []
+    cards_before = getattr(user, "scratchcards", 0) or 0
     active_level_data = level_data
     xp_progress = current_xp
     while xp_progress >= active_level_data["xp"]:
@@ -4545,6 +4578,8 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
                 # legitimately chain the next level via the while re-check
                 xp_progress += mystery_xp
                 user.progress = xp_progress
+        elif active_level_data["reward"] == "Scratchcard":
+            user.scratchcards += active_level_data["amount"]
         else:
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
         # Optional "extra_reward" stack — a level can grant a second reward on
@@ -4571,6 +4606,9 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             )
         elif mystery_lines:
             description = "\n".join(mystery_lines)
+        elif active_level_data["reward"] == "Scratchcard":
+            _amt = active_level_data["amount"]
+            description = f"You got 🍀 {_amt} /scratch card{'s' if _amt != 1 else ''}! Reveal with /scratch!"
         else:
             description = (
                 f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -4598,6 +4636,9 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         else:
             active_level_data = season_levels[user.battlepass]
 
+    gained_cards = (getattr(user, "scratchcards", 0) or 0) - cards_before
+    if gained_cards > 0:
+        embeds.append(_scratch_card_banner_embed(user, gained_cards))
     return embeds
 
 
@@ -4919,15 +4960,16 @@ async def generate_quest(user: Profile, quest_type: str):
 
     quest_data = config.battle["quests"][quest_type][quest]
     if quest_type == "vote":
-        # ~1/2 of refresh cycles the slot is the real Vote on Top.gg quest
-        # ("every other level"); the other half we sub in a random
-        # single-action misc quest so the vote prompt doesn't dominate.
+        # ~3/4 of daily rerolls the slot is the real Vote on Top.gg quest; the
+        # other ~1/4 we sub in a random single-action misc quest so the vote
+        # prompt doesn't dominate every single day.
         # Substitute reuses vote_reward (XP) and vote_cooldown (claim
         # timestamp). vote_quest stores the misc quest id; empty string
         # means "real vote quest." Pre-migration 028 the vote_quest column
         # may be absent — _set_vote_quest_safe returns False in that case
-        # and we fall back to the real vote quest path.
-        roll_substitute = random.randint(1, 2) == 1
+        # and we fall back to the real vote quest path (which only pushes the
+        # real-vote share above 75%, never below).
+        roll_substitute = random.randint(1, 4) == 1
         sub_assigned = False
         if roll_substitute:
             sub_pool = [
@@ -5384,6 +5426,10 @@ async def progress(
         await refresh_quests(user)
         await user.refresh_from_db()
 
+    # Snapshot so we can fire a prominent /scratch banner if this quest grants
+    # a scratch card (weekly quest, or a Mystery level-up reward below).
+    cards_before = getattr(user, "scratchcards", 0) or 0
+
     # Job-perk quest-XP multipliers — computed once per call so they apply
     # uniformly across every quest branch below.
     #   catch_xp_boost  → catch quests only
@@ -5533,6 +5579,8 @@ async def progress(
                     # level machinery — see resolve_mystery's docstring)
                     xp_progress += mystery_xp
                     user.progress = xp_progress
+            elif active_level_data["reward"] == "Scratchcard":
+                user.scratchcards += active_level_data["amount"]
             else:
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
             # Optional "extra_reward" stack — same shape as the primary. See
@@ -5560,6 +5608,9 @@ async def progress(
                     )
                 elif mystery_lines:
                     description = "\n".join(mystery_lines)
+                elif active_level_data["reward"] == "Scratchcard":
+                    _amt = active_level_data["amount"]
+                    description = f"You got 🍀 {_amt} /scratch card{'s' if _amt != 1 else ''}! Reveal with /scratch!"
                 else:
                     description = (
                         f"You got a {get_emoji(active_level_data['reward'].lower() + 'pack')} {active_level_data['reward']} pack! Do /packs to open it!"
@@ -5626,6 +5677,11 @@ async def progress(
                 await message.channel.send(f"<@{user.user_id}>", embeds=level_complete_embeds + [embed_progress])
             else:
                 await message.channel.send(f"<@{user.user_id}>", embed=embed_progress)
+            # Dedicated splash below the catch when this quest handed over a
+            # scratch card — they're too easy to miss among the reward lines.
+            gained_cards = (getattr(user, "scratchcards", 0) or 0) - cards_before
+            if gained_cards > 0:
+                await message.channel.send(_scratch_card_banner(user, gained_cards))
 
     return user
 
@@ -5645,6 +5701,8 @@ async def progress_embed(message, user, level_data, current_xp, old_xp, quest_da
         reward_text = f"{level_data['amount']}x ❓"
     elif level_data["reward"] in cattypes:
         reward_text = f"{level_data['amount']}x {get_emoji(level_data['reward'].lower() + 'cat')}"
+    elif level_data["reward"] == "Scratchcard":
+        reward_text = f"{level_data['amount']}x 🍀"
     else:
         reward_text = get_emoji(level_data["reward"].lower() + "pack")
 
@@ -5653,7 +5711,7 @@ async def progress_embed(message, user, level_data, current_xp, old_xp, quest_da
     if streak_data["reward"] and "top.gg" in quest_data["title"]:
         streak_reward = f"\n🔥 **Streak Bonus!** +1 {streak_data['emoji']} {streak_data['reward'].capitalize()} pack"
     elif quest_data in config.battle["quests"].get("weekly", {}).values():
-        streak_reward = f"\n🍀 **Weekly Quest!** +{WEEKLY_QUEST_SCRATCHCARDS} /scratch card{'s' if WEEKLY_QUEST_SCRATCHCARDS != 1 else ''}!"
+        streak_reward = f"\n🍀 **Weekly Quest! +{WEEKLY_QUEST_SCRATCHCARDS} /scratch card{'s' if WEEKLY_QUEST_SCRATCHCARDS != 1 else ''}** — reveal with /scratch!"
     else:
         streak_reward = ""
 
@@ -8416,10 +8474,10 @@ async def on_message(message: discord.Message):
                     shadow_button.callback = dark_market_cutscene
                     buttons.append(shadow_button)
 
-                # Vote button on the catch message: only ~1 in 40 catches
-                # (expected somewhere between every 20th and 60th cat) so it
-                # doesn't feel spammy. /battlepass still has a direct link.
-                if config.VOTING_ENABLED and random.randint(1, 40) == 1:
+                # Vote button on the catch message: ~1 in 15 catches, and only
+                # when the catcher hasn't voted in 12h (see the guard below), so
+                # regular voters rarely see it. /battlepass still has a direct link.
+                if config.VOTING_ENABLED and random.randint(1, 15) == 1:
                     vote_user = await User.get_or_create(user_id=message.author.id)
                     if vote_user.vote_time_topgg + 43200 < time.time():
                         buttons.append(Button(
@@ -11179,6 +11237,20 @@ async def packs(message: discord.Interaction):
 
         await interaction.response.send_message("Are you sure you want to open ALL your packs?", view=confirm_view, ephemeral=True)
 
+    async def scratch_reveal_hint(interaction: discord.Interaction):
+        # The Scratchcards button is display-only — scratch cards aren't packs
+        # and never "open" here (nor in Open All). Clicking it just points the
+        # player at /scratch, where they're actually revealed.
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        count = getattr(user, "scratchcards", 0) or 0
+        await interaction.response.send_message(
+            f"🍀 You have **{count:,}** unscratched Scratchcard{'s' if count != 1 else ''}! "
+            f"Reveal {'it' if count == 1 else 'them'} with **/scratch** for cats, coins, rain & more.",
+            ephemeral=True,
+        )
+
     def gen_view(user):
         view = View(timeout=VIEW_TIMEOUT)
         empty = True
@@ -11206,6 +11278,14 @@ async def packs(message: discord.Interaction):
             button = Button(label=f"Open all! ({total_amount:,})", style=ButtonStyle.gray)
             button.callback = confirm_open_all
             view.add_item(button)
+        # Scratch cards are NOT packs: they never open here and are excluded
+        # from Open All (which only sums pack_data). Surface the count with a
+        # dedicated labeled button that just points the player at /scratch.
+        scratch_count = getattr(user, "scratchcards", 0) or 0
+        if scratch_count >= 1:
+            sc_btn = Button(emoji="🍀", label=f"Scratchcards ({scratch_count:,})", style=ButtonStyle.gray)
+            sc_btn.callback = scratch_reveal_hint
+            view.add_item(sc_btn)
         return view, has_special
 
     def get_pack_rewards(level: int, is_single=True, _cascade_depth=0, coin_variant: bool = False):

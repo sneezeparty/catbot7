@@ -425,6 +425,10 @@ JOBS_NPCS = config.jobs["npcs"]
 JOBS_BIG_SCORE = config.jobs["big_score"]
 JOBS_REP = config.jobs["rep"]
 
+# Auto-fill targets for the crew-builder's one-click buttons (success chance
+# to aim for). "max" is pinned to the sigmoid ceiling — can't do better anyway.
+JOBS_AUTOFILL_TARGETS = {"good": 0.70, "lock": 0.90, "max": JOBS_PROB["ceiling"]}  # 0.95
+
 # Data-driven achievement trigger engine. Reads `trigger` blocks from
 # ach_list and fires them on matching events. Hardcoded `achemb()` call
 # sites still work; engine + hardcoded paths coexist.
@@ -1994,6 +1998,51 @@ def _jobs_send_total(send: dict) -> int:
 
 def _jobs_send_count(send: dict) -> int:
     return sum(int(c or 0) for c in send.values())
+
+
+def _jobs_auto_fill_crew(profile, target, difficulty, rep_bonus):
+    """Commons-first crew fill that always leaves >=1 of every owned rarity
+    (so prism-making stays possible). Returns a fresh `send` dict. Best-effort:
+    may fall short of `target` if the player lacks spare cats.
+
+    `cattypes` is ordered common -> rare, so iterating in order spends the
+    commonest rarities first and only reaches rare cats when forced. For each
+    rarity we bisect the *minimum* count that clears `target` (fewest cats of
+    that type at risk); if even all its spare can't clear it, we commit all its
+    spare and move on to the next rarer type. O(types * log(spare)) — safe even
+    for whale inventories with millions of a single rarity.
+    """
+    spare = {t: max(0, int(profile[f"cat_{t}"] or 0) - 1) for t in cattypes}
+    send = {}
+
+    def chance_with(extra_type=None, extra_n=0):
+        s = (send if extra_type is None
+             else {**send, extra_type: send.get(extra_type, 0) + extra_n})
+        return _jobs_success_chance(_jobs_send_total(s), difficulty, rep_bonus)
+
+    for t in cattypes:  # common -> rare
+        if spare[t] <= 0:
+            continue
+        if chance_with() >= target:
+            break
+        # Fewest cats of this (commonest available) rarity that clear target.
+        lo, hi, best = 1, spare[t], None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if chance_with(t, mid) >= target:
+                best = mid
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        # target unreachable with this type alone -> commit all its spare and
+        # let the next rarer type keep pushing toward target.
+        add = best if best is not None else spare[t]
+        send[t] = send.get(t, 0) + add
+        spare[t] -= add
+        if best is not None:
+            break
+
+    return {t: c for t, c in send.items() if c > 0}
 
 
 def _jobs_feel_label(chance: float) -> tuple[str, int]:
@@ -14773,6 +14822,7 @@ async def jobs(message: discord.Interaction):
     # on a now-empty page.
     mode: dict = {"screen": "board", "job_id": None, "board_page": 0}
     send_state: dict = {}  # cat_type -> count being sent
+    focused_type = None  # rarity the crew-builder steppers act on (or None)
     last_toast: list[str] = []  # one short status line carried across renders
 
     async def _attach_view(interaction: discord.Interaction, view, use_followup: bool):
@@ -15000,6 +15050,7 @@ async def jobs(message: discord.Interaction):
         await _attach_view(interaction, view, use_followup)
 
     async def show_send(interaction: discord.Interaction):
+        nonlocal focused_type
         await profile.refresh_from_db()
         job = await JobInstance.get_or_none(id=mode["job_id"])
         if not job or job.state != "offered" or int(job.user_id) != int(message.user.id):
@@ -15008,6 +15059,25 @@ async def jobs(message: discord.Interaction):
             last_toast.append("⚠️ That offer is no longer available.")
             await show_board(interaction)
             return
+
+        # Fresh owned counts drive everything below: crew lines, the focus
+        # select, stepper clamps, and the projected-delta math.
+        owned_counts = {t: int(profile[f"cat_{t}"] or 0) for t in cattypes}
+        has_any_cats = any(v > 0 for v in owned_counts.values())
+        # Clamp the crew to what the player still owns — inventory can shift
+        # between renders (sells, job losses, another session). Without this a
+        # stale send_state would render an inflated success % that only fails
+        # at commit with "Not enough cats".
+        for _t in list(send_state.keys()):
+            _own = owned_counts.get(_t, 0)
+            if _own <= 0:
+                send_state.pop(_t, None)
+            elif int(send_state[_t] or 0) > _own:
+                send_state[_t] = _own
+        # Defensive: shouldn't happen mid-session, but if the focused rarity
+        # is somehow gone, drop the focus rather than render dead steppers.
+        if focused_type and owned_counts.get(focused_type, 0) <= 0:
+            focused_type = None
 
         send_total = _jobs_send_total(send_state)
         rep_bonus = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(profile))
@@ -15050,7 +15120,7 @@ async def jobs(message: discord.Interaction):
             # Show effective SP with the raw value in parens when they differ
             # (i.e. count > 1 — the diminishing-returns dampening kicked in).
             sp_str = f"**{eff_sp} SP**" if eff_sp == raw_sp else f"**{eff_sp} SP** *(raw {raw_sp})*"
-            crew_lines.append(f"- {c}× {emoji} {t} — {sp_str}")
+            crew_lines.append(f"- {c}× {emoji} {t} (own {owned_counts.get(t, 0)}) — {sp_str}")
         if not crew_lines:
             crew_lines.append("-# (no cats in crew yet)")
 
@@ -15118,15 +15188,80 @@ async def jobs(message: discord.Interaction):
             for line in send_perk_lines:
                 items.append(f"-# {line}")
 
+        # Focused block — own/in-crew/spare plus a "what if" preview of the
+        # next add, using the SAME effective difficulty + rep bonus as the
+        # numbers above so the projection matches reality.
+        f_cur = int(send_state.get(focused_type, 0) or 0) if focused_type else 0
+        f_owned = owned_counts.get(focused_type, 0) if focused_type else 0
+        if focused_type:
+            f_emoji = get_emoji(focused_type.lower() + "cat") or get_emoji(focused_type.lower()) or ""
+            f_spare = max(0, f_owned - f_cur)
+            items.append(f"▸ Focused: {f_emoji} **{focused_type}** — own {f_owned}, {f_cur} in crew, {f_spare} spare")
+            if f_cur < f_owned:
+                p1 = _jobs_success_chance(
+                    _jobs_send_total({**send_state, focused_type: f_cur + 1}), effective_difficulty, rep_bonus
+                )
+                pmax = _jobs_success_chance(
+                    _jobs_send_total({**send_state, focused_type: f_owned}), effective_difficulty, rep_bonus
+                )
+                items.append(f"↳ +1 → {p1 * 100:.0f}%   ·   +Max → {pmax * 100:.0f}%")
+
         for line in last_toast:
             items.append(line)
         last_toast.clear()
 
-        add_btn = Button(label="➕ Add", style=ButtonStyle.green, custom_id="jobs_send_add")
-        add_btn.callback = on_send_add
-        remove_btn = Button(label="➖ Remove", style=ButtonStyle.gray, custom_id="jobs_send_remove")
-        remove_btn.callback = on_send_remove
-        remove_btn.disabled = sent_count == 0
+        if not has_any_cats:
+            items.append("You have no cats to send.")
+        else:
+            # Focus select — owned rarities only, common → rare (cattypes order).
+            # 24 rarities exist, so the 25-option cap never truncates.
+            focus_opts = []
+            for t in cattypes:
+                owned = owned_counts[t]
+                if owned <= 0:
+                    continue
+                focus_opts.append(Option(
+                    label=t,
+                    emoji=get_emoji(t.lower() + "cat") or get_emoji(t.lower()) or None,
+                    description=f"own {owned} · +{JOBS_SEND_POWER.get(t, 0)} SP/cat",
+                ))
+            focus_select = Select(
+                "jobs_focus_dd",
+                placeholder="Focus rarity…",
+                opts=focus_opts,
+                selected=focused_type,
+                on_select=on_focus_select,
+            )
+            items.append(ActionRow(focus_select))
+
+            # Stepper row — the whole removal path lives in −5/−1 now, no modal.
+            m5_btn = Button(label="−5", style=ButtonStyle.gray, custom_id="jobs_step_m5")
+            m5_btn.callback = make_on_step(-5)
+            m5_btn.disabled = focused_type is None or f_cur == 0
+            m1_btn = Button(label="−1", style=ButtonStyle.gray, custom_id="jobs_step_m1")
+            m1_btn.callback = make_on_step(-1)
+            m1_btn.disabled = focused_type is None or f_cur == 0
+            p1_btn = Button(label="+1", style=ButtonStyle.green, custom_id="jobs_step_p1")
+            p1_btn.callback = make_on_step(1)
+            p1_btn.disabled = focused_type is None or f_cur >= f_owned
+            p5_btn = Button(label="+5", style=ButtonStyle.green, custom_id="jobs_step_p5")
+            p5_btn.callback = make_on_step(5)
+            p5_btn.disabled = focused_type is None or f_cur >= f_owned
+            pmax_btn = Button(label="+Max", style=ButtonStyle.green, custom_id="jobs_step_pmax")
+            pmax_btn.callback = on_step_max
+            pmax_btn.disabled = focused_type is None or f_cur >= f_owned
+            items.append(ActionRow(m5_btn, m1_btn, p1_btn, p5_btn, pmax_btn))
+
+            # Auto-fill row — one-click crews to a target %, commons-first,
+            # always leaving 1 of each rarity behind for prisms.
+            auto_good = Button(label="Auto → Good odds", style=ButtonStyle.blurple, custom_id="jobs_auto_good")
+            auto_good.callback = make_on_auto("good")
+            auto_lock = Button(label="Auto → Lock", style=ButtonStyle.blurple, custom_id="jobs_auto_lock")
+            auto_lock.callback = make_on_auto("lock")
+            auto_max = Button(label="Auto → Max", style=ButtonStyle.blurple, custom_id="jobs_auto_max")
+            auto_max.callback = make_on_auto("max")
+            items.append(ActionRow(auto_good, auto_lock, auto_max))
+
         reset_btn = Button(label="Reset", style=ButtonStyle.gray, custom_id="jobs_send_reset")
         reset_btn.callback = on_send_reset
         reset_btn.disabled = sent_count == 0
@@ -15136,13 +15271,13 @@ async def jobs(message: discord.Interaction):
             custom_id="jobs_send_commit",
         )
         send_btn.callback = on_send_commit
+        send_btn.disabled = not has_any_cats
         cancel_btn = Button(label="← Back", style=ButtonStyle.red, custom_id="jobs_send_back")
         cancel_btn.callback = on_send_back
         help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="jobs_send_help")
         help_btn.callback = on_help
 
-        items.append(ActionRow(add_btn, remove_btn, reset_btn))
-        items.append(ActionRow(send_btn, cancel_btn, help_btn))
+        items.append(ActionRow(send_btn, reset_btn, cancel_btn, help_btn))
 
         view = LayoutView(timeout=VIEW_TIMEOUT)
         container = Container(*items)
@@ -15442,123 +15577,112 @@ async def jobs(message: discord.Interaction):
             last_toast.append("⚠️ Reroll failed — try again. (No coins charged.)")
         await show_board(interaction)
 
-    # ----- send screen modals + callbacks -----
+    # ----- send screen (crew builder) callbacks -----
+    # Everything happens on the message itself — no modals. Each handler
+    # mutates closure state and re-renders via show_send with NO defer, same
+    # in-place edit convention as on_board_prev (deferring kills the
+    # re-rendered components-v2 buttons).
 
-    class AddCatsModal(Modal):
-        def __init__(self):
-            super().__init__(title="Add cats to crew", timeout=VIEW_TIMEOUT)
-            self.rarity = TextInput(
-                label="Rarity (e.g. Fine, Legendary)",
-                style=discord.TextStyle.short,
-                required=True,
-                min_length=1,
-                max_length=20,
-                placeholder="Fine",
-            )
-            self.count = TextInput(
-                label="How many?",
-                style=discord.TextStyle.short,
-                required=True,
-                min_length=1,
-                max_length=6,
-                placeholder="1",
-            )
-            self.add_item(self.rarity)
-            self.add_item(self.count)
+    async def on_focus_select(interaction: discord.Interaction, value):
+        nonlocal focused_type
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        focused_type = value
+        await show_send(interaction)
 
-        async def on_submit(self, interaction: discord.Interaction):
-            t = self.rarity.value.strip()
-            t_normalized = next((x for x in cattypes if x.lower() == t.lower()), None)
-            if t_normalized is None:
-                last_toast.append(f"⚠️ Unknown rarity: {t}")
+    def make_on_step(delta: int):
+        async def cb(interaction: discord.Interaction):
+            if interaction.user.id != message.user.id:
+                await do_funny(interaction)
+                return
+            if not focused_type:
                 await show_send(interaction)
                 return
-            try:
-                c = int(self.count.value)
-                if c <= 0:
-                    raise ValueError
-            except Exception:
-                last_toast.append("⚠️ Count must be a positive integer.")
-                await show_send(interaction)
+            owned = int(profile[f"cat_{focused_type}"] or 0)
+            cur = int(send_state.get(focused_type, 0) or 0)
+            new = max(0, min(owned, cur + delta))
+            if delta > 0 and new < cur + delta:
+                last_toast.append(f"-# Only {owned} {focused_type} available.")
+            if new == 0:
+                send_state.pop(focused_type, None)
+            else:
+                send_state[focused_type] = new
+            await show_send(interaction)
+        return cb
+
+    async def on_step_max(interaction: discord.Interaction):
+        # Manual +Max sends ALL owned of the focused type — no ≥1 reservation.
+        # Only the Auto buttons protect prism-making; a deliberate +Max is
+        # the player's call.
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
+        if not focused_type:
+            await show_send(interaction)
+            return
+        owned = int(profile[f"cat_{focused_type}"] or 0)
+        if owned > 0:
+            send_state[focused_type] = owned
+        else:
+            send_state.pop(focused_type, None)
+        await show_send(interaction)
+
+    def make_on_auto(target_key: str):
+        async def cb(interaction: discord.Interaction):
+            nonlocal focused_type
+            if interaction.user.id != message.user.id:
+                await do_funny(interaction)
                 return
             await profile.refresh_from_db()
-            owned = int(profile[f"cat_{t_normalized}"] or 0)
-            in_crew = int(send_state.get(t_normalized, 0) or 0)
-            available = owned - in_crew
-            if available <= 0:
-                last_toast.append(f"⚠️ No spare {t_normalized} cats to send.")
-                await show_send(interaction)
+            job = await JobInstance.get_or_none(id=mode["job_id"])
+            if not job or job.state != "offered" or int(job.user_id) != int(message.user.id):
+                mode["screen"] = "board"
+                send_state.clear()
+                last_toast.append("⚠️ That offer is no longer available.")
+                await show_board(interaction)
                 return
-            actual = min(c, available)
-            send_state[t_normalized] = in_crew + actual
-            logging.info("jobs: added %d× %s to send (total now %s)",
-                         actual, t_normalized, dict(send_state))
-            if actual < c:
-                last_toast.append(f"-# Added {actual}× {t_normalized} (only {available} available).")
+            # Same effective difficulty + rep bonus math show_send renders
+            # with, so the auto-filled % matches what the player then sees.
+            rep_bonus = _jobs_offerer_rep_bonus(job.offered_by, _jobs_faction_rep(profile))
+            pending_diff_mult = float(_jobs_col(profile, "jobs_pending_difficulty_mult", 1.0))
+            effective_difficulty = max(1, math.ceil(int(job.difficulty) * pending_diff_mult))
+            target = JOBS_AUTOFILL_TARGETS[target_key]
+            new_send = _jobs_auto_fill_crew(profile, target, effective_difficulty, rep_bonus)
+            send_state.clear()
+            send_state.update(new_send)
+            chance = _jobs_success_chance(_jobs_send_total(send_state), effective_difficulty, rep_bonus)
+            if chance < target:
+                label = {"good": "Good odds", "lock": "Lock", "max": "Max"}[target_key]
+                last_toast.append(f"-# Best I could do: {chance * 100:.0f}% — not enough spare cats for {label}.")
+            # Focus the rarest type that made it into the crew, so the
+            # steppers are immediately useful for hand-tuning the result.
+            for t in reversed(cattypes):
+                if send_state.get(t, 0) > 0:
+                    focused_type = t
+                    break
             await show_send(interaction)
-
-    class RemoveCatsModal(Modal):
-        def __init__(self):
-            super().__init__(title="Remove cats from crew", timeout=VIEW_TIMEOUT)
-            self.rarity = TextInput(
-                label="Rarity",
-                style=discord.TextStyle.short,
-                required=True,
-                min_length=1,
-                max_length=20,
-            )
-            self.count = TextInput(
-                label="How many? (use 'all' to remove all)",
-                style=discord.TextStyle.short,
-                required=True,
-                min_length=1,
-                max_length=6,
-            )
-            self.add_item(self.rarity)
-            self.add_item(self.count)
-
-        async def on_submit(self, interaction: discord.Interaction):
-            t = self.rarity.value.strip()
-            t_normalized = next((x for x in cattypes if x.lower() == t.lower()), None)
-            if t_normalized is None or t_normalized not in send_state:
-                last_toast.append(f"⚠️ {t} is not in your crew.")
-                await show_send(interaction)
-                return
-            val = self.count.value.strip().lower()
-            if val == "all":
-                send_state.pop(t_normalized, None)
-            else:
-                try:
-                    c = int(val)
-                    if c <= 0:
-                        raise ValueError
-                except Exception:
-                    last_toast.append("⚠️ Count must be a positive integer or 'all'.")
-                    await show_send(interaction)
-                    return
-                new_val = max(0, int(send_state[t_normalized]) - c)
-                if new_val == 0:
-                    send_state.pop(t_normalized, None)
-                else:
-                    send_state[t_normalized] = new_val
-            await show_send(interaction)
-
-    async def on_send_add(interaction: discord.Interaction):
-        await interaction.response.send_modal(AddCatsModal())
-
-    async def on_send_remove(interaction: discord.Interaction):
-        await interaction.response.send_modal(RemoveCatsModal())
+        return cb
 
     async def on_send_reset(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
         send_state.clear()
         await show_send(interaction)
 
     async def on_send_back(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
         mode["screen"] = "board"
         send_state.clear()
         await show_board(interaction)
 
     async def on_send_commit(interaction: discord.Interaction):
+        if interaction.user.id != message.user.id:
+            await do_funny(interaction)
+            return
         logging.info("jobs: send_commit fired (user=%s job=%s send=%s)",
                      message.user.id, mode.get("job_id"), dict(send_state))
         if not send_state:

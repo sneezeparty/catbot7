@@ -141,7 +141,6 @@ STR_FIELDS = [
     "challenge_quest",
     "weekly_quest",
     "gift3_recipients",
-    "custom",
     "perk1",
     "perk2",
     "perk3",

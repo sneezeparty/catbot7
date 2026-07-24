@@ -282,6 +282,7 @@ CREATE TABLE public.profile (
     pack_platinum integer DEFAULT 0,
     pack_diamond integer DEFAULT 0,
     pack_celestial integer DEFAULT 0,
+    mystery_boxes integer DEFAULT 0,
     define boolean DEFAULT false,
     highlighted_stat character varying(30) DEFAULT 'time_records'::character varying,
     puzzle_pieces integer DEFAULT 0,

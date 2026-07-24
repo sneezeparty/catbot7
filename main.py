@@ -4677,13 +4677,11 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
         elif active_level_data["reward"] == "Rain":
             user.rain_minutes += active_level_data["amount"]
         elif active_level_data["reward"] == "Mystery":
-            mystery_lines, mystery_xp = resolve_mystery(user)
-            if mystery_xp:
-                # fold into the LOCAL accumulator (never re-enter the level
-                # machinery — see resolve_mystery's docstring); this can
-                # legitimately chain the next level via the while re-check
-                xp_progress += mystery_xp
-                user.progress = xp_progress
+            # Mystery is HELD now, not resolved here — it becomes its contents
+            # only when opened in /packs (see open_mystery). No XP folds in at
+            # grant time anymore; the XP outcome happens at open.
+            user.mystery_boxes += 1
+            mystery_lines = [f"You got a {get_emoji('mysterypack')} **Mystery box!** Open it in /packs!"]
         elif active_level_data["reward"] == "Scratchcard":
             user.scratchcards += active_level_data["amount"]
         else:
@@ -5190,6 +5188,8 @@ def _wipe_packs(user):
     touched — only the unopened pack queue."""
     for tier in _NORMAL_PACK_TIERS + _SPECIAL_PACK_TIERS:
         user[f"pack_{tier}"] = 0
+    # Held (unopened) Mystery boxes are pack-adjacent value — wipe with packs.
+    user.mystery_boxes = 0
 
 
 # Lifetime counters that back the season-recap leaderboard (migration 022).
@@ -5679,12 +5679,10 @@ async def progress(
             elif active_level_data["reward"] == "Rain":
                 user.rain_minutes += active_level_data["amount"]
             elif active_level_data["reward"] == "Mystery":
-                mystery_lines, mystery_xp = resolve_mystery(user)
-                if mystery_xp:
-                    # fold into the LOCAL accumulator (never re-enter the
-                    # level machinery — see resolve_mystery's docstring)
-                    xp_progress += mystery_xp
-                    user.progress = xp_progress
+                # Mystery is HELD now, not resolved here — it becomes its
+                # contents only when opened in /packs (see open_mystery).
+                user.mystery_boxes += 1
+                mystery_lines = [f"You got a {get_emoji('mysterypack')} **Mystery box!** Open it in /packs!"]
             elif active_level_data["reward"] == "Scratchcard":
                 user.scratchcards += active_level_data["amount"]
             else:
@@ -11376,6 +11374,43 @@ async def packs(message: discord.Interaction):
             ephemeral=True,
         )
 
+    async def open_mystery(interaction: discord.Interaction):
+        # Mystery boxes ARE opened here (unlike scratch cards): each click
+        # resolves ONE held box into its contents via resolve_mystery — the
+        # same roll that used to fire at grant time, now deferred to open.
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        await interaction.response.defer()
+        await user.refresh_from_db()
+        if (getattr(user, "mystery_boxes", 0) or 0) < 1:
+            return
+        user.mystery_boxes -= 1
+        lines, bonus_xp = resolve_mystery(user)
+        await user.save()
+        embed = discord.Embed(
+            title=f"{get_emoji('mysterypack')} Mystery box opened!",
+            description="\n".join(lines),
+            color=Colors.brown,
+        )
+        remaining = getattr(user, "mystery_boxes", 0) or 0
+        if remaining:
+            embed.set_footer(text=f"{remaining:,} mystery box{'es' if remaining != 1 else ''} left")
+        await interaction.edit_original_response(embed=embed, view=None)
+        # XP outcome: at grant time this folded into the level loop; opening a
+        # box standalone we route it through grant_achievement_xp (safe — we are
+        # NOT inside a level loop here), which handles any level-ups (and can
+        # award the next Mystery box, held like any other).
+        if bonus_xp:
+            try:
+                for xp_embed in await grant_achievement_xp(user, bonus_xp):
+                    await interaction.followup.send(embed=xp_embed)
+            except Exception:
+                logging.exception("open_mystery: XP outcome grant failed")
+        await asyncio.sleep(1)
+        refreshed_view, _ = gen_view(user)
+        await interaction.edit_original_response(view=refreshed_view)
+
     def gen_view(user):
         view = View(timeout=VIEW_TIMEOUT)
         empty = True
@@ -11411,6 +11446,14 @@ async def packs(message: discord.Interaction):
             sc_btn = Button(emoji="🍀", label=f"Scratchcards ({scratch_count:,})", style=ButtonStyle.gray)
             sc_btn.callback = scratch_reveal_hint
             view.add_item(sc_btn)
+        # Mystery boxes: pack-adjacent but hold-then-open. NOT part of pack
+        # "Open all" (which only sums pack_data). This button opens one box per
+        # click, resolving it into its contents via resolve_mystery.
+        mystery_count = getattr(user, "mystery_boxes", 0) or 0
+        if mystery_count >= 1:
+            mb_btn = Button(emoji="🎁", label=f"Open Mystery ({mystery_count:,})", style=ButtonStyle.green, custom_id="open_mystery")
+            mb_btn.callback = open_mystery
+            view.add_item(mb_btn)
         return view, has_special
 
     def get_pack_rewards(level: int, is_single=True, _cascade_depth=0, coin_variant: bool = False):
@@ -11925,7 +11968,7 @@ async def battlepass(message: discord.Interaction):
             description += f"**Extra Rewards** [{user.progress}/{EXTRA_LEVEL_XP} XP]\n"
             colored = int(user.progress / (EXTRA_LEVEL_XP / 10))
             if EXTRA_LEVEL_REWARD == "Mystery":
-                reward_bit = get_emoji("mysterypack") + " Mystery pack"
+                reward_bit = get_emoji("mysterypack") + " Mystery box"
             else:
                 reward_bit = get_emoji(EXTRA_LEVEL_REWARD.lower() + "pack") + f" {EXTRA_LEVEL_REWARD} pack"
             description += get_emoji("staring_square") * colored + "⬛" * (10 - colored) + "\nReward: " + reward_bit + "\n\n"
@@ -11941,7 +11984,7 @@ async def battlepass(message: discord.Interaction):
             elif level_data["reward"] in cattypes:
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'cat')} {level_data['amount']} {level_data['reward']} cats\n\n"
             elif level_data["reward"] == "Mystery":
-                description += f"Reward: {get_emoji('mysterypack')} Mystery — could be anything!\n\n"
+                description += f"Reward: {get_emoji('mysterypack')} Mystery box — open it in /packs, could be anything!\n\n"
             else:
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'pack')} {level_data['reward']} pack\n\n"
 

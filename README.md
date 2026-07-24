@@ -92,53 +92,6 @@ If the bot is running, browse `http://127.0.0.1:9445`. It is **localhost-only an
 
 This fork ships its own optional `/store` command backed by **Discord's native monetization system** (SKUs and entitlements). The fork is not affiliated with the upstream bot's store. To enable it: set `store_enabled=1`, create your SKUs in the Discord Developer Portal under **Monetization**, then paste their numeric ids into `config/store.json` with a `kind` of `supporter` (grants `user.premium`) or `cosmetic` (recorded without changing premium). Discord handles checkout. The bot reconciles entitlement state on every startup so changes that happen offline are not lost.
 
-## Migrations
-
-Standalone scripts in `migrations/`. They expect the bot to be stopped, read the same env vars as `bot.py`, are idempotent via a `NNN.done` marker, and append output to `NNN.log`. Delete the marker to re-run.
-
-A fresh `schema.sql` already includes every column, so migrations only matter when upgrading an existing database that predates a feature.
-
-| # | What it does |
-|---|---|
-| 001 | Backfill `profile.unlocked_aches` JSONB from the legacy per-ach boolean columns |
-| 002 | Add `profile.combo_stack` (Snowballer perk state) |
-| 003 | Add the 5th `challenge` battlepass quest slot |
-| 004 | Rename `vote_streak` to `daily_catch_streak`, `max_vote_streak` to `max_daily_streak` |
-| 005 | Add `discovered_cats` and `store_purchased_rarities` for Cat Store, backfill discovery |
-| 006 | Merge `roulette_balance` into `coins` and drop the column |
-| 007 | Jobs foundation, 16 profile columns plus `jobinstance` table and 2 indexes |
-| 008 | `perks_suspended_until` for the Cat Police pinch |
-| 009 | Job complications, `jobs_pending_difficulty_mult`, `jobs_pending_heat_bonus`, `jobinstance.complication` |
-| 010 | Job perks, `profile.job_perks` JSONB |
-| 011 | `profile.perks_received` JSONB (lifetime distinct perk IDs for the Mafia Favors leaderboard) |
-| 012 | Move job perk roll to offer-generation, `jobinstance.perk_drop` |
-| 013 | `/catslots` state, 5 counter columns plus 4 ach booleans |
-| 014 | Rain in catstore, `rain_blocks_bought_today` and `rain_blocks_last_date` |
-| 015 | Packs in catstore, `store_purchased_pack_tiers` JSONB |
-| 016 | `/catslots` eGirl bonus round counters and ach booleans |
-| 017 | Cat Bot Store, `user.entitlements` JSONB |
-| 018 | Respect meter (`profile.respect`, `respect_last_tick`) + prism craft counter (`profile.prisms_crafted`). Backfills the counter from existing prism rows. |
-| 019 | `profile.season_reset_pending` flag for the one-shot "your season just reset" notice. |
-| 020 | Removes the `timer_add` "Time Manipulator" catnip perk and remaps stored perk indices ≥ 12 down by one across `profile.perks`/`perk1`/`perk2`/`perk3`. |
-| 021 | Add `server.season_announcements BOOLEAN DEFAULT true` (per-server opt-out for the season-end warning). No backfill needed. Safe to re-run. |
-| 022 | Add six `profile` columns for the season-recap leaderboard: `coins_earned`, `roulette_coins_won`, `roulette_coins_bet`, `stock_coins_earned`, `stock_coins_spent` (all `bigint DEFAULT 0`) and `season_stat_baseline` (`jsonb DEFAULT '{}'`). No backfill needed — defaults are correct for all existing rows. Safe to re-run. |
-| 023 | Add `profile.job_rerolls_window` (`integer DEFAULT 0`) and `profile.job_rerolls_window_idx` (`bigint DEFAULT 0`) for the paid `/jobs` board reroll price-escalation counter. No backfill needed. Idempotent (per-column gated). Bot must be stopped before running. |
-| 024 | Add `profile.season_trophies` (`jsonb DEFAULT '[]'`) — append-only trophy records awarded at season rollover to the top-3 players per category (coins earned, cats caught, heists completed) per server. Displayed on `/catprofile`. No backfill needed. |
-| 025 | Add `profile."cat_Shadow"` and `profile."cat_Terminator"` (integer DEFAULT 0) — per-server catch counters for the two new rarities. No backfill needed. |
-| 026 | Reset `user.news_state` to `''` for all users — clears stale read-state from the hardcoded news list so the new `config/news.json`-driven articles show as unread for everyone. |
-| 027 | Add `profile.last_job_time` (`bigint DEFAULT 0`) — UNIX timestamp of the player's most recent committed job; shields mafia level from both decay systems for 24h after a job. Backfills from each profile's most recent resolved `jobinstance` row. |
-| 028 | Add `profile.vote_quest` (`VARCHAR(30) DEFAULT ''`) — tracks which misc-pool substitute quest (if any) is currently occupying the vote battlepass slot. Empty string means the slot is showing the real Top.gg vote quest. |
-| 029 | Add `server.name` (`VARCHAR(100) DEFAULT '' NOT NULL`) — cached guild display name populated by the snapshot loop / `on_guild_join`. Creates `public.metric_snapshot` (hourly-bucketed aggregate counters) used by the admin dashboard's Activity page for time-series deltas. Idempotent. No backfill. |
-| 030 | Stock Market 2.0 schema break. Creates `public.newsevent` (+ sequence) for the persisted news feed, cancels and refunds every live limit order (`order.time > 0` — coins for buys, shares for sells, with `c`/`C` activity-log rows), and deletes every market-maker order (`order.time = 0`). User holdings (`profile.stock_*`) and `pricehistory` are untouched. Bot must be stopped. Not safe to re-run (data mutation). |
-| 031 | Announcements broadcaster schema. Creates `public.announcement` (+ sequence) — one row per operator-authored broadcast sent from the webui Announcements section, tracking body text, `one_per_server` dedupe flag, status (`pending` / `sending` / `sent` / `failed`), and per-broadcast target/sent/failed/skipped counts. |
-| 032 | Add `profile.bonus_catches` (`integer DEFAULT 0`) — counts successful bonus-cat minigame wins, shown in `/profile` stats and the webui profile browser. No backfill. |
-| 033 | Add `profile.fish_caught` (`integer DEFAULT 0`) and `profile.rarest_fish` (`varchar(15) DEFAULT ''`) for the new `/fish` command. No backfill. |
-| 034 | Add `profile.weekly_quest` (`varchar(10) DEFAULT ''`), `weekly_progress` (`smallint DEFAULT 0`), `weekly_cattypes` (`smallint[] DEFAULT '{}'`), and `scratchcards` (`smallint DEFAULT 0`) for weekly quests and the new `/scratch` scratchcards. No backfill. |
-| 035 | Add `profile.vouchers` (`jsonb DEFAULT '[]' NOT NULL`) and `profile.rain_seconds` (`smallint DEFAULT 0`) for the expanded battlepass Mystery outcomes (one-shot vouchers + sub-minute rain bank). No backfill. |
-| 036 | Add `profile.quests_day` (`integer DEFAULT 0`) and `profile.quests_variety_types` (`smallint[] DEFAULT '{}'`) for the pure-daily battlepass quest reset (incomplete quests no longer carry over) and the `variety5` challenge quest's distinct-cat-type tracking. No backfill. |
-
-Run in numeric order. Each script is idempotent via its `.done` marker. Most are also safe to re-run after deleting the marker — **except `020` and `030`, which mutate data in place** and would double-apply if re-run; restore the pre-migration data before re-running them.
-
 ## License
 
 Cat Bot is licensed under the GNU Affero General Public License v3.0. See `LICENSE`. AGPL means deployment changes must be published, so if you run a public instance, the source corresponding to what you deploy needs to stay public.

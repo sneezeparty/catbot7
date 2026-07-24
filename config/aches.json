@@ -1228,5 +1228,199 @@
         "is_hidden": true,
         "category": "Hidden",
         "xp": 700
+    },
+    "caught_250": {
+        "title": "Cat Lady",
+        "description": "catch 250 cats. the neighbors have noticed.",
+        "is_hidden": false,
+        "category": "Cat Hunt",
+        "xp": 300,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "catch_count", "value": 250 }
+        }
+    },
+    "caught_500": {
+        "title": "Cattle Rancher",
+        "description": "catch 500 cats. it's basically a farm now.",
+        "is_hidden": false,
+        "category": "Cat Hunt",
+        "xp": 350,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "catch_count", "value": 500 }
+        }
+    },
+    "caught_2000": {
+        "title": "Clowder Commander",
+        "description": "catch 2,000 cats. (a group of cats is a 'clowder'. now you know.)",
+        "is_hidden": false,
+        "category": "Cat Hunt",
+        "xp": 450,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "catch_count", "value": 2000 }
+        }
+    },
+    "caught_5000": {
+        "title": "Feline Overlord",
+        "description": "catch 5,000 cats. they answer to you now.",
+        "is_hidden": false,
+        "category": "Cat Hunt",
+        "xp": 550,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "catch_count", "value": 5000 }
+        }
+    },
+    "caught_100000": {
+        "title": "The Cat Singularity",
+        "description": "catch 100,000 cats. there is no more room. there is only cat.",
+        "is_hidden": false,
+        "category": "Cat Hunt",
+        "xp": 750,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "catch_count", "value": 100000 }
+        }
+    },
+    "same_type_100": {
+        "title": "Specialist",
+        "description": "hold 100 of a single cat type. variety is for the weak.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 250
+    },
+    "same_type_250": {
+        "title": "Type Cast",
+        "description": "hold 250 of one rarity. you have a favorite and it shows.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 300
+    },
+    "same_type_500": {
+        "title": "Monoculture",
+        "description": "hold 500 of a single type. ever consider branching out?",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 350
+    },
+    "same_type_1000": {
+        "title": "Clone Army",
+        "description": "hold 1,000 of one rarity. they're multiplying.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 400
+    },
+    "same_type_2000": {
+        "title": "Copy + Paste",
+        "description": "hold 2,000 of a single type. certified Ctrl+V enthusiast.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 450
+    },
+    "same_type_5000": {
+        "title": "Hall of Mirrors",
+        "description": "hold 5,000 of one rarity. which one is the real one?",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 550
+    },
+    "same_type_100000": {
+        "title": "The Hivemind",
+        "description": "hold 100,000 of a single type. they think as one now. seek help.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 750
+    },
+    "x86_286": {
+        "title": "80286",
+        "description": "hoard 286 of one cat type. now with Protected Mode.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 300
+    },
+    "x86_386": {
+        "title": "80386",
+        "description": "hoard 386 of one cat type. a full 32 bits of cat.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 350
+    },
+    "x86_486": {
+        "title": "80486",
+        "description": "hoard 486 of one cat type. ooh, an onboard math coprocessor.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 400
+    },
+    "egirl_5": {
+        "title": "Rizz Apprentice",
+        "description": "hold 5 eGirl cats.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 250,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "cat_rarity_count", "rarity": "eGirl", "value": 5 }
+        }
+    },
+    "egirl_10": {
+        "title": "Certified Simp",
+        "description": "hold 10 eGirl cats.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 300,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "cat_rarity_count", "rarity": "eGirl", "value": 10 }
+        }
+    },
+    "egirl_25": {
+        "title": "Down Bad",
+        "description": "hold 25 eGirl cats. it's getting a little concerning.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 400,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "cat_rarity_count", "rarity": "eGirl", "value": 25 }
+        }
+    },
+    "egirl_50": {
+        "title": "Touch Grass",
+        "description": "hold 50 eGirl cats. please. for me.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 550,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "cat_rarity_count", "rarity": "eGirl", "value": 50 }
+        }
+    },
+    "egirl_100": {
+        "title": "eGirl Kingpin",
+        "description": "hold 100 eGirl cats. the entire roster.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 750,
+        "trigger": {
+            "event": "catch",
+            "condition": { "type": "cat_rarity_count", "rarity": "eGirl", "value": 100 }
+        }
+    },
+    "l33t_h4x0r": {
+        "title": "l33t h4x0r",
+        "description": "catch a cat in exactly 13.37 seconds. h4ck the pl4net.",
+        "is_hidden": false,
+        "category": "Hard",
+        "xp": 450
+    },
+    "sarah_connor": {
+        "title": "Sarah Connor",
+        "description": "lose a Terminator cat on a job. it'll be back.",
+        "is_hidden": true,
+        "category": "Hidden",
+        "xp": 400
     }
 }

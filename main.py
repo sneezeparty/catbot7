@@ -2001,46 +2001,103 @@ def _jobs_send_count(send: dict) -> int:
 
 
 def _jobs_auto_fill_crew(profile, target, difficulty, rep_bonus):
-    """Commons-first crew fill that always leaves >=1 of every owned rarity
-    (so prism-making stays possible). Returns a fresh `send` dict. Best-effort:
-    may fall short of `target` if the player lacks spare cats.
+    """Value-weighted SPREAD fill: build a crew that reaches `target` success
+    chance while spreading across the player's CHEAPEST rarities instead of
+    dumping ~1000 of one common type. Always leaves >=1 of every owned rarity
+    (prism-safe). Best-effort: may fall short of `target` if spare is thin.
 
-    `cattypes` is ordered common -> rare, so iterating in order spends the
-    commonest rarities first and only reaches rare cats when forced. For each
-    rarity we bisect the *minimum* count that clears `target` (fewest cats of
-    that type at risk); if even all its spare can't clear it, we commit all its
-    spare and move on to the next rarer type. O(types * log(spare)) — safe even
-    for whale inventories with millions of a single rarity.
+    Why value-weighted: sent cats are lost on a bad roll (near-miss destroys
+    half the crew, total failure all of it), so we minimize *coin value at
+    risk* — spend many cheap commons, only reaching pricier tiers when the
+    cheap ones run out. Why it spreads: `_jobs_send_total` sums `sp*count^alpha`
+    PER TYPE, so a type's marginal muscle falls as it grows; allocating by
+    marginal-muscle-per-value therefore rotates across the cheap tiers.
+
+    Method: (1) invert the success sigmoid to the muscle `need` for `target`
+    (no per-type guessing); (2) water-fill by a single marginal-efficiency
+    threshold `lam` (binary-searched) — each type takes every cat whose marginal
+    muscle-per-value >= lam; (3) integer top-up for send_total rounding.
+    O(types * log) — safe even for whale inventories.
     """
+    alpha = JOBS_DIMINISHING_ALPHA
     spare = {t: max(0, int(profile[f"cat_{t}"] or 0) - 1) for t in cattypes}
-    send = {}
+    # (t, sp_per_cat, coin_value) for types that can actually contribute.
+    usable = []
+    for t in cattypes:
+        sp = JOBS_SEND_POWER.get(t, 0)
+        if spare[t] > 0 and sp > 0:
+            usable.append((t, sp, cat_value(t) or 1))
+    if not usable:
+        return {}
 
-    def chance_with(extra_type=None, extra_n=0):
-        s = (send if extra_type is None
-             else {**send, extra_type: send.get(extra_type, 0) + extra_n})
-        return _jobs_success_chance(_jobs_send_total(s), difficulty, rep_bonus)
+    # (1) muscle needed to reach `target` chance — invert sigmoid + rep bonus.
+    raw_needed = target - rep_bonus
+    if raw_needed <= JOBS_PROB["floor"]:
+        return {}  # empty crew already clears it (never for the 0.70+ targets)
+    if raw_needed >= 1.0:
+        need = float("inf")  # chance-unreachable -> fill maximally, best-effort
+    else:
+        ratio = 1.0 + math.log(raw_needed / (1.0 - raw_needed)) / JOBS_PROB["k"]
+        need = max(0.0, ratio * difficulty)
 
-    for t in cattypes:  # common -> rare
-        if spare[t] <= 0:
-            continue
-        if chance_with() >= target:
-            break
-        # Fewest cats of this (commonest available) rarity that clear target.
-        lo, hi, best = 1, spare[t], None
+    def count_for_lam(sp, val, cap, lam):
+        # Largest k in [0, cap] whose k-th cat still pays off at threshold lam.
+        # marginal(k) = sp*(k**alpha - (k-1)**alpha)/val, strictly decreasing.
+        if lam <= 0:
+            return cap
+        lo, hi, best = 1, cap, 0
         while lo <= hi:
             mid = (lo + hi) // 2
-            if chance_with(t, mid) >= target:
-                best = mid
-                hi = mid - 1
+            if sp * (mid ** alpha - (mid - 1) ** alpha) / val >= lam:
+                best, lo = mid, mid + 1
             else:
-                lo = mid + 1
-        # target unreachable with this type alone -> commit all its spare and
-        # let the next rarer type keep pushing toward target.
-        add = best if best is not None else spare[t]
-        send[t] = send.get(t, 0) + add
-        spare[t] -= add
-        if best is not None:
+                hi = mid - 1
+        return best
+
+    def muscle_at(lam):
+        tot = 0.0
+        for _t, sp, val in usable:
+            k = count_for_lam(sp, val, spare[_t], lam)
+            if k:
+                tot += sp * (k ** alpha)
+        return tot
+
+    # (2) largest lam whose fill still reaches `need` (i.e. fewest cats at risk).
+    if need == float("inf") or muscle_at(0.0) < need:
+        send = {t: spare[t] for t, _sp, _val in usable}  # best effort: all spare
+    else:
+        lam_hi = max(sp / val for _t, sp, val in usable)  # marginal of a 1st cat
+        lo, hi = 0.0, lam_hi
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if muscle_at(mid) >= need:
+                lo = mid  # this lam reaches target; try higher -> fewer cats
+            else:
+                hi = mid
+        send = {}
+        for t, sp, val in usable:
+            k = count_for_lam(sp, val, spare[t], lo)
+            if k > 0:
+                send[t] = k
+
+    # (3) send_total rounds, so nudge up the most-efficient still-available type
+    # until the ACTUAL chance clears target (short, capped — usually 0 iters).
+    guard = 0
+    while need != float("inf") and guard < 500:
+        if _jobs_success_chance(_jobs_send_total(send), difficulty, rep_bonus) >= target:
             break
+        best_t, best_e = None, -1.0
+        for t, sp, val in usable:
+            n = send.get(t, 0)
+            if n >= spare[t]:
+                continue
+            e = sp * ((n + 1) ** alpha - n ** alpha) / val
+            if e > best_e:
+                best_t, best_e = t, e
+        if best_t is None:
+            break
+        send[best_t] = send.get(best_t, 0) + 1
+        guard += 1
 
     return {t: c for t, c in send.items() if c > 0}
 
@@ -8737,6 +8794,25 @@ async def on_message(message: discord.Message):
                 if time_caught in [3.14, 31.41, 31.42, 194.15, 194.16, 1901.59, 11655.92, 11655.93] and not user.pie:
                     await achemb(message, "pie", "send")
 
+                # l33t h4x0r — catch at exactly 13.37s. achemb dedupes (no
+                # user.<id> column exists for this ach, so don't guard on one).
+                if time_caught == 13.37:
+                    await achemb(message, "l33t_h4x0r", "send")
+
+                # Single-rarity hoarder milestones + x86 CPU easter eggs, keyed
+                # on the caught type's current inventory. achemb dedupes, so
+                # already-earned tiers don't re-award on later catches.
+                if channel.cattype:
+                    _hoard_n = user[f"cat_{channel.cattype}"]
+                    for _hthresh, _haid in (
+                        (100, "same_type_100"), (250, "same_type_250"), (286, "x86_286"),
+                        (386, "x86_386"), (486, "x86_486"), (500, "same_type_500"),
+                        (1000, "same_type_1000"), (2000, "same_type_2000"),
+                        (5000, "same_type_5000"), (100000, "same_type_100000"),
+                    ):
+                        if _hoard_n >= _hthresh:
+                            await achemb(message, _haid, "send")
+
                 if time_caught > 0 and time_caught == int(time_caught) and not user.perfection:
                     await achemb(message, "perfection", "send")
 
@@ -15252,11 +15328,12 @@ async def jobs(message: discord.Interaction):
             pmax_btn.disabled = focused_type is None or f_cur >= f_owned
             items.append(ActionRow(m5_btn, m1_btn, p1_btn, p5_btn, pmax_btn))
 
-            # Auto-fill row — one-click crews to a target %, commons-first,
-            # always leaving 1 of each rarity behind for prisms.
-            auto_good = Button(label="Auto → Good odds", style=ButtonStyle.blurple, custom_id="jobs_auto_good")
+            # Auto-fill row — one-click crews to a target %, spread across the
+            # player's cheapest rarities, always leaving 1 of each for prisms.
+            # Labels derive from JOBS_AUTOFILL_TARGETS so they can't drift.
+            auto_good = Button(label=f"Auto → {int(JOBS_AUTOFILL_TARGETS['good'] * 100)}%", style=ButtonStyle.blurple, custom_id="jobs_auto_good")
             auto_good.callback = make_on_auto("good")
-            auto_lock = Button(label="Auto → Lock", style=ButtonStyle.blurple, custom_id="jobs_auto_lock")
+            auto_lock = Button(label=f"Auto → {int(JOBS_AUTOFILL_TARGETS['lock'] * 100)}%", style=ButtonStyle.blurple, custom_id="jobs_auto_lock")
             auto_lock.callback = make_on_auto("lock")
             auto_max = Button(label="Auto → Max", style=ButtonStyle.blurple, custom_id="jobs_auto_max")
             auto_max.callback = make_on_auto("max")
@@ -15653,7 +15730,11 @@ async def jobs(message: discord.Interaction):
             send_state.update(new_send)
             chance = _jobs_success_chance(_jobs_send_total(send_state), effective_difficulty, rep_bonus)
             if chance < target:
-                label = {"good": "Good odds", "lock": "Lock", "max": "Max"}[target_key]
+                label = {
+                    "good": f"{int(JOBS_AUTOFILL_TARGETS['good'] * 100)}%",
+                    "lock": f"{int(JOBS_AUTOFILL_TARGETS['lock'] * 100)}%",
+                    "max": "Max",
+                }[target_key]
                 last_toast.append(f"-# Best I could do: {chance * 100:.0f}% — not enough spare cats for {label}.")
             # Focus the rarest type that made it into the crew, so the
             # steppers are immediately useful for hand-tuning the result.
@@ -15895,6 +15976,16 @@ async def jobs(message: discord.Interaction):
             return
 
         logging.info("jobs: transaction committed cleanly")
+
+        # "Sarah Connor" — you lost a Terminator cat on this job. It'll be back.
+        # Done AFTER the transaction: achemb locks the profile row itself, which
+        # would self-deadlock against the commit's FOR UPDATE lock.
+        try:
+            _sc_job = await JobInstance.get_or_none(id=mode["job_id"])
+            if _sc_job and int(_jobs_coerce_dict(_sc_job.cats_destroyed).get("Terminator", 0)) > 0:
+                await achemb(interaction, "sarah_connor", "followup")
+        except Exception:
+            logging.exception("jobs: sarah_connor ach check failed")
 
         # Battlepass extra-quest progress for jobs. Only successful resolutions
         # count toward the BP quests; near-miss/wipe don't progress them.

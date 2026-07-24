@@ -38,6 +38,7 @@ async def index(request):
         "roulette_won": 0, "roulette_bet": 0,
         "catslots_won": 0, "catslots_bet": 0,
         "scratchcards": 0,
+        "mystery_boxes": 0,
     }
     order_notional = 0        # SUM(quantity*price) of open orders (always >= 0)
     prices: list = []         # [(ticker, name, price)]
@@ -57,7 +58,8 @@ async def index(request):
                   COALESCE(SUM(roulette_coins_bet), 0)  AS roulette_bet,
                   COALESCE(SUM(catslots_coins_won), 0)  AS catslots_won,
                   COALESCE(SUM(catslots_coins_bet), 0)  AS catslots_bet,
-                  COALESCE(SUM(scratchcards), 0)        AS scratchcards
+                  COALESCE(SUM(scratchcards), 0)        AS scratchcards,
+                  COALESCE(SUM(mystery_boxes), 0)       AS mystery_boxes
                 FROM profile
                 WHERE user_id <> $1
                 """,

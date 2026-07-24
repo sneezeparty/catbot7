@@ -36,6 +36,7 @@ INT_FIELDS = [
     "reminder_challenge",
     "weekly_progress",        # weekly quest 🍀 progress (no cooldown — window-gated)
     "scratchcards",           # unspent /scratch cards (weekly quest reward)
+    "mystery_boxes",          # held/unopened Mystery boxes; resolved on open via /packs "Open Mystery (N)"
     "quests_day",             # day-index (+4h clock) daily quest slots were last rolled over; migration 036
     # Streak / misc counters
     "catch_streak",

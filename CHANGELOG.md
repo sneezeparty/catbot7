@@ -16,6 +16,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **`/scratch` — a scratchcard minigame.** Spend a scratch card (earned only from Weekly Quests) to reveal 10 of 25 hidden spots on a grid; matching a pair pays its prize — mostly packs (Wooden through Celestial, weighted toward the cheap tiers) or 1 minute of Rain. Every card is guaranteed some payout.
 - **Five new "challenge" battlepass quests** (pool grows 5 → 10): **Catch in under 2 seconds** (340–390 XP), **Catch a cat in under 5 seconds** (280–330 XP), **Catch 3 Epic or rarer cats** (300–360 XP), **Win a bonus minigame** (300–360 XP), and **Catch 5 different cat types** (300–360 XP).
   > _draft_
+- **22 new achievements.** Five aggregate catch-count milestones — **Cat Lady** (250), **Cattle Rancher** (500), **Clowder Commander** (2,000), **Feline Overlord** (5,000), **The Cat Singularity** (100,000). Seven single-rarity hoard achievements for holding 100 → 100,000 of one cat type (**Specialist** through **The Hivemind**), plus a three-tier x86 easter-egg set at 286/386/486 of one type (**80286**, **80386**, **80486**). Five eGirl-collection achievements at 5/10/25/50/100 eGirls held (**Rizz Apprentice** through **eGirl Kingpin**). Two one-offs: **l33t h4x0r** (Hard — catch a cat in exactly 13.37 seconds) and **Sarah Connor** (Hidden — lose a Terminator cat on a `/jobs` send). No migration required — all persist through the existing `unlocked_aches` JSONB path.
+  > _draft_
 
 ### Changed
 - **`/bakery` disabled on this self-hosted instance.** Delivering an order calls Bake.gg's partner API, which only authorizes the public Cat Bot's token — on this fork every delivery failed with a 401 and an "interaction failed" error (no ingredients were ever lost; the deduction ran after the API check). The command is now a `/plush`-style stub. `/cookie` and `/brew` are unaffected and their Bake 50 /cookies / Brew 50 coffees quests remain completable — the counters are just proudly pointless now.
@@ -32,6 +34,16 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
   > _draft_
 - **Weekly quest "brave+" retuned: threshold doubled.** "Catch 5 cats rarer than Brave" is now "Catch 10 cats rarer than Brave."
   > _draft_
+- **`/jobs` crew-builder reworked: on-message controls replace the add/remove modals.** The send screen now has a focus-rarity dropdown, −5/−1/+1/+5/+Max steppers, and three one-click **Auto** buttons that fill the crew toward a target success chance (labeled by target — **70%**, **90%**, and **Max**) instead of a blind guess-and-check loop through text modals. Live and projected success % update on every click. Auto-fill spreads the crew value-weighted across the player's cheapest rarities instead of dumping ~1,000 of a single type, and always leaves at least 1 of every owned rarity in reserve so prism-making stays possible; a manual +Max still sends everything of the focused type.
+  > _draft_
+- **Mystery battlepass reward is now a held box, opened from `/packs`.** Landing a Mystery reward (battlepass levels 31–39, the Extra Rewards overflow tier) no longer resolves instantly at grant — it's now a Mystery box that sits in inventory until opened via a green **Open Mystery** button on `/packs`, at which point the existing outcome roll (pack / rain time / coins / XP / scratch card / Double Mystery / voucher) fires. Held boxes wipe with the rest of the pack inventory at season rollover. New `profile.mystery_boxes` column (schema.sql).
+  > _draft_
+- **Scratch-card visibility improved.** `/packs` now shows a **Scratchcards (N)** button pointing players at `/scratch`; the catch-message hint pool gained two `/scratch` reminders; and claiming a scratch card now shows a dedicated banner instead of a line buried among level-up rewards. Season 4's level 20 and 35 rewards changed from a Gold pack and a Mystery box to a scratch card each.
+  > _draft_
+- **Vote button on catch messages now appears roughly 1-in-15 catches** (was 1-in-40). Still gated on the catcher not having voted in the last 12h.
+  > _draft_
+- **Daily "Vote on Top.gg" battlepass quest now lands ~75% of daily rerolls** (was ~50%). The remaining ~25% still substitutes a random misc quest into the vote slot.
+  > _draft_
 
 ### Fixed
 - **Season Trophies are now awarded regardless of the per-server `season_announcements` opt-out.** Previously, opting a server out of channel noise also forfeited the top-3 players' permanent `/catprofile` medals for that season — earning the trophy and announcing it were coupled. They're now decoupled: `_award_season_trophies` is hoisted out of the broadcast loop and runs for every guild that has snapshot data, while the recap embed + Champions embed remain gated on opt-in. The award helper's existing per-`(season, category, rank)` idempotency guard keeps repeat invocations safe.
@@ -40,6 +52,10 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **Catnip payout rolls were accidentally gated behind the Big Score perk since the Jobs release in May.** A misplaced code block meant the Lucky Catcher / Gambling / Purrcise / Speedrunner / Rainy Catcher payout roll (double/triple/miss, rain-trigger, perfect-catch bonuses) only ran for players who'd unlocked the Tier-5 Jobs capstone perk (`big_score_perk_unlocked`) — everyone else's catnip payout perks were silently inert on every catch. Fixed by moving the unrelated Big Score "Bait & Switch" respawn check out from between the two blocks it had wedged itself into. No player action needed; the perks now roll for everyone as originally intended.
 - **`/packs` "Open All" no longer loses the result screen when confirmed a while after running `/packs`.** The confirm button lives on a 24-hour view, but a slash command's interaction token expires after ~15 minutes — clicking **Yes, Open All** past that window made the summary edit fail with a 401 *after* the packs were already opened and saved, eating the result. It now falls back to the fresh button-click interaction so the summary always lands.
 - **Achievement embeds no longer vanish silently when an interaction token expires mid-session.** Long-lived flows like `/trade` can outlast a slash command's ~15-minute token, so an achievement earned late in the session used to fail its send with a 401 and disappear. It now falls back to a plain channel post so the player still sees it; a purely-ephemeral achievement notice still can't be salvaged without a live token and remains dropped in that one case.
+  > _draft_
+- **"Get an achievement" misc quest icon no longer renders as a tofu square.** It referenced an app-emoji name (`cat_throphy`) that was never uploaded, so it silently fell back to a 🔳 placeholder; swapped to the 🏆 unicode emoji, which always renders.
+  > _draft_
+- **Vote timestamps from top.gg are no longer skewed on this non-UTC host.** Naive (timezone-less) vote timestamps from top.gg's vote-replay API were parsed in the host's local timezone instead of UTC, throwing off the last-vote display on `/vote`, the 12h reminder window, and the 1-hour vote dedup. Timestamps without timezone info are now pinned to UTC before conversion.
   > _draft_
 
 ### Removed
@@ -56,6 +72,10 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **`fetch_user` rate-limit forensics.** `bot.fetch_user` is wrapped (in `bot.py`, so it survives `cat!restart`) to tally calls per call-site + per user id and log a burst warning next to any `429`, to trace the source of occasional `GET /users/:id` rate limits. Inspect live via `cat!eval config.fetch_user_counts`.
 - **Admin dashboard "coins in circulation" excludes flagged outlier wallets.** A new `economy_outlier_user_ids` config list is filtered out of the economy-page total and the coins-in-circulation snapshot + 30-day graph, so a handful of admin-granted/test wallets don't dwarf the real economy. Display-only — no gameplay effect. Historical `metric_snapshot` rows were backfilled to match.
 - Removed a dead-code guard in `refresh_quests` (`if current_date.day < start_date.day: full_months_passed -= 1`). The season epoch is `datetime.datetime(2026, 4, 1)` so `start_date.day` is always `1`; the comparison can never be true. Zero behavior change, one less surprise for the next reader.
+- **Event-loop stall watchdog.** A daemon thread stamps a heartbeat off the bot's event loop and dumps the loop-thread stack the moment the stamp goes stale past 3 seconds, to catch whatever froze the loop. `bot.fetch_user` burst-forensics now excludes `webui/names.py`'s legitimate cold-cache leaderboard batch from suspect tallies.
+  > _draft_
+- top.gg background metrics/commands/vote-replay POSTs and GETs are now labeled per call with HTTP status logged on failure, instead of a bare "Posting to top.gg failed." A non-2xx vote-replay response no longer risks an unhandled `ContentTypeError` from `r.json()`.
+  > _draft_
 
 ## [0.6.18.16273113062026]
 

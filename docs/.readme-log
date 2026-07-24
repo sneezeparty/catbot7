@@ -76,3 +76,10 @@
 2026-07-06 08:09  Skipped: schema.sql (quests_day/quests_variety_types columns already captured by migration 036 row) (re: schema.sql)
 2026-07-06 08:09  Skipped: bot.py (no diff to summarize) (re: bot.py)
 2026-07-06 08:09  Skipped: config.py (no diff to summarize) (re: config.py)
+2026-07-24 07:49  Updated: gameplay-divergence: extended PvE/jobs row — crew-builder reworked to on-message steppers (rarity focus + steppers) plus value-weighted auto-fill (Good/Lock/Max) that spreads across cheap rarities instead of piling one type (re: main.py)
+2026-07-24 07:49  Updated: gameplay-divergence: extended Mystery rewards row — box now held and resolves on open via a new "Open Mystery" button in /packs, not instantly at grant; held boxes wipe with packs at season rollover (re: main.py, schema.sql)
+2026-07-24 07:49  Skipped: 22 new achievements (aggregate-catch tiers, single-rarity hoard tiers, x86 easter eggs, eGirl collection tiers, l33t h4x0r, Sarah Connor) — bulk achievement content within the existing achievement system, not a category-introducing architecture-level divergence; no row added (re: config/aches.json, main.py)
+2026-07-24 07:49  Skipped: env-vars (no config.py changes found in this session's commits — mystery_boxes is a schema column, not an env var; no new/removed vars) (re: main.py, schema.sql, bot.py)
+2026-07-24 07:49  Skipped: bot.py (no diff to summarize; no bot.py changes in this session's commits)
+2026-07-24 07:49  Skipped: schema.sql (mystery_boxes column is an additive ALTER, not a new migrations/ file; no migrations table to update — section remains deliberately retired per operator request)
+2026-07-24 07:49  Note: Migrations section confirmed still absent from README.md per operator instruction this session — not re-added

@@ -7,12 +7,12 @@ Achievements are persistent per-(user, server) unlockables. They're the bot's di
 Defined in `config/aches.json`. Each ach has a category, title, description, and (optionally) an `xp` field for battlepass XP on unlock.
 
 Categories (heuristic, not enforced; counts as of writing):
-- **Cat Hunt** (~23) — catch milestones, rarity firsts, donator/gifter recognition. The on-ramp set every player accumulates just by playing.
-- **Commands** (~34) — "you used `/randomizer`", "you brewed coffee", "you read /news". Rewards command discovery; the biggest single bucket.
-- **Hard** (~33) — feats that take effort or luck: gambling streaks, max-party Catstore monsoons, prism crafting milestones, etc. The "I went out of my way" tier.
+- **Cat Hunt** (~29) — catch milestones, rarity firsts, donator/gifter recognition. The on-ramp set every player accumulates just by playing. Now spans two ladders: aggregate lifetime catches (100/250/500/1,000/2,000/5,000/100,000) plus the usual firsts/donor/gifter aches.
+- **Commands** (~35) — "you used `/randomizer`", "you brewed coffee", "you read /news". Rewards command discovery; the biggest single bucket alongside Silly.
+- **Hard** (~35) — feats that take effort or luck: gambling streaks, max-party Catstore monsoons, prism crafting milestones, catching at an exact timestamp, etc. The "I went out of my way" tier.
 - **Random** (~18) — situational triggers nobody plans for: pineapple-react, getting DMed, being the only catcher in a server, etc.
-- **Silly** (~24) — meme/joke triggers ("nice", "that's rude", "nerd"). Personality, not progress.
-- **Hidden** (~26) — Easter eggs and weird message triggers that should feel like secret discoveries.
+- **Silly** (~39) — meme/joke triggers ("nice", "that's rude", "nerd") plus the single-rarity hoard ladder (hold 100/250/500/1,000/2,000/5,000/100,000 of one type, hardcoded and keyed on the just-caught type's current inventory), the x86-CPU easter eggs (hoard 286/386/486 of one type), and the eGirl collection ladder (5/10/25/50/100, `cat_rarity_count` trigger). Personality and hoarding, not progress.
+- **Hidden** (~27) — Easter eggs and weird message triggers that should feel like secret discoveries.
 
 `Hidden` category aches don't count toward the "have 30 achs" misc-quest threshold (`unlocked > 30` skip in `generate_quest`), and the `/achievements` browser hides their entries until unlocked. Both checks live behind the same `ach_list[k]["category"] == "Hidden"` predicate; renaming the `Hidden` category would silently break them.
 
@@ -33,7 +33,7 @@ Both are written on unlock — see `Profile.unlock_ach()` in `database.py`. Read
 
 ### Hardcoded sites
 
-Most achs are unlocked via direct `await achemb(message, "<ach_id>", "send")` calls scattered through `main.py`. These predate the trigger engine and remain for legacy / weird-condition aches.
+Most achs are unlocked via direct `await achemb(message, "<ach_id>", "send")` calls scattered through `main.py`. These predate the trigger engine and remain for legacy / weird-condition aches — including ladder-shaped ones: the single-rarity hoard + x86 aches loop a fixed list of `(threshold, ach_id)` pairs against the just-caught type's current inventory count and call `achemb` for every threshold cleared; `achemb`'s own dedupe keeps already-unlocked tiers from re-firing on later catches.
 
 **When to use:** unique single-site conditions ("user typed `cat!coupon jr0f-pzka`"), or conditions that depend on local state at the call site (specific computed values, runtime context).
 

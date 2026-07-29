@@ -143,6 +143,7 @@ cursor.txt
 season_warn.txt
 season_recap.txt
 season_recap.json
+season_intro.txt
 temp_*
 
 # Claude Code local config (machine-specific paths and permissions)

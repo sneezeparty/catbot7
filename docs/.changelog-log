@@ -133,3 +133,4 @@
 2026-07-24 07:51 Changed: "/jobs crew-builder rework: on-message focus dropdown + steppers + live/projected success %, replacing add/remove modals; auto-fill buttons labeled by target % (70/90/Max), value-weighted spread across cheap rarities, keeps >=1 per rarity" (re: main.py)
 2026-07-24 07:51 Changed: "Mystery battlepass reward now a held box opened via green 'Open Mystery' button in /packs, resolving only on open (was instant at grant); new profile.mystery_boxes column" (re: main.py, schema.sql)
 2026-07-24 07:51 Added: "22 new achievements — aggregate catch milestones, single-rarity hoard incl. x86 set, eGirl collection, l33t h4x0r, Sarah Connor" (re: config/aches.json)
+2026-07-29 07:01 Changed: "/roulette job perks rebalanced — Loaded Wheel red/black-only + lower proc (1/1.5/2%, was 2/3/5%), House Mercy now XP consolation (15/20/25 XP x3/4/5 charges) instead of coin refund" (re: main.py, config/jobs.json)

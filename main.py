@@ -3821,6 +3821,11 @@ def _perks_format_strength(perk_id: str, tier: int) -> str:
             parts.append(f"refund {float(tdata['refund_pct']) * 100:.0f}%")
         except (ValueError, TypeError):
             pass
+    if "xp_per" in tdata:
+        try:
+            parts.append(f"+{int(tdata['xp_per'])} XP")
+        except (ValueError, TypeError):
+            pass
     if "amount_bonus_pct" in tdata:
         try:
             parts.append(f"+{float(tdata['amount_bonus_pct']) * 100:.0f}%")
@@ -18951,14 +18956,19 @@ async def roulette(
         }
 
         # ---- Roulette job-perks ----
-        # roulette_luck: bias final_choice toward a winning slot.
-        # roulette_mercy: refund a fraction of losing bets.
+        # roulette_luck:  bias a red/black spin toward a winning slot.
+        # roulette_mercy: non-coin consolation — a little battlepass XP on a loss.
         # free_spin:      one-shot — losing bets fully refunded.
         roulette_perks_msgs: list[str] = []
+        # Loaded Wheel only aids even-money (red/black) bets — never green or a
+        # single number. Both of those pay 36×, where a forced win is wildly +EV;
+        # gating it here keeps the game house-favorable on every bet type.
         luck_pp = float(_perks_strength(user, "roulette_luck", "bonus_pp", 0.0)) \
-            if "roulette_luck" in _perks_active_ids(user) else 0.0
-        mercy_pct = float(_perks_strength(user, "roulette_mercy", "refund_pct", 0.0)) \
-            if "roulette_mercy" in _perks_active_ids(user) else 0.0
+            if ("roulette_luck" in _perks_active_ids(user)
+                and bet_value.lower() in ("red", "black")) else 0.0
+        # House Mercy is coin-neutral now: it hands back a little battlepass XP
+        # (capped by its charges), granted after the spin resolves.
+        mercy_xp = 0
         free_spin_fired = False
         if "free_spin" in _perks_active_ids(user):
             _fs_cap = int(_perks_strength(user, "free_spin", "max_bet", 1000) or 0)
@@ -19004,18 +19014,20 @@ async def roulette(
                 _bump(user, "coins_earned", bet_amount * 2)
             user.roulette_wins += 1
             win = True
-        # Loss-side perks: refund some/all of the bet.
+        # Loss-side perks. Free Spin refunds coins (bounded one-shot); House
+        # Mercy is coin-neutral — it consumes a charge here and accrues a small
+        # battlepass-XP consolation (granted after the spin resolves), but only
+        # when Free Spin didn't already make the player whole.
         if not win:
             if free_spin_fired:
                 user.coins += bet_amount
                 _bump(user, "roulette_coins_won", bet_amount)
                 roulette_perks_msgs.append(f"🎟️ Free Spin: full {bet_amount:,} coin refund.")
-            elif mercy_pct > 0:
-                refund = int(round(bet_amount * mercy_pct))
-                if refund > 0:
-                    user.coins += refund
-                    _bump(user, "roulette_coins_won", refund)
-                    roulette_perks_msgs.append(f"🤝 House Mercy: refunded 🪙 {refund:,}.")
+            elif ("roulette_mercy" in _perks_active_ids(user)
+                  and _perks_consume_charge(user, "roulette_mercy")):
+                mercy_xp = int(_perks_strength(user, "roulette_mercy", "xp_per", 0) or 0)
+                if mercy_xp > 0:
+                    roulette_perks_msgs.append(f"🤝 House Mercy: +{mercy_xp:,} battlepass XP.")
         user.coins = int(round(user.coins))
         await user.save()
 
@@ -19062,6 +19074,11 @@ async def roulette(
             await achemb(interaction, "roulette_prodigy", "followup")
         if user.coins < 0:
             await achemb(interaction, "failed_gambler", "followup")
+        # House Mercy consolation XP (coin-neutral). Granted late so any
+        # level-up embeds land after the result screen.
+        if mercy_xp:
+            for _lvl in await grant_achievement_xp(user, mercy_xp):
+                await interaction.followup.send(embed=_lvl)
 
     # The lobby button. Reads bettype/betamount via the modal, then delegates
     # the actual spin to _do_roulette_spin.

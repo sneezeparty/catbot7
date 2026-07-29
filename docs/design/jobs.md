@@ -216,6 +216,16 @@ The three pack-side job perks apply identically whether the player opens one pac
 
 This means an Open All batch with `pack_tier_upgrade` active gets at most one tier-bumped open, and a batch with `pack_floor` active gets at most one Fine-to-Nice lift. The charge semantics are the same as they would be if the player had opened one pack and then immediately opened a second.
 
+### Roulette perks: house-favorable invariant
+
+Three of Jeremy's perks touch `/roulette` — **Loaded Wheel** (`roulette_luck`), **House Mercy** (`roulette_mercy`), and **Free Spin** (`free_spin`). A 2026-07 rebalance (`_do_roulette_spin` in `main.py`, tier tables in `config/jobs.json`) closed a coin-farming exploit where the perk combo could flip roulette to positive expected value.
+
+- **Loaded Wheel** forces a winning spin at `bonus_pp` chance (T2 1% / T3 1.5% / T4 2%, down from a pre-fix 2% / 3% / 5%) — but **only on even-money red/black bets**. Green and single-number bets pay 36×; forcing a win there was wildly +EV, and that was the exploit. The perk now no-ops on those bet types regardless of the proc roll.
+- **House Mercy** used to be a coin refund on a loss. It's now **coin-neutral**: on a losing spin it spends one of its charges (3 / 4 / 5 by tier T2/T3/T4) to grant a small fixed battlepass-XP payout (15 / 20 / 25 XP per tier, via `grant_achievement_xp`) instead of touching `coins`. It only fires when **Free Spin** didn't already refund the loss — the two loss-side perks are mutually exclusive per spin, never stacking.
+- **Free Spin** is unchanged: a bounded one-shot full coin refund on a loss, gated by a per-tier `max_bet` cap (1,000 / 2,500 / 5,000) and consumed as a single charge.
+
+**Design intent:** `/roulette` must stay house-favorable on every bet type — a job perk is a bounded, earned reward, not a lever that can push the house edge negative. Any perk that touches roulette's win/loss outcome has to preserve that invariant. Coin-value consolations are the wrong tool for a losing-spin reward, precisely because a refund can be tuned into a coin printer — the redesign moved that reward off the coin axis entirely onto capped, non-transferable XP.
+
 ## Heat meter & Cat Police Pinch
 
 Heat is a per-profile integer (stored in `profile.heat`, capped below `pinch_threshold`) that rises with every job commit and certain `post_roll` complications. It is the primary brake on over-commitment: a player who chains high-heat jobs too aggressively will eventually get Pinched.

@@ -140,3 +140,4 @@
 2026-07-24 07:56  (all docs)      no change — bot.py's loop-stall watchdog + top.gg diagnostics + vote-timestamp-UTC fix (4eaf4a7) is operational/observability work with no design-doc-level claim to update (re: bot.py)
 2026-07-24 07:56  (all docs)      no change — db1185d's battlepass.json edit is a cosmetic emoji-rendering fix ("cat_throphy" typo -> unicode 🏆) with no design-doc-level claim to update (re: config/battlepass.json)
 2026-07-24 07:56  (all docs)      smoke test passed — all docs/design/*.md fence counts balanced after edits (re: full pending set)
+2026-07-29 07:02  jobs.md         added "Roulette perks: house-favorable invariant" subsection: Loaded Wheel gated to red/black only + lowered proc (2%/3%/5% -> 1%/1.5%/2%), House Mercy redesigned coin-refund -> capped XP consolation (3/4/5 charges x 15/20/25 XP), Free Spin unchanged (re: main.py)

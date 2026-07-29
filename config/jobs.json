@@ -2173,37 +2173,40 @@
       },
       "roulette_luck": {
         "name": "Loaded Wheel",
-        "desc": "Small chance roulette spins land in your favor.",
+        "desc": "Small chance a red/black roulette spin lands in your favor.",
         "tier_table": {
           "2": {
             "duration_seconds": 7200,
-            "bonus_pp": 0.02
+            "bonus_pp": 0.01
           },
           "3": {
             "duration_seconds": 14400,
-            "bonus_pp": 0.03
+            "bonus_pp": 0.015
           },
           "4": {
             "duration_seconds": 21600,
-            "bonus_pp": 0.05
+            "bonus_pp": 0.02
           }
         }
       },
       "roulette_mercy": {
         "name": "House Mercy",
-        "desc": "Refunds a portion of losing roulette bets.",
+        "desc": "Losing roulette spins hand back a little battlepass XP.",
         "tier_table": {
           "2": {
             "duration_seconds": 7200,
-            "refund_pct": 0.25
+            "charges": 3,
+            "xp_per": 15
           },
           "3": {
             "duration_seconds": 14400,
-            "refund_pct": 0.4
+            "charges": 4,
+            "xp_per": 20
           },
           "4": {
             "duration_seconds": 21600,
-            "refund_pct": 0.5
+            "charges": 5,
+            "xp_per": 25
           }
         }
       },

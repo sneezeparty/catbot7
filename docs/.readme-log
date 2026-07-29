@@ -83,3 +83,4 @@
 2026-07-24 07:49  Skipped: bot.py (no diff to summarize; no bot.py changes in this session's commits)
 2026-07-24 07:49  Skipped: schema.sql (mystery_boxes column is an additive ALTER, not a new migrations/ file; no migrations table to update — section remains deliberately retired per operator request)
 2026-07-24 07:49  Note: Migrations section confirmed still absent from README.md per operator instruction this session — not re-added
+2026-07-29 07:00  Skipped: roulette job-perk rebalance (Loaded Wheel red/black-only + lower proc, House Mercy coin refund -> capped battlepass XP) — exploit fix / balance tweak, not a fork-level divergence; no config.py or migrations/ change (re: main.py, config/jobs.json)

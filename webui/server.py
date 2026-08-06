@@ -73,6 +73,9 @@ async def start_server(bot) -> None:
         await runner.setup()
         site = web.TCPSite(runner, HOST, PORT)
         await site.start()
+        # Background username resolver: the only place the webui calls the
+        # Discord API. Request handlers resolve offline and queue misses here.
+        names.start_resolver()
         log.info("webui listening on http://%s:%s", HOST, PORT)
     except Exception:  # noqa: BLE001
         log.exception("webui failed to start; bot continues running")

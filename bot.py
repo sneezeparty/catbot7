@@ -168,9 +168,10 @@ if not getattr(config, "_fetch_user_wrapped", False):
         config.fetch_user_counts[callsite] += 1
         config.fetch_user_id_counts[user_id] += 1
         recent = config.fetch_user_recent
-        # The admin webui (webui/names.py) legitimately batch-resolves a
-        # leaderboard's usernames via asyncio.gather on every cold-cache page
-        # load — a concurrency-capped, cached burst, not the runaway this
+        # The admin webui (webui/names.py) drains its unresolved-username queue
+        # from a single background task, paced at one fetch per 0.25s — that is
+        # ~40 calls per burst window, well over the threshold, but it's a
+        # deliberate paced trickle off any request path, not the runaway this
         # wrapper hunts (which is main.py's fetch sites). Tag those records by
         # full path (a bare "names.py:" basename match would also exempt any
         # future names.py elsewhere) and drop them from the burst trigger so a

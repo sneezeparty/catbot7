@@ -21,8 +21,15 @@ Each section maps to:
 
 Name resolution: snowflake IDs are turned into human names by `webui/names.py`
 (`guild_name`/`channel_name` from the bot's cache, registered as Jinja globals
-in server.py; `resolve_users` fetches + memoizes usernames). Routes that list
-user_ids pre-resolve them and pass a `unames` map to their template.
+in server.py). Routes that list user_ids pre-resolve them with `resolve_users`
+and pass a `unames` map to their template.
+
+`resolve_users` is deliberately offline: in-process cache, then the bot's user
+cache, then ONE batched `user.username` query — never the Discord API. Misses
+render as `user #123456` and are queued for the background resolver started in
+server.py, which is the sole caller of `fetch_user`. Don't reintroduce a
+per-row `fetch_user` on a request path; that is what made /db/user and
+/leaderboards hit 429s and take seconds to load.
 """
 
 from __future__ import annotations
@@ -53,9 +60,23 @@ SECTIONS: dict[str, dict] = {
             "prism.user_id, prism.guild_id, prism.time, prism.catches_boosted, prism.name",
             "jobinstance.state, jobinstance.outcome, jobinstance.category, jobinstance.tier, jobinstance.complication, jobinstance.resolved_at, jobinstance.user_id, jobinstance.guild_id",
             "profile.last_catch, profile.total_catches, profile.coins (per-guild aggregates)",
-            "metric_snapshot.bucket_time + all metric columns (time-series via LAG); coins_in_circulation is written EXCLUDING config.ECONOMY_OUTLIER_USER_IDS (main.py snapshot writer); also last-24h tile row diffs latest vs ~24h-old row of (total_catches, total_packs, jobs_completed_lifetime, jobs_failed_lifetime, total_prisms)",
+            "metric_snapshot.bucket_time + all metric columns (time-series via LAG); coins_in_circulation is written EXCLUDING config.ECONOMY_OUTLIER_USER_IDS (main.py snapshot writer)",
             "order.time, order.type_buy (orders per day)",
             "activity.py: JOB_STATES — keep in sync with jobinstance.state values used in main.py",
+            # --- Last-24h feature-usage panel (migration 037) ---
+            # Tiles are deltas between the latest metric_snapshot row and one
+            # ~24h old, so each entry in activity.py:LAST24H_GROUPS names a
+            # metric_snapshot column holding a LIFETIME total. The writer side
+            # is main.py:_FEATURE_METRICS (snapshot column -> profile aggregate)
+            # and main.py:_BASE_METRIC_COLUMNS (the original 029 columns).
+            "activity.py: LAST24H_GROUPS / LAST24H_COLUMNS — every snapshot column named here must exist in main.py:_FEATURE_METRICS or _BASE_METRIC_COLUMNS; a column present in one and not the other silently drops or zeroes a tile",
+            "metric_snapshot.total_bonus_offered/_played/_won, total_scratchcards_earned/_scratched, total_chaos_clicks, total_fish_caught, total_ttt_played",
+            "metric_snapshot.total_catslots_spins/_bet/_won/_bonus_triggers, total_slot_spins, total_roulette_spins/_bet/_won, total_gambles",
+            "metric_snapshot.total_coins_earned, total_job_coins_won, total_stock_coins_earned/_spent",
+            "metric_snapshot.total_quests_completed, total_catnip_activations, total_rain_participations, total_cats_gifted, total_trades_completed, total_prisms_crafted",
+            "profile.bonus_offered, bonus_played, scratchcards_earned, scratchcards_scratched, chaos_clicks — counters added by migration 037 with NO backfill; the panel renders '—' instead of 0 while a fresh counter's lifetime total is still 0",
+            "activity.py: only metrics whose snapshot column actually exists are rendered (see _snapshot_columns) — an un-migrated DB drops the tiles rather than erroring",
+            "activity.py: USAGE_WINDOWS + _usage_delta_rows — GET /activity?window=24h|7d|30d|90d re-differences the SAME columns over a wider span. metric_snapshot is never pruned (hourly rows, ~5 MB/yr), so history is the only limit; _usage_delta_rows falls back to the oldest row and sets last24h.truncated when it can't reach back far enough",
         ],
     },
     "activity_server": {

@@ -51,45 +51,47 @@
     </article>
   </div>
 
-  {# ============================ last 24h event counts ============================ #}
-  {% set window_label = "Last 24 hours" if last24h.window_hours >= 24 else "Last " ~ last24h.window_hours ~ "h" %}
-  <h2 class="section">{{ window_label }}</h2>
-  <p class="lede" style="margin-top:calc(-1 * var(--sp-3));margin-bottom:var(--sp-4)">
-    Event counts derived by differencing the latest <code>metric_snapshot</code>
-    row against one ~24h old.
-    {% if last24h.window_hours and last24h.window_hours < 24 %}
-    <br><strong class="muted">Currently warming up:</strong> only ~{{ last24h.window_hours }}h of snapshot history collected so far.
-    {% elif not last24h.window_hours %}
+  {# ============================ feature usage over a window ============================ #}
+  <h2 class="section">Feature usage &middot; last {{ window_name }}</h2>
+  <div class="section-tabs" style="margin-bottom:var(--sp-3)">
+    {% for key, label, _s in usage_windows %}
+    <a href="?window={{ key }}"{% if key == window_key %} class="active"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <p class="lede" style="margin-bottom:var(--sp-4)">
+    What got used. Every number is a delta between the latest
+    <code>metric_snapshot</code> row and one from {{ window_name }} earlier —
+    two indexed lookups, not a live scan, so a longer window costs the same as
+    a short one.
+    {% if not last24h.window_hours %}
     <br><strong class="muted">No snapshot history yet</strong> — values will populate as the snapshot loop ticks.
+    {% elif last24h.truncated %}
+    <br><strong class="muted">Covering {{ last24h.window_days }} days, not {{ window_name }}:</strong>
+    that's all the snapshot history collected so far.
+    {% endif %}
+    {% if last24h_groups %}
+    <br><span class="muted">Tiles reading <strong>—</strong> are counters added by migration 037 that
+    haven't recorded their first event yet. Windows reaching back before that
+    migration count only the part after it — the earlier activity was never
+    recorded, so it is left out rather than guessed at.</span>
     {% endif %}
   </p>
+  {% for group_title, tiles in last24h_groups %}
+  <h3 class="subsection">{{ group_title }}</h3>
   <div class="stat-row">
+    {% for t in tiles %}
     <article class="stat-tile">
-      <span class="stat-eyebrow">Catches</span>
-      <span class="stat-value">{{ "{:,}".format(last24h.catches) }}</span>
-      <span class="stat-foot">messages typing <code>cat</code></span>
+      <span class="stat-eyebrow">{{ t.label }}</span>
+      {% if t.pending %}
+      <span class="stat-value muted" title="No events recorded yet — this counter starts from zero.">—</span>
+      {% else %}
+      <span class="stat-value">{{ "{:+,}".format(t.value) if t.value < 0 else "{:,}".format(t.value) }}</span>
+      {% endif %}
+      <span class="stat-foot">{{ t.foot|safe }}</span>
     </article>
-    <article class="stat-tile">
-      <span class="stat-eyebrow">Packs opened</span>
-      <span class="stat-value">{{ "{:,}".format(last24h.packs) }}</span>
-      <span class="stat-foot"><code>/pack</code> opens</span>
-    </article>
-    <article class="stat-tile">
-      <span class="stat-eyebrow">Jobs completed</span>
-      <span class="stat-value">{{ "{:,}".format(last24h.jobs_completed) }}</span>
-      <span class="stat-foot"><code>/jobs</code> resolved</span>
-    </article>
-    <article class="stat-tile">
-      <span class="stat-eyebrow">Jobs failed</span>
-      <span class="stat-value">{{ "{:,}".format(last24h.jobs_failed) }}</span>
-      <span class="stat-foot">failed outcomes</span>
-    </article>
-    <article class="stat-tile">
-      <span class="stat-eyebrow">Prisms created</span>
-      <span class="stat-value">{{ "{:,}".format(last24h.prisms) }}</span>
-      <span class="stat-foot">new prism rows</span>
-    </article>
+    {% endfor %}
   </div>
+  {% endfor %}
 
   {# ============================ live tiles row 2 (active catchers) ============================ #}
   <h2 class="section">Active catchers</h2>

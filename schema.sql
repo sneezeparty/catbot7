@@ -395,7 +395,12 @@ CREATE TABLE public.profile (
     vouchers jsonb DEFAULT '[]'::jsonb NOT NULL,
     rain_seconds smallint DEFAULT 0,
     quests_day integer DEFAULT 0,
-    quests_variety_types smallint[] DEFAULT '{}'::smallint[]
+    quests_variety_types smallint[] DEFAULT '{}'::smallint[],
+    bonus_offered integer DEFAULT 0 NOT NULL,
+    bonus_played integer DEFAULT 0 NOT NULL,
+    scratchcards_scratched integer DEFAULT 0 NOT NULL,
+    scratchcards_earned integer DEFAULT 0 NOT NULL,
+    chaos_clicks integer DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -774,6 +779,33 @@ CREATE TABLE public.metric_snapshot (
     live_spawns integer DEFAULT 0 NOT NULL,
     active_rains integer DEFAULT 0 NOT NULL,
     pending_jobs integer DEFAULT 0 NOT NULL,
+    total_bonus_offered bigint DEFAULT 0 NOT NULL,
+    total_bonus_played bigint DEFAULT 0 NOT NULL,
+    total_bonus_won bigint DEFAULT 0 NOT NULL,
+    total_scratchcards_earned bigint DEFAULT 0 NOT NULL,
+    total_scratchcards_scratched bigint DEFAULT 0 NOT NULL,
+    total_chaos_clicks bigint DEFAULT 0 NOT NULL,
+    total_fish_caught bigint DEFAULT 0 NOT NULL,
+    total_ttt_played bigint DEFAULT 0 NOT NULL,
+    total_catslots_spins bigint DEFAULT 0 NOT NULL,
+    total_catslots_bet bigint DEFAULT 0 NOT NULL,
+    total_catslots_won bigint DEFAULT 0 NOT NULL,
+    total_catslots_bonus_triggers bigint DEFAULT 0 NOT NULL,
+    total_slot_spins bigint DEFAULT 0 NOT NULL,
+    total_roulette_spins bigint DEFAULT 0 NOT NULL,
+    total_roulette_bet bigint DEFAULT 0 NOT NULL,
+    total_roulette_won bigint DEFAULT 0 NOT NULL,
+    total_gambles bigint DEFAULT 0 NOT NULL,
+    total_coins_earned bigint DEFAULT 0 NOT NULL,
+    total_job_coins_won bigint DEFAULT 0 NOT NULL,
+    total_stock_coins_earned bigint DEFAULT 0 NOT NULL,
+    total_stock_coins_spent bigint DEFAULT 0 NOT NULL,
+    total_quests_completed bigint DEFAULT 0 NOT NULL,
+    total_catnip_activations bigint DEFAULT 0 NOT NULL,
+    total_rain_participations bigint DEFAULT 0 NOT NULL,
+    total_cats_gifted bigint DEFAULT 0 NOT NULL,
+    total_trades_completed bigint DEFAULT 0 NOT NULL,
+    total_prisms_crafted bigint DEFAULT 0 NOT NULL,
     PRIMARY KEY (bucket_time)
 );
 

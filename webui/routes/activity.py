@@ -10,6 +10,7 @@ Top-N server / user tables click through to /activity/server/{id} and
 """
 
 import datetime
+import logging
 import time
 
 import aiohttp_jinja2
@@ -18,6 +19,136 @@ from aiohttp import web
 from webui import names, state
 
 JOB_STATES = ["offered", "committed", "resolved", "expired", "declined"]
+
+# ---------------------------------------------------------------------------
+# "Last 24 hours" feature-usage panel
+# ---------------------------------------------------------------------------
+# Every tile is a delta between two metric_snapshot rows ~24h apart, so each
+# entry names a snapshot column holding a LIFETIME total. Columns come from
+# migration 029 (the original five) and 037 (the per-feature counters, whose
+# aggregates are defined in main._FEATURE_METRICS).
+#
+# Tuple shape: (snapshot_column, label, footnote, flags)
+#   "signed" — allow a negative delta through instead of clamping at 0. Only
+#              for genuinely bidirectional totals: stock_coins_earned takes
+#              negative bumps on cancelled-order refunds, so a real 24h window
+#              can be net-negative and clamping would hide that.
+#   "fresh"  — counter introduced by migration 037 with no backfill possible.
+#              While its lifetime total is still 0 the tile renders "—/no data
+#              yet" rather than a 0 that reads like "nobody used this".
+LAST24H_GROUPS = (
+    ("Catching & packs", (
+        ("total_catches", "Catches", "messages typing <code>cat</code>", ()),
+        ("total_packs", "Packs opened", "<code>/packs</code> opens", ()),
+        ("total_prisms", "Prisms created", "new prism rows", ()),
+        ("total_prisms_crafted", "Prisms crafted", "<code>/prism</code> crafts", ()),
+        ("total_rain_participations", "Rain catches", "catches during a rain", ()),
+    )),
+    ("Minigames", (
+        ("total_bonus_offered", "Bonus offered", "prompts shown after a catch", ("fresh",)),
+        ("total_bonus_played", "Bonus played", "minigames actually answered", ("fresh",)),
+        ("total_bonus_won", "Bonus won", "correct answers (+3 cats)", ()),
+        ("total_scratchcards_earned", "Scratchers given", "cards granted", ("fresh",)),
+        ("total_scratchcards_scratched", "Scratchers scratched", "<code>/scratch</code> plays", ("fresh",)),
+        ("total_chaos_clicks", "Chaos pushed", "<code>/chaos</code> button presses", ("fresh",)),
+        ("total_fish_caught", "Fish caught", "<code>/fish</code> catches", ()),
+        ("total_ttt_played", "Tic-tac-toe", "games played", ()),
+    )),
+    ("Casino", (
+        ("total_catslots_spins", "Catslots spins", "<code>/catslots</code> spins", ()),
+        ("total_catslots_bet", "Catslots bet", "coins wagered", ()),
+        ("total_catslots_won", "Catslots won", "coins paid out", ()),
+        ("total_catslots_bonus_triggers", "Catslots bonus", "bonus rounds triggered", ()),
+        ("total_slot_spins", "Slots spins", "<code>/slots</code> spins", ()),
+        ("total_roulette_spins", "Roulette spins", "<code>/roulette</code> spins", ()),
+        ("total_roulette_bet", "Roulette bet", "coins wagered", ()),
+        ("total_roulette_won", "Roulette won", "coins paid out", ()),
+        ("total_gambles", "Gambles", "<code>/gamble</code> plays", ()),
+    )),
+    ("Coins & market", (
+        ("total_coins_earned", "Coins earned", "all sources combined", ("signed",)),
+        ("total_job_coins_won", "Job coins", "from <code>/jobs</code> payouts", ()),
+        ("total_stock_coins_earned", "Stock proceeds", "sells + dividends, net of refunds", ("signed",)),
+        ("total_stock_coins_spent", "Stock spend", "coins into buy orders", ("signed",)),
+    )),
+    ("Jobs", (
+        ("jobs_completed_lifetime", "Jobs completed", "<code>/jobs</code> resolved", ()),
+        ("jobs_failed_lifetime", "Jobs failed", "failed outcomes", ()),
+    )),
+    ("Progression & social", (
+        ("total_quests_completed", "Quests completed", "battlepass quests", ()),
+        ("total_catnip_activations", "Catnip activations", "<code>/catnip</code> used", ()),
+        ("total_cats_gifted", "Cats gifted", "<code>/gift</code> sends", ()),
+        ("total_trades_completed", "Trades", "<code>/trade</code> completions", ()),
+    )),
+)
+
+# Flat list of every snapshot column the panel wants, in declaration order.
+LAST24H_COLUMNS = tuple(
+    col for _title, metrics in LAST24H_GROUPS for col, _l, _f, _flags in metrics
+)
+
+# Selectable windows for the feature-usage panel. metric_snapshot holds hourly
+# rows indefinitely (nothing prunes it), so a longer window costs exactly the
+# same two indexed lookups as the short one — only the target timestamp moves.
+# ?window=<key>; anything unrecognised falls back to the first entry.
+USAGE_WINDOWS = (
+    ("24h", "24 hours", 86400),
+    ("7d", "7 days", 7 * 86400),
+    ("30d", "30 days", 30 * 86400),
+    ("90d", "90 days", 90 * 86400),
+)
+USAGE_WINDOW_DEFAULT = USAGE_WINDOWS[0][0]
+
+
+async def _usage_delta_rows(conn, columns, span_seconds):
+    """(latest_row, previous_row) for a window `span_seconds` wide.
+
+    Two PK-indexed lookups rather than the old "fetch the 50 newest and scan"
+    — 50 hourly rows only reach back two days, which was fine when 24h was the
+    only window and silently wrong for anything longer.
+
+    Falls back to the oldest row when history doesn't span the full window, so
+    a 90d view on 55d of data reports 55d rather than nothing. Returns
+    (None, None) when there aren't two distinct rows to difference.
+    """
+    cols = ", ".join(columns)
+    latest = await conn.fetchrow(
+        f"SELECT bucket_time, {cols} FROM metric_snapshot ORDER BY bucket_time DESC LIMIT 1"
+    )
+    if latest is None:
+        return None, None
+    target = int(latest["bucket_time"]) - span_seconds
+    prev = await conn.fetchrow(
+        f"SELECT bucket_time, {cols} FROM metric_snapshot "
+        "WHERE bucket_time <= $1 ORDER BY bucket_time DESC LIMIT 1",
+        target,
+    )
+    if prev is None:
+        prev = await conn.fetchrow(
+            f"SELECT bucket_time, {cols} FROM metric_snapshot ORDER BY bucket_time ASC LIMIT 1"
+        )
+    if prev is None or int(prev["bucket_time"]) == int(latest["bucket_time"]):
+        return None, None
+    return latest, prev
+
+
+async def _snapshot_columns(conn) -> set:
+    """Which of LAST24H_COLUMNS actually exist on metric_snapshot.
+
+    Migration 037 adds most of them; on an un-migrated DB the panel simply
+    renders the groups it can fill and drops the rest, rather than 500ing.
+    """
+    try:
+        rows = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'metric_snapshot' "
+            "AND column_name = ANY($1::text[])",
+            list(LAST24H_COLUMNS),
+        )
+        return {r["column_name"] for r in rows}
+    except Exception:
+        return set()
 
 
 async def index(request):
@@ -51,10 +182,17 @@ async def index(request):
     # metric_snapshot row against one ~24h old (falls back to the oldest
     # snapshot if there isn't enough history yet). window_hours reflects the
     # actual span covered so the UI can label it honestly.
-    last24h = {
-        "catches": 0, "packs": 0, "jobs_completed": 0,
-        "jobs_failed": 0, "prisms": 0, "window_hours": 0,
-    }
+    last24h = {"window_hours": 0, "window_days": 0, "truncated": False}
+    # [(group_title, [tile, ...])] — built below from LAST24H_GROUPS, filtered
+    # to the columns this DB actually has.
+    last24h_groups: list = []
+
+    # ?window= selects how far back the feature-usage panel differences.
+    window_key = request.query.get("window", USAGE_WINDOW_DEFAULT)
+    if window_key not in {k for k, _l, _s in USAGE_WINDOWS}:
+        window_key = USAGE_WINDOW_DEFAULT
+    window_seconds = next(s for k, _l, s in USAGE_WINDOWS if k == window_key)
+    window_name = next(lbl for k, lbl, _s in USAGE_WINDOWS if k == window_key)
 
     # ---- time-series ----
     catches_per_day: list = []     # [(day, catches)]
@@ -143,29 +281,49 @@ async def index(request):
 
             if snapshot_rows >= 2:
                 try:
-                    delta_rows = await conn.fetch(
-                        "SELECT bucket_time, total_catches, total_packs, "
-                        "jobs_completed_lifetime, jobs_failed_lifetime, total_prisms "
-                        "FROM metric_snapshot ORDER BY bucket_time DESC LIMIT 50"
+                    have = await _snapshot_columns(conn)
+                    wanted = [c for c in LAST24H_COLUMNS if c in have]
+                    latest_row, prev_row = (
+                        await _usage_delta_rows(conn, wanted, window_seconds)
+                        if wanted else (None, None)
                     )
-                    if len(delta_rows) >= 2:
-                        latest_row = delta_rows[0]
-                        target_bucket = int(latest_row["bucket_time"]) - 86400
-                        prev_row = next(
-                            (r for r in delta_rows[1:] if int(r["bucket_time"]) <= target_bucket),
-                            delta_rows[-1],
-                        )
+                    if latest_row is not None:
                         span = max(1, int(latest_row["bucket_time"]) - int(prev_row["bucket_time"]))
-                        last24h = {
-                            "catches": max(0, int(latest_row["total_catches"] or 0) - int(prev_row["total_catches"] or 0)),
-                            "packs": max(0, int(latest_row["total_packs"] or 0) - int(prev_row["total_packs"] or 0)),
-                            "jobs_completed": max(0, int(latest_row["jobs_completed_lifetime"] or 0) - int(prev_row["jobs_completed_lifetime"] or 0)),
-                            "jobs_failed": max(0, int(latest_row["jobs_failed_lifetime"] or 0) - int(prev_row["jobs_failed_lifetime"] or 0)),
-                            "prisms": max(0, int(latest_row["total_prisms"] or 0) - int(prev_row["total_prisms"] or 0)),
-                            "window_hours": max(1, span // 3600),
-                        }
+                        last24h["window_hours"] = max(1, span // 3600)
+                        last24h["window_days"] = round(span / 86400.0, 1)
+                        # True when history doesn't reach back the full window,
+                        # so the page can say "43 of 90 days" instead of
+                        # implying it covered the period asked for.
+                        last24h["truncated"] = span < window_seconds - 3600
+
+                        for title, metrics in LAST24H_GROUPS:
+                            tiles = []
+                            for col, label, foot, flags in metrics:
+                                if col not in have:
+                                    continue
+                                latest = int(latest_row[col] or 0)
+                                delta = latest - int(prev_row[col] or 0)
+                                if "signed" not in flags:
+                                    # A counter can legitimately drop: season
+                                    # rollover wipes some, prism rows get
+                                    # deleted. Clamp so one rollover hour shows
+                                    # "no activity" instead of a negative spike.
+                                    delta = max(0, delta)
+                                tiles.append({
+                                    "key": col,
+                                    "label": label,
+                                    "foot": foot,
+                                    "value": delta,
+                                    # A brand-new counter that has never been
+                                    # written can't be distinguished from a
+                                    # genuine zero by its delta alone — the
+                                    # lifetime total can.
+                                    "pending": "fresh" in flags and latest == 0,
+                                })
+                            if tiles:
+                                last24h_groups.append((title, tiles))
                 except Exception:
-                    pass
+                    logging.exception("last-24h panel failed")
 
             if snapshot_rows:
                 try:
@@ -412,6 +570,10 @@ async def index(request):
             "live": live,
             "activity_counts": activity_counts,
             "last24h": last24h,
+            "last24h_groups": last24h_groups,
+            "usage_windows": USAGE_WINDOWS,
+            "window_key": window_key,
+            "window_name": window_name,
             "catches_per_day": catches_per_day,
             "coins_per_day": coins_per_day,
             "jobs_day_keys": jobs_day_keys,

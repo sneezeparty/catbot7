@@ -349,6 +349,12 @@ SLOW_CATCHER_THRESHOLD = config.tuning["slow_catcher_threshold_seconds"]
 # tuning.json with literal defaults so existing tuning files keep working.
 BONUS_CAT_CHANCE_COEF = float(config.tuning.get("bonus_cat_chance_coef", 0.02))
 BONUS_MINIGAME_DEADLINE_SECONDS = int(config.tuning.get("bonus_minigame_deadline_seconds", 30))
+# How long the "Go!" button on the bonus-cat prompt stays live, and how long
+# the expired prompt lingers afterwards so the player can read "Too slow!".
+# Intentionally not in tuning.json — the prompt's on_timeout owns BOTH the
+# button dying and the message deletion, so these two must move together.
+BONUS_PROMPT_TIMEOUT_SECONDS = 15
+BONUS_PROMPT_LINGER_SECONDS = 2
 # Battlepass overflow ("Extra Rewards") past the last season level: XP cost per
 # extra level and its reward. "Mystery" resolves at grant time to a random
 # non-special pack weighted by 1/totalvalue (commons much more likely).
@@ -4460,6 +4466,7 @@ def resolve_mystery(user: Profile, *, _depth: int = 0) -> tuple[list[str], int]:
     if family == "scratchcard":
         try:
             user.scratchcards += 1
+            _bump(user, "scratchcards_earned", 1)
             return [f"You got a {mystery} -> 🍀 **a /scratch card!** Reveal it with /scratch!"], 0
         except (KeyError, AttributeError):
             family = "pack"  # pre-migration-034: fall back to a pack
@@ -4689,6 +4696,7 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             mystery_lines = [f"You got a {get_emoji('mysterypack')} **Mystery box!** Open it in /packs!"]
         elif active_level_data["reward"] == "Scratchcard":
             user.scratchcards += active_level_data["amount"]
+            _bump(user, "scratchcards_earned", active_level_data["amount"])
         else:
             user[f"pack_{active_level_data['reward'].lower()}"] += 1
         # Optional "extra_reward" stack — a level can grant a second reward on
@@ -5227,6 +5235,31 @@ def _bump(profile, col, delta):
     profile[col] = int(cur or 0) + int(delta)
 
 
+async def _bump_sql(user_id, guild_id, col, delta=1):
+    """Atomically increment a lifetime counter straight in Postgres.
+
+    `_bump` is the one to reach for normally — it rides along on a Profile the
+    caller is already going to save(). Use this one only where that isn't
+    available: a detached background task (the bonus prompt runs in its own
+    create_task while the catch path is still mutating its own Profile object,
+    so a read-modify-write here would race it) or a button pressed by someone
+    other than the row we happen to be holding (/chaos is clickable by anyone).
+
+    Upserts, so a first-time interaction in a guild doesn't silently drop the
+    count. Migration-safe and never fatal: a missing column just logs at debug.
+
+    `col` is interpolated into SQL — pass only literals from this module.
+    """
+    try:
+        await pool.execute(
+            f"INSERT INTO profile (guild_id, user_id, {col}) VALUES ($2, $3, $1) "
+            f"ON CONFLICT (guild_id, user_id) DO UPDATE SET {col} = profile.{col} + $1",
+            int(delta), int(guild_id), int(user_id),
+        )
+    except Exception:
+        logging.debug("counter bump %s failed (pre-migration?)", col, exc_info=True)
+
+
 async def _recap_columns_present() -> bool:
     """True iff migration 022's recap columns exist. Probed once and cached on
     the config module (survives cat!restart). The Python `_bump` paths self-
@@ -5640,6 +5673,7 @@ async def progress(
             quest_complete = True
             current_xp = user.progress + WEEKLY_QUEST_XP
             user.scratchcards += WEEKLY_QUEST_SCRATCHCARDS
+            _bump(user, "scratchcards_earned", WEEKLY_QUEST_SCRATCHCARDS)
     elif _vote_quest_safe(user) == quest and quest:
         # Vote slot is hosting this misc quest as a substitute. Single-action
         # completion (substitute pool is filtered to progress=1). Uses misc
@@ -5690,6 +5724,7 @@ async def progress(
                 mystery_lines = [f"You got a {get_emoji('mysterypack')} **Mystery box!** Open it in /packs!"]
             elif active_level_data["reward"] == "Scratchcard":
                 user.scratchcards += active_level_data["amount"]
+                _bump(user, "scratchcards_earned", active_level_data["amount"])
             else:
                 user[f"pack_{active_level_data['reward'].lower()}"] += 1
             # Optional "extra_reward" stack — same shape as the primary. See
@@ -6027,6 +6062,90 @@ async def _spawn_revival_loop():
 # coins charts reflect data ≤5 min old instead of waiting up to an hour.
 METRICS_SNAPSHOT_INTERVAL = 300
 
+# Per-feature lifetime sums (migration 037) -> the dashboard's "Last 24 hours"
+# panel, which differences two snapshot rows. Kept as data because the same
+# list drives three things: the SELECT that aggregates them, the INSERT column
+# list, and the ON CONFLICT update — so adding a metric is a one-line change
+# here plus a column in migration 037.
+#
+# Everything here must be MONOTONIC (a lifetime counter, never a balance),
+# otherwise differencing two rows is meaningless. That's why scratch cards use
+# scratchcards_earned/_scratched rather than the `scratchcards` balance, which
+# goes down on spend and is zeroed at season rollover.
+#
+# No ECONOMY_OUTLIER_USER_IDS filter on the coin metrics, unlike
+# coins_in_circulation above: these are 24h *flow*, and the outlier accounts'
+# distortion is a historical *balance* from uncapped /givecat. Excluding them
+# here would hide activity that really did happen today.
+_FEATURE_METRICS = (
+    # (metric_snapshot column, aggregate over the profile row set)
+    # -- minigames --
+    ("total_bonus_offered",           "COALESCE(SUM(bonus_offered), 0)"),
+    ("total_bonus_played",            "COALESCE(SUM(bonus_played), 0)"),
+    ("total_bonus_won",               "COALESCE(SUM(bonus_catches), 0)"),
+    ("total_scratchcards_earned",     "COALESCE(SUM(scratchcards_earned), 0)"),
+    ("total_scratchcards_scratched",  "COALESCE(SUM(scratchcards_scratched), 0)"),
+    ("total_chaos_clicks",            "COALESCE(SUM(chaos_clicks), 0)"),
+    ("total_fish_caught",             "COALESCE(SUM(fish_caught), 0)"),
+    ("total_ttt_played",              "COALESCE(SUM(ttt_played), 0)"),
+    # -- casino --
+    ("total_catslots_spins",          "COALESCE(SUM(catslots_spins), 0)"),
+    ("total_catslots_bet",            "COALESCE(SUM(catslots_coins_bet), 0)"),
+    ("total_catslots_won",            "COALESCE(SUM(catslots_coins_won), 0)"),
+    ("total_catslots_bonus_triggers", "COALESCE(SUM(catslots_bonus_triggers), 0)"),
+    ("total_slot_spins",              "COALESCE(SUM(slot_spins), 0)"),
+    ("total_roulette_spins",          "COALESCE(SUM(roulette_spins), 0)"),
+    ("total_roulette_bet",            "COALESCE(SUM(roulette_coins_bet), 0)"),
+    ("total_roulette_won",            "COALESCE(SUM(roulette_coins_won), 0)"),
+    ("total_gambles",                 "COALESCE(SUM(gambles), 0)"),
+    # -- coins --
+    ("total_coins_earned",            "COALESCE(SUM(coins_earned), 0)"),
+    ("total_job_coins_won",           "COALESCE(SUM(job_coins_won), 0)"),
+    ("total_stock_coins_earned",      "COALESCE(SUM(stock_coins_earned), 0)"),
+    ("total_stock_coins_spent",       "COALESCE(SUM(stock_coins_spent), 0)"),
+    # -- progression & social --
+    ("total_quests_completed",        "COALESCE(SUM(quests_completed), 0)"),
+    ("total_catnip_activations",      "COALESCE(SUM(catnip_activations), 0)"),
+    ("total_rain_participations",     "COALESCE(SUM(rain_participations), 0)"),
+    ("total_cats_gifted",             "COALESCE(SUM(cats_gifted), 0)"),
+    ("total_trades_completed",        "COALESCE(SUM(trades_completed), 0)"),
+    ("total_prisms_crafted",          "COALESCE(SUM(prisms_crafted), 0)"),
+)
+
+# The 17 columns metric_snapshot has had since migration 029. bucket_time is
+# first because it's the PK — the ON CONFLICT update skips it.
+_BASE_METRIC_COLUMNS = (
+    "bucket_time", "guild_count", "profile_count", "user_count",
+    "active_24h", "active_7d", "active_30d",
+    "total_catches", "total_packs", "total_prisms",
+    "coins_in_circulation", "catnip_total",
+    "jobs_completed_lifetime", "jobs_failed_lifetime",
+    "live_spawns", "active_rains", "pending_jobs",
+)
+
+
+async def _feature_metrics_present() -> bool:
+    """True iff migration 037's metric_snapshot columns exist. Probed once and
+    cached on the config module (survives cat!restart), same pattern as
+    _recap_columns_present. When False the snapshot tick writes the legacy
+    17-column row instead of erroring, so an un-migrated DB keeps its existing
+    dashboard charts and only the new tiles read zero."""
+    cached = getattr(config, "feature_metrics_present", None)
+    if cached is not None:
+        return cached
+    try:
+        val = await pool.fetchval(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema='public' "
+            "AND table_name='metric_snapshot' AND column_name='total_coins_earned'"
+        )
+        present = val is not None
+    except Exception:
+        present = False
+    config.feature_metrics_present = present
+    if not present:
+        logging.info("metric_snapshot feature columns absent — run migration 037 for the per-feature 24h tiles")
+    return present
+
 
 async def _metrics_snapshot_tick():
     """Compute and upsert one row into metric_snapshot for the current hour
@@ -6072,8 +6191,12 @@ async def _metrics_snapshot_tick():
             # Load section + counters. bot_user_id is 0 before on_ready so
             # the predicate degrades to a no-op (Discord ids are never 0).
             bot_user_id = int(bot.user.id) if bot.user else 0
+            feature_on = await _feature_metrics_present()
+            feature_select = "".join(
+                f",\n                  {expr} AS {col}" for col, expr in _FEATURE_METRICS
+            ) if feature_on else ""
             agg = await conn.fetchrow(
-                """
+                f"""
                 SELECT
                   COALESCE(SUM(total_catches), 0)            AS total_catches,
                   COALESCE(SUM(packs_opened), 0)             AS total_packs,
@@ -6087,7 +6210,7 @@ async def _metrics_snapshot_tick():
                                       THEN user_id END)      AS a7,
                   COUNT(DISTINCT CASE WHEN last_catch >= $3
                                       THEN user_id END)      AS a30,
-                  COUNT(*)                                   AS profile_count
+                  COUNT(*)                                   AS profile_count{feature_select}
                 FROM profile
                 WHERE user_id <> $4
                 """,
@@ -6111,61 +6234,58 @@ async def _metrics_snapshot_tick():
                 bot_user_id,
             )
 
-            # 3) Upsert (no-op on conflict).
+            # 3) Upsert (refreshes the in-progress hour on conflict).
+            # Column list and values are assembled from the same pair of
+            # tuples so they can't drift, and so the feature columns can be
+            # dropped wholesale on an un-migrated DB.
+            columns = list(_BASE_METRIC_COLUMNS)
+            values = [
+                bucket,
+                len(bot.guilds),
+                int(agg["profile_count"] or 0),
+                int(user_count or 0),
+                int(agg["a24"] or 0),
+                int(agg["a7"] or 0),
+                int(agg["a30"] or 0),
+                int(agg["total_catches"] or 0),
+                int(agg["total_packs"] or 0),
+                int(prism_count or 0),
+                int(agg["coins"] or 0),
+                int(agg["catnip_total"] or 0),
+                int(agg["jobs_completed"] or 0),
+                int(agg["jobs_failed"] or 0),
+                int(live_spawns or 0),
+                int(active_rains or 0),
+                int(pending_jobs or 0),
+            ]
+            if feature_on:
+                for col, _expr in _FEATURE_METRICS:
+                    columns.append(col)
+                    values.append(int(agg[col] or 0))
+
+            placeholders = ", ".join(f"${i}" for i in range(1, len(columns) + 1))
+            # skip columns[0] (bucket_time) — it's the conflict target
+            updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns[1:])
             try:
                 await conn.execute(
-                    """
-                    INSERT INTO metric_snapshot (
-                        bucket_time, guild_count, profile_count, user_count,
-                        active_24h, active_7d, active_30d,
-                        total_catches, total_packs, total_prisms,
-                        coins_in_circulation, catnip_total,
-                        jobs_completed_lifetime, jobs_failed_lifetime,
-                        live_spawns, active_rains, pending_jobs
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        $11, $12, $13, $14, $15, $16, $17
-                    )
-                    ON CONFLICT (bucket_time) DO UPDATE SET
-                        guild_count = EXCLUDED.guild_count,
-                        profile_count = EXCLUDED.profile_count,
-                        user_count = EXCLUDED.user_count,
-                        active_24h = EXCLUDED.active_24h,
-                        active_7d = EXCLUDED.active_7d,
-                        active_30d = EXCLUDED.active_30d,
-                        total_catches = EXCLUDED.total_catches,
-                        total_packs = EXCLUDED.total_packs,
-                        total_prisms = EXCLUDED.total_prisms,
-                        coins_in_circulation = EXCLUDED.coins_in_circulation,
-                        catnip_total = EXCLUDED.catnip_total,
-                        jobs_completed_lifetime = EXCLUDED.jobs_completed_lifetime,
-                        jobs_failed_lifetime = EXCLUDED.jobs_failed_lifetime,
-                        live_spawns = EXCLUDED.live_spawns,
-                        active_rains = EXCLUDED.active_rains,
-                        pending_jobs = EXCLUDED.pending_jobs
-                    """,
-                    bucket,
-                    len(bot.guilds),
-                    int(agg["profile_count"] or 0),
-                    int(user_count or 0),
-                    int(agg["a24"] or 0),
-                    int(agg["a7"] or 0),
-                    int(agg["a30"] or 0),
-                    int(agg["total_catches"] or 0),
-                    int(agg["total_packs"] or 0),
-                    int(prism_count or 0),
-                    int(agg["coins"] or 0),
-                    int(agg["catnip_total"] or 0),
-                    int(agg["jobs_completed"] or 0),
-                    int(agg["jobs_failed"] or 0),
-                    int(live_spawns or 0),
-                    int(active_rains or 0),
-                    int(pending_jobs or 0),
+                    f"INSERT INTO metric_snapshot ({', '.join(columns)}) "
+                    f"VALUES ({placeholders}) "
+                    f"ON CONFLICT (bucket_time) DO UPDATE SET {updates}",
+                    *values,
                 )
             except _asyncpg.exceptions.UndefinedTableError:
                 logging.warning(
                     "metric_snapshot table missing — run migration 029"
                 )
+    except _asyncpg.exceptions.UndefinedColumnError:
+        # A column referenced by the feature aggregate or its INSERT isn't
+        # there (partial migration, manual DDL). Clear the cached probe so the
+        # next tick re-checks and falls back to the legacy 17-column row,
+        # instead of raising this every 5 minutes forever.
+        config.feature_metrics_present = None
+        logging.warning(
+            "metrics snapshot: column missing — re-probing next tick (run migration 037)"
+        )
     except Exception:
         logging.exception("metrics snapshot tick failed")
 
@@ -7578,6 +7698,10 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
         if time.time() > end:
             await interaction.response.send_message("❌ You weren't fast enough!", ephemeral=True)
             return
+        # Counted after the deadline check so "played" means an answer that was
+        # actually judged. With bonus_offered and bonus_catches (wins) that
+        # gives the dashboard an offered -> played -> won funnel.
+        await _bump_sql(interaction.user.id, interaction.guild.id, "bonus_played")
         answer_item = modal.find_item(67)
         if isinstance(answer_item, TextInput) or isinstance(answer_item, discord.ui.RadioGroup):
             answer_raw = answer_item.value
@@ -8509,6 +8633,26 @@ async def on_message(message: discord.Message):
                 if _perk_mods["eagle_eye"] and _perks_consume_charge(user, "eagle_eye"):
                     suffix_string += f"\n🦅 Eagle Eye: rarity was **{le_emoji}**."
 
+                # le_emoji is final here — every rarity upgrade (prism boost,
+                # rarity_bump) has landed. Downstream objectives used to read
+                # channel.cattype, which is the *spawn* rarity and is never
+                # updated by a boost, so a Fine boosted to Nice credited a Nice
+                # cat but ticked nothing Nice. caught_type is what the player
+                # actually walked away with; spawn_type is what spawned.
+                # Exact-rarity checks accept EITHER via _is_type, so an upgrade
+                # can only ever help — it can't break a Fine bounty/quest the
+                # player was already partway through. Rarity-floor checks
+                # ("or rarer", rare+, brave+) just use caught_type, which is by
+                # construction >= spawn_type in the cattypes ordering.
+                # NB: channel.cattype is "" on the fetch-message fallback path
+                # while le_emoji is still resolved, so caught_type is also the
+                # more reliable of the two.
+                spawn_type = channel.cattype
+                caught_type = le_emoji if le_emoji in cattypes else spawn_type
+
+                def _is_type(target):
+                    return target and (spawn_type == target or caught_type == target)
+
                 icon = get_emoji(le_emoji.lower() + "cat")
 
                 if channel.channel_id in config.cat_cought_rain:
@@ -8618,7 +8762,7 @@ async def on_message(message: discord.Message):
                 # Bonus cats 🎁: rarity-scaled roll, once per catch, catcher-only
                 # (solo variant of upstream's june update — no late catching).
                 # BONUS_CAT_CHANCE_COEF = 0 disables these (tuning.json kill switch).
-                bonus_cattype = channel.cattype
+                bonus_cattype = caught_type
                 bonus_minigame = False
                 bonus_weight = type_dict.get(bonus_cattype)
                 if BONUS_CAT_CHANCE_COEF > 0 and bonus_weight:
@@ -8683,6 +8827,7 @@ async def on_message(message: discord.Message):
                     async def send_bonus_prompt(confirm_msg):
                         bonus_icon = get_emoji(bonus_cattype.lower() + "cat")
                         attempted = False
+                        prompt = None
 
                         async def bonus_go(interaction: discord.Interaction):
                             nonlocal attempted
@@ -8692,21 +8837,76 @@ async def on_message(message: discord.Message):
                             if attempted:
                                 await interaction.response.send_message("You already had your shot!", ephemeral=True)
                                 return
+                            # Claim the attempt synchronously (before any await) so
+                            # mashing the button can't open two modals — but release
+                            # it if the modal never actually opened, otherwise a
+                            # failed send_modal silently eats the player's only shot
+                            # and the next click says "You already had your shot!"
+                            # for a shot they never got.
                             attempted = True
-                            await play_minigame(interaction, bonus_cattype)
+                            try:
+                                await play_minigame(interaction, bonus_cattype)
+                            except Exception:
+                                attempted = False
+                                logging.exception("bonus minigame failed to open (user=%s)", interaction.user.id)
+                                try:
+                                    await interaction.response.send_message(
+                                        "That didn't open — hit Go! again.", ephemeral=True
+                                    )
+                                except Exception:
+                                    pass
 
                         go_button = Button(style=ButtonStyle.green, label="Go!")
                         go_button.callback = bonus_go
-                        prompt_view = View(timeout=10)
+                        prompt_view = View(timeout=BONUS_PROMPT_TIMEOUT_SECONDS)
                         prompt_view.add_item(go_button)
+
+                        async def on_prompt_timeout():
+                            # The view expiring and the message being deleted used to
+                            # be two independent 10s timers, so there was a window
+                            # where the button still looked live but discord.py had
+                            # already stopped dispatching it — clicking there just got
+                            # "This interaction failed", then the message vanished.
+                            # The timeout now owns both: disable, relabel, then delete.
+                            if prompt is None:
+                                return
+                            go_button.disabled = True
+                            if attempted:
+                                # They played; the result was posted separately, so
+                                # just clear the prompt away without crying "too slow".
+                                try:
+                                    await prompt.delete()
+                                except Exception:
+                                    pass
+                                return
+                            go_button.label = "Too slow!"
+                            try:
+                                await prompt.edit(
+                                    content=f"⏱️ **BONUS {bonus_icon} {bonus_cattype.upper()} CAT!** — too slow!",
+                                    view=prompt_view,
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                await prompt.delete(delay=BONUS_PROMPT_LINGER_SECONDS)
+                            except Exception:
+                                pass
+
+                        prompt_view.on_timeout = on_prompt_timeout
+
                         try:
                             prompt = await confirm_msg.reply(
                                 f"🎁 **BONUS {bonus_icon} {bonus_cattype.upper()} CAT!**\nPlay a minigame and potentially **get +3 more!**",
                                 view=prompt_view,
                             )
-                            await prompt.delete(delay=10)
                         except Exception:
                             logging.exception("bonus cat prompt failed (channel=%s)", message.channel.id)
+                            return
+                        # Counted only once the prompt actually landed, so the
+                        # dashboard's offered/played/won funnel measures shots
+                        # players really saw. _bump_sql, not _bump: this task is
+                        # detached and the catch path still owns `user`.
+                        await _bump_sql(message.author.id, message.guild.id, "bonus_offered")
 
                     bot.loop.create_task(send_bonus_prompt(gather_results[1]))
 
@@ -8786,7 +8986,7 @@ async def on_message(message: discord.Message):
                         "time": user.time,
                         "timeslow": user.timeslow,
                         "total_catches": user.total_catches,
-                        "cat_type": channel.cattype,
+                        "cat_type": caught_type,
                         "rain_active": channel.cat_rains > 0,
                         "prism_boosted": did_boost,
                     },
@@ -8805,8 +9005,8 @@ async def on_message(message: discord.Message):
                 # Single-rarity hoarder milestones + x86 CPU easter eggs, keyed
                 # on the caught type's current inventory. achemb dedupes, so
                 # already-earned tiers don't re-award on later catches.
-                if channel.cattype:
-                    _hoard_n = user[f"cat_{channel.cattype}"]
+                if caught_type:
+                    _hoard_n = user[f"cat_{caught_type}"]
                     for _hthresh, _haid in (
                         (100, "same_type_100"), (250, "same_type_250"), (286, "x86_286"),
                         (386, "x86_386"), (486, "x86_486"), (500, "same_type_500"),
@@ -8832,9 +9032,9 @@ async def on_message(message: discord.Message):
 
                 # handle battlepass
                 quests = ["3cats"]
-                if channel.cattype == "Fine":
+                if _is_type("Fine"):
                     quests.append("2fine")
-                if channel.cattype == "Good":
+                if _is_type("Good"):
                     quests.append("good")
                 if time_caught >= 0 and time_caught < 10:
                     quests.append("under10")
@@ -8852,11 +9052,11 @@ async def on_message(message: discord.Message):
                     quests.append("even")
                 if time_caught >= 0 and int(time_caught) % 2 == 1:
                     quests.append("odd")
-                if channel.cattype and channel.cattype not in ["Fine", "Nice", "Good"]:
+                if caught_type and caught_type not in ["Fine", "Nice", "Good"]:
                     quests.append("rare+")
-                if channel.cattype in LEGENDARY_PLUS:
+                if caught_type in LEGENDARY_PLUS:
                     quests.append("legendary+")
-                if channel.cattype in EPIC_PLUS:
+                if caught_type in EPIC_PLUS:
                     quests.append("epic3")
                 if user.catnip_active > time.time():
                     quests.append("catnip_catch")
@@ -8867,15 +9067,16 @@ async def on_message(message: discord.Message):
                     # 1 fine
                     # 2 nice
                     # 3 both
-                    if channel.cattype == "Fine" and user.catch_progress in [0, 2]:
+                    # if/elif, so a Fine boosted to Nice still fires at most once
+                    if _is_type("Fine") and user.catch_progress in [0, 2]:
                         quests.append("finenice")
-                    elif channel.cattype == "Nice" and user.catch_progress in [0, 1]:
+                    elif _is_type("Nice") and user.catch_progress in [0, 1]:
                         quests.append("finenice")
                         quests.append("finenice")
-                await _append_weekly_catch_quests(user, channel.cattype, quests)
+                await _append_weekly_catch_quests(user, caught_type, quests)
 
                 # handle catnip bounties
-                await bounty(message, user, channel.cattype)
+                await bounty(message, user, spawn_type, caught_type)
 
                 # handle quests
                 await multi_progress(message, user, quests, False)
@@ -11118,6 +11319,7 @@ async def scratch(message: discord.Interaction):
         picks = opts[:10]
         winnings = ["Winnings:"]
         user.scratchcards -= 1
+        _bump(user, "scratchcards_scratched", 1)
         for opt in set(opts):
             amount = picks.count(opt) // 2
             if amount == 0:
@@ -11990,6 +12192,12 @@ async def battlepass(message: discord.Interaction):
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'cat')} {level_data['amount']} {level_data['reward']} cats\n\n"
             elif level_data["reward"] == "Mystery":
                 description += f"Reward: {get_emoji('mysterypack')} Mystery box — open it in /packs, could be anything!\n\n"
+            elif level_data["reward"] == "Scratchcard":
+                # Scratch cards aren't packs, so the pack-emoji fallback below
+                # would render 🔳 and call them one. 🍀 matches the /packs
+                # button and the quest-reward line.
+                amt = level_data["amount"]
+                description += f"Reward: 🍀 {amt} Scratchcard{'s' if amt != 1 else ''} — scratch in /scratch!\n\n"
             else:
                 description += f"Reward: {get_emoji(level_data['reward'].lower() + 'pack')} {level_data['reward']} pack\n\n"
 
@@ -12001,6 +12209,11 @@ async def battlepass(message: discord.Interaction):
                 description += get_emoji(str(level_data["amount"]) + "rain" + claimed_suffix)
             elif level_data["reward"] in cattypes:
                 description += get_emoji(level_data["reward"].lower() + "cat" + claimed_suffix)
+            elif level_data["reward"] == "Scratchcard":
+                # No app emoji exists for scratch cards, so the pack fallback
+                # below renders 🔳 (get_emoji's last resort). ✅ when claimed
+                # mirrors what the "_claimed" fallback hands out for packs.
+                description += "✅" if claimed_suffix else "🍀"
             else:
                 description += get_emoji(level_data["reward"].lower() + "pack" + claimed_suffix)
             if num % 10 == 9:
@@ -16802,6 +17015,13 @@ async def chaos(message: discord.Interaction):
         )
         cookies = cookies["cookies"]
 
+        # The sentinel's `cookies` above is the random-weighted global score,
+        # NOT a press count, so it can't answer "how many times was Chaos
+        # pushed". Count presses separately, against whoever actually clicked
+        # — the button isn't locked to the invoker, so `profile` (the invoker's
+        # row) is the wrong place to put it.
+        await _bump_sql(interaction.user.id, interaction.guild.id, "chaos_clicks")
+
         view = LayoutView(timeout=VIEW_TIMEOUT)
         b = Button(label="Chaos!", style=ButtonStyle.red, emoji="💥")
         b.callback = click
@@ -19058,10 +19278,23 @@ async def roulette(
                 f"your new balance is **{user.coins:,}** coins{broke_suffix}{perk_suffix}"
             ),
         )
+        async def respin_select(inter: discord.Interaction):
+            # One-click repeat of THIS exact bet (same target + amount).
+            # _do_roulette_spin re-defers, re-reads the balance and re-runs the
+            # affordability check, so a now-broke player just gets the ephemeral
+            # "your max bet is ..." nudge instead of a bad spin.
+            if inter.user != message.user:
+                await do_funny(inter)
+                return
+            await _do_roulette_spin(inter, bet_value, bet_amount)
+
         view = View(timeout=VIEW_TIMEOUT)
         b = Button(label="spin", style=ButtonStyle.blurple)
         b.callback = modal_select
         view.add_item(b)
+        rb = Button(label="re-spin", style=ButtonStyle.gray)
+        rb.callback = respin_select
+        view.add_item(rb)
         await interaction.edit_original_response(embed=embed, view=view)
 
         if win:
@@ -19577,9 +19810,19 @@ async def cat_fact(message: discord.Interaction):
         pass
 
 
-async def bounty(message, user, cattype):
+async def bounty(message, user, cattype, boosted_type=None):
     if user.hibernation:
         return
+    # `cattype` is the spawn rarity, `boosted_type` the post-prism/rarity_bump
+    # one the player actually received (None when nothing upgraded, or on the
+    # belated path where the user never got a cat at all). Exact-rarity slots
+    # match EITHER, so an upgrade can't break a bounty for the lower rarity;
+    # "or rarer" slots use the higher index, since a boost only moves up.
+    types_caught = {cattype}
+    if boosted_type:
+        types_caught.add(boosted_type)
+    _idxs = [cattypes.index(t) for t in types_caught if t in cattypes]
+    best_idx = max(_idxs) if _idxs else -1
     # bounty_boost (job perk, timed): probabilistic extra tick on each
     # progress fire. Multiplier 1.5 → 50% chance of +1 extra per tick.
     _bounty_boost_extra_p = 0.0
@@ -19630,13 +19873,13 @@ async def bounty(message, user, cattype):
                     complete += 1
                     title.append(f"Catch {total} cats")
             if id == 1:
-                if cattype == type:
+                if type in types_caught:
                     progress = min(total, progress + 1 + _bb_extra())
                     if progress == total:
                         complete += 1
                         title.append(f"Catch {total} {type} cats")
             if id == 2:
-                if cattypes.index(cattype) >= cattypes.index(type):
+                if best_idx >= cattypes.index(type):
                     progress = min(total, progress + 1 + _bb_extra())
                     if progress == total:
                         complete += 1
@@ -19661,11 +19904,12 @@ async def bounty(message, user, cattype):
                 user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
                 bonus_title = f"Catch {user.bounty_total_bonus} cats"
             elif user.bounty_id_bonus == 1:
-                if cattype == user.bounty_type_bonus:
+                if user.bounty_type_bonus in types_caught:
                     user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
-                bonus_title = f"Catch {user.bounty_total_bonus} {cattype} cats"
+                # was `{cattype}` — the cat just caught, not the bounty's target
+                bonus_title = f"Catch {user.bounty_total_bonus} {user.bounty_type_bonus} cats"
             else:
-                if cattypes.index(cattype) >= cattypes.index(user.bounty_type_bonus):
+                if best_idx >= cattypes.index(user.bounty_type_bonus):
                     user.bounty_progress_bonus = min(user.bounty_total_bonus, user.bounty_progress_bonus + 1 + _bb_extra())
                 bonus_title = f"Catch {user.bounty_total_bonus} {user.bounty_type_bonus} or rarer cats"
             if user.bounty_progress_bonus == user.bounty_total_bonus:
@@ -20186,6 +20430,31 @@ async def catnip(message: discord.Interaction):
     cat_type = user.catnip_price
     amount = user.catnip_amount
 
+    async def edit_main(interaction, view):
+        """Edit the catnip panel through the FRESHEST interaction token.
+
+        main_message is a followup of the original /catnip interaction, and
+        Discord kills that token after 15 minutes — editing through it raises
+        401 Invalid Webhook Token for anyone who leaves the panel sitting
+        (VIEW_TIMEOUT is 24h, so the buttons long outlive the token). Every
+        button press mints a fresh token pointed at that same message, so
+        route the edit through the component interaction instead.
+
+        Every caller below is a component on main_message (or hands its own
+        main_message interaction forward, like begin_bounties/reroll_warning),
+        so edit_original_response/edit_message always lands on the panel.
+        """
+        try:
+            if interaction.response.is_done():
+                await interaction.edit_original_response(view=view)
+            else:
+                await interaction.response.edit_message(view=view)
+        except discord.HTTPException:
+            # Token dead too (panel idled >15min mid-chain). Everything is
+            # already saved to the DB, so a stale panel is cosmetic — the
+            # next /catnip renders correctly.
+            logging.warning("catnip panel refresh failed (expired interaction token)")
+
     async def pay_catnip(interaction):
         nonlocal user, cat_type, amount
         await user.refresh_from_db()
@@ -20262,7 +20531,7 @@ You can stop. That's okay. Seriously.
             await perk_screen(interaction)
         else:
             await interaction.followup.send("Catnip started!", ephemeral=True)
-            await main_message.edit(view=await gen_main())
+            await edit_main(interaction, await gen_main())
 
     async def reroll(interaction):
         global_user = await User.get_or_create(user_id=interaction.user.id)
@@ -20300,7 +20569,7 @@ You can stop. That's okay. Seriously.
         myview.add_item(perk_embed)
         action_row = ActionRow(perk_select)
         myview.add_item(action_row)
-        await main_message.edit(view=myview)
+        await edit_main(interaction, myview)
 
     async def view_perks(interaction):
         global_user = await User.get_or_create(user_id=interaction.user.id)
@@ -20375,7 +20644,7 @@ You can stop. That's okay. Seriously.
 
             logging.debug("Selected perk on level %d", user.catnip_level)
 
-            await main_message.edit(view=await gen_main())
+            await edit_main(interaction, await gen_main())
 
         if user.perk_selected and not reroll:
             await interaction.followup.send("You have already selected a perk.", ephemeral=True)
@@ -20432,7 +20701,7 @@ You can stop. That's okay. Seriously.
 
         perk_embed.add_item(TextDisplay("-# The catnip timer will not start until you begin your bounties."))
         myview.add_item(perk_embed)
-        await main_message.edit(view=myview)
+        await edit_main(interaction, myview)
 
     async def help_screen(interaction):
         desc = "Catnip is a prestige system where you pay cats to join your mafia and get perks and bounties!"
@@ -20462,21 +20731,10 @@ You can stop. That's okay. Seriously.
             await begin_bounties(interaction, override=True)
             await interaction2.delete_original_response()
 
-        if user.catnip_active > time.time() and user.catnip_level >= 2 and not override:
-            myview = View(timeout=VIEW_TIMEOUT)
-            button = Button(label="Begin Anyway", style=ButtonStyle.red)
-            button.callback = callbacks_are_so_fun
-            myview.add_item(button)
-            await interaction.followup.send(
-                f"Your catnip expires <t:{user.catnip_active}:R>.\nAre you sure you want to start your bounties now?\nThis will remove the remaining catnip time you have.",
-                view=myview,
-                ephemeral=True,
-            )
-            return
-
+        # Worked out up-front because the confirmation below needs to compare
+        # against it — see the comment there.
         level_data = catnip_list["levels"][user.catnip_level]
         duration = level_data["duration"]
-        user.hibernation = False
         duration_bonus = 0
         perks = catnip_list["perks"]
 
@@ -20491,13 +20749,56 @@ You can stop. That's okay. Seriously.
                         duration_bonus += 6000 / i
                     duration_bonus += 60 * (global_user.daily_catch_streak % 100) / (int(global_user.daily_catch_streak / 100) + 1)
 
-        user.catnip_active = int(time.time()) + 3600 * duration + duration_bonus
-        user.pack_attempts = (3600 * duration + duration_bonus) // 60
+        # int() around the WHOLE sum, not just time.time(). The loyalty_streak
+        # branch above ends in a true division, so duration_bonus is a float
+        # for anyone holding that perk — even at streak 0, where the last term
+        # is 0.0 rather than 0. catnip_active is bigint and pack_attempts is
+        # integer, and catpg.save() hands values to asyncpg untouched, which
+        # rejects a float for an int column ("an integer is required"). So
+        # Begin Bounties raised DataError for every Loyalty Streak holder and
+        # the panel just sat there.
+        new_active = int(time.time() + 3600 * duration + duration_bonus)
+
+        # Beginning OVERWRITES catnip_active with a fresh full duration, it
+        # doesn't subtract from it. This used to warn whenever ANY time was
+        # left ("this will remove the remaining catnip time you have"), which
+        # for almost everyone was a lie in the wrong direction: with 16h left
+        # on a 24h level you gain 8 hours and your perks re-arm for the full
+        # window, since perks are gated on this same timestamp.
+        #
+        # It IS a real loss if you've banked more than a fresh run grants,
+        # which takes deliberate stacking — El Patron re-buys (+24h each, see
+        # the level-up branch) or a job perk extension. So compare against the
+        # actual new value and only ask in that case. The catnip_level >= 2
+        # guard stays: level 0 has duration 0, so every comparison would trip.
+        if user.catnip_active > new_active and user.catnip_level >= 2 and not override:
+            lost_seconds = int(user.catnip_active) - new_active
+            lost_label = (
+                f"{lost_seconds / 3600:.0f} hours" if lost_seconds >= 7200
+                else f"{max(1, lost_seconds // 60)} minutes"
+            )
+            myview = View(timeout=VIEW_TIMEOUT)
+            button = Button(label="Begin Anyway", style=ButtonStyle.red)
+            button.callback = callbacks_are_so_fun
+            myview.add_item(button)
+            await interaction.followup.send(
+                f"You have catnip banked until <t:{int(user.catnip_active)}:R> — longer than the "
+                f"{duration}h that beginning would give you.\n"
+                f"Starting your bounties **replaces** that timer, so you'd give up about **{lost_label}**.\n"
+                "Are you sure?",
+                view=myview,
+                ephemeral=True,
+            )
+            return
+
+        user.hibernation = False
+        user.catnip_active = new_active
+        user.pack_attempts = int((3600 * duration + duration_bonus) // 60)
         await user.save()
 
         logging.debug("Started bounties on level %d", user.catnip_level)
 
-        await main_message.edit(view=await gen_main())
+        await edit_main(interaction, await gen_main())
 
     async def gen_main():
         await user.refresh_from_db()

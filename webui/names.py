@@ -8,9 +8,22 @@ cache that route handlers refresh asynchronously before render.
 
 Channel names: bot-cache only — channels we render are always live ones.
 
-Usernames: not cached by the bot, but the bot writes `user.username` on
-every `/` interaction, so the DB is a useful fallback before fetch_user.
-Fetch results memoize forever in `_user_cache`.
+Usernames: the expensive one, and the reason this module is shaped the way
+it is. The bot caches no members (`MemberCacheFlags.none()`, no guild
+chunking), so `bot.get_user()` almost always misses, and `user.username` is
+only written by `/bless` — in practice it is empty for nearly every row.
+That left `bot.fetch_user()` as the de-facto resolver: one Discord API call
+per row, on the request path. A 50-row /db/user page meant 50 calls and a
+/leaderboards page up to 120, which is exactly how the dashboard earned its
+429s and multi-second loads.
+
+So request handlers never touch the Discord API any more. `resolve_users`
+answers from memory, then from one batched DB query, and anything still
+unknown renders as a short placeholder and is queued for `_resolver_loop()`
+— a single background task that fetches at `_FETCH_INTERVAL` and can never
+stall a page. Results memoize in `_user_cache` and are mirrored to
+`.name-cache.json`, so a bot restart starts warm instead of re-fetching
+everything.
 
 When resolution fails completely we return a distinctively-formatted short
 placeholder (`guild #123456`, `user #654321`) rather than the bare snowflake
@@ -19,13 +32,39 @@ still inspectable and intentional.
 """
 
 import asyncio
+import json
+import logging
 import time
+from pathlib import Path
 
 from webui import state
+
+log = logging.getLogger(__name__)
 
 # user_id -> resolved name (or short-form fallback). Persists across requests;
 # survives cat!restart since webui is not reloaded.
 _user_cache: dict[int, str] = {}
+
+# On-disk mirror of _user_cache, so a bot restart doesn't re-fetch every name.
+_CACHE_FILE = Path(__file__).resolve().parent / ".name-cache.json"
+_cache_dirty = False
+_cache_loaded = False
+
+# IDs seen in a render that we couldn't resolve offline. Drained by
+# _resolver_loop in the background — never awaited by a request handler.
+_pending: set[int] = set()
+_pending_event = asyncio.Event()
+_resolver_task = None
+
+# Spacing between background fetch_user calls. Discord's per-route budget for
+# GET /users/{id} is far higher than this; the point is that a cold 120-name
+# leaderboard costs the API a slow trickle instead of a burst.
+_FETCH_INTERVAL = 0.25
+
+# Placeholders are memoized like real names so we stop re-queueing a deleted
+# account forever, but they expire so a transient outage isn't permanent.
+_PLACEHOLDER_TTL = 3600.0
+_placeholder_at: dict[int, float] = {}
 
 # guild_id -> resolved name, populated from `server.name`. Refreshed
 # asynchronously by route handlers; consulted synchronously by the Jinja global.
@@ -33,10 +72,6 @@ _guild_name_cache: dict[int, str] = {}
 _guild_cache_last_refresh: float = 0.0
 _guild_cache_lock = asyncio.Lock()
 _GUILD_CACHE_TTL = 60.0  # seconds; cheap query, low risk of staleness
-
-# cap concurrent fetch_user calls so a cold leaderboard load can't stampede
-_fetch_sem = asyncio.Semaphore(8)
-
 
 def _short_id(snowflake) -> str:
     """Last 6 digits of an id, intentionally distinct from a bare snowflake."""
@@ -114,53 +149,162 @@ def _name_of(user) -> str:
     return getattr(user, "global_name", None) or getattr(user, "name", None) or ""
 
 
-async def _resolve_one(bot, uid: int) -> None:
-    if uid in _user_cache:
+def _load_cache() -> None:
+    """Seed _user_cache from the on-disk mirror. Best-effort, once per process."""
+    global _cache_loaded
+    if _cache_loaded:
         return
-    # 1) bot cache (no API)
-    cached = bot.get_user(uid)
-    if cached is not None and _name_of(cached):
-        _user_cache[uid] = _name_of(cached)
+    _cache_loaded = True
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for k, v in data.items():
+            if isinstance(v, str) and v:
+                _user_cache.setdefault(int(k), v)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        log.warning("name cache unreadable, starting cold", exc_info=True)
+
+
+def _save_cache() -> None:
+    """Mirror real (non-placeholder) names to disk. Called from the resolver
+    loop only, so it never lands on a request path."""
+    global _cache_dirty
+    if not _cache_dirty:
         return
-    # 2) API fetch (concurrency-capped)
-    async with _fetch_sem:
-        if uid in _user_cache:
-            return
-        try:
-            user = await bot.fetch_user(uid)
-            name = _name_of(user)
-            if name:
-                _user_cache[uid] = name
-                return
-        except Exception:  # noqa: BLE001 — NotFound/Forbidden/HTTP all proceed to DB
-            pass
-    # 3) DB fallback (user.username, written by main on every /interaction)
+    _cache_dirty = False
+    keep = {str(k): v for k, v in _user_cache.items() if k not in _placeholder_at}
+    tmp = _CACHE_FILE.with_suffix(".json.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(keep, f)
+        tmp.replace(_CACHE_FILE)
+    except Exception:
+        log.warning("could not persist name cache", exc_info=True)
+
+
+def _is_stale_placeholder(uid: int) -> bool:
+    at = _placeholder_at.get(uid)
+    return at is not None and (time.time() - at) > _PLACEHOLDER_TTL
+
+
+async def _lookup_db_usernames(missing: list[int]) -> dict[int, str]:
+    """One batched query for `user.username` across every unresolved id.
+
+    Was a per-id round trip behind the old fetch_user path; batching keeps the
+    offline resolution step at exactly one query regardless of page size.
+    """
     pool = state.get_pool()
-    if pool is not None:
+    if pool is None or not missing:
+        return {}
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                'SELECT user_id, username FROM "user" '
+                "WHERE user_id = ANY($1::bigint[]) AND username <> ''",
+                missing,
+            )
+        return {int(r["user_id"]): r["username"] for r in rows}
+    except Exception:
+        log.debug("username batch lookup failed", exc_info=True)
+        return {}
+
+
+async def _resolver_loop() -> None:
+    """Drain `_pending` against the Discord API, slowly, forever.
+
+    The only place in the webui that calls fetch_user. Runs off the request
+    path, so a cold cache costs page latency nothing — names simply appear on
+    a later load.
+    """
+    global _cache_dirty
+    while True:
         try:
-            async with pool.acquire() as conn:
-                name = await conn.fetchval(
-                    'SELECT username FROM "user" WHERE user_id = $1 AND username <> \'\'',
-                    uid,
-                )
+            if not _pending:
+                _pending_event.clear()
+                _save_cache()
+                await _pending_event.wait()
+                continue
+            uid = _pending.pop()
+            bot = state.get_bot()
+            if bot is None:
+                await asyncio.sleep(5)
+                continue
+            name = ""
+            try:
+                user = await bot.fetch_user(uid)
+                name = _name_of(user)
+            except Exception:  # noqa: BLE001 — NotFound/Forbidden/429 all fall through
+                log.debug("fetch_user(%s) failed", uid, exc_info=True)
             if name:
                 _user_cache[uid] = name
-                return
+                _placeholder_at.pop(uid, None)
+                _cache_dirty = True
+            else:
+                _user_cache[uid] = f"user #{_short_id(uid)}"
+                _placeholder_at[uid] = time.time()
+            await asyncio.sleep(_FETCH_INTERVAL)
+        except asyncio.CancelledError:
+            _save_cache()
+            raise
         except Exception:
-            pass
-    # 4) Short-form unknown — memoize so we don't re-fetch every page load.
-    _user_cache[uid] = f"user #{_short_id(uid)}"
+            log.exception("name resolver iteration failed")
+            await asyncio.sleep(5)
+
+
+def start_resolver() -> None:
+    """Launch the background resolver. Idempotent; called from start_server."""
+    global _resolver_task
+    _load_cache()
+    if _resolver_task is None or _resolver_task.done():
+        _resolver_task = asyncio.create_task(_resolver_loop())
 
 
 async def resolve_users(bot, ids) -> dict[int, str]:
-    """Map a collection of user_ids to names, fetching + caching the unknowns.
+    """Map user_ids to names using only in-process + DB state.
+
+    Never calls the Discord API — unknowns are queued for `_resolver_loop`
+    and returned as `user #123456` for this render. Callers get a dict back
+    immediately no matter how many ids they pass.
 
     Returns {} (callers fall back to the id) when there's no bot.
     """
+    global _cache_dirty
     if bot is None:
         return {}
+    _load_cache()
     unique = {int(i) for i in ids if i}
-    missing = [u for u in unique if u not in _user_cache]
-    if missing:
-        await asyncio.gather(*(_resolve_one(bot, u) for u in missing))
+
+    # 1) in-process cache, ignoring placeholders that have aged out
+    missing = [u for u in unique if u not in _user_cache or _is_stale_placeholder(u)]
+
+    # 2) bot cache (free — no API, but usually a miss given MemberCacheFlags.none())
+    still_missing = []
+    for uid in missing:
+        cached = bot.get_user(uid)
+        if cached is not None and _name_of(cached):
+            _user_cache[uid] = _name_of(cached)
+            _placeholder_at.pop(uid, None)
+            _cache_dirty = True
+        else:
+            still_missing.append(uid)
+
+    # 3) one batched DB read
+    if still_missing:
+        found = await _lookup_db_usernames(still_missing)
+        for uid, name in found.items():
+            _user_cache[uid] = name
+            _placeholder_at.pop(uid, None)
+            _cache_dirty = True
+        still_missing = [u for u in still_missing if u not in found]
+
+    # 4) hand the rest to the background resolver and render placeholders now
+    if still_missing:
+        for uid in still_missing:
+            _user_cache.setdefault(uid, f"user #{_short_id(uid)}")
+            _placeholder_at.setdefault(uid, time.time())
+        _pending.update(still_missing)
+        _pending_event.set()
+
     return {u: _user_cache.get(u, f"user #{_short_id(u)}") for u in unique}

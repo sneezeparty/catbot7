@@ -156,6 +156,10 @@ docs/design/.sync-pending
 webui/.sync-pending
 webui/.sync-log
 
+# Dashboard's on-disk username cache (rebuilt from the Discord API on demand)
+webui/.name-cache.json
+webui/.name-cache.json.tmp
+
 # Migration runtime markers and logs (per-run state, not portable)
 migrations/*.done
 migrations/*.log

@@ -5880,6 +5880,31 @@ def get_streak_reward(streak):
     return {"reward": pack_type, "emoji": get_emoji(f"{pack_type}pack"), "done_emoji": get_emoji(f"{pack_type}pack_claimed")}
 
 
+async def _safe_defer(interaction) -> bool:
+    """Ack an interaction, tolerating a token that's already dead.
+
+    Discord gives us 3 seconds from the click to make the *first* response.
+    Miss it and defer() raises `404 Unknown interaction (10062)`, which
+    discord.py logs as an unhandled view exception. That window can close
+    before our callback even starts running — a gateway hiccup that delays
+    delivery, or event-loop lag under load — so it isn't necessarily a bug in
+    the callback, and there's nothing left to reply to either way.
+
+    Returns True if the interaction is still ours to answer, False if the
+    caller should quietly give up. Defer FIRST, then do the DB work: once
+    we've acked, followups have a 15-minute window and slow queries stop
+    being able to cause this.
+    """
+    try:
+        await interaction.response.defer()
+        return True
+    except discord.NotFound:
+        logging.debug("interaction token expired before defer", exc_info=True)
+        return False
+    except discord.InteractionResponded:
+        return True
+
+
 # handle curious people clicking buttons
 async def do_funny(message):
     await message.response.send_message(random.choice(funny), ephemeral=True)
@@ -17001,6 +17026,15 @@ async def chaos(message: discord.Interaction):
     profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
 
     async def click(interaction: discord.Interaction, first: Optional[bool] = False):
+        # Ack before touching the DB. Everything below is round-trips, and a
+        # button press only gets 3 seconds to produce a first response — with
+        # the defer down at the bottom, a slow query surfaced as a 10062
+        # traceback instead of a click. The `first` (slash) path can't defer
+        # here because it answers with send_message(view=...), which needs the
+        # view built first.
+        if not first and not await _safe_defer(interaction):
+            return
+
         # the global counter lives in a sentinel profile row (guild 666, owned
         # by the bot user) reusing the cookies column - one atomic upsert per
         # click, so it survives restarts and needs no schema change.
@@ -17036,7 +17070,6 @@ async def chaos(message: discord.Interaction):
         if first:
             await interaction.response.send_message(view=view)
         else:
-            await interaction.response.defer()
             await interaction.edit_original_response(view=view)
 
         if profile.misc_quest.strip() == "chaos":
@@ -17974,7 +18007,11 @@ async def brew(message: discord.Interaction):
             await do_funny(interaction)
             return
 
-        await interaction.response.defer()
+        # Already the first thing this callback does, so a 10062 here means the
+        # token died before we were even scheduled (gateway hiccup / loop lag).
+        # Nothing to answer — bail quietly instead of logging a traceback.
+        if not await _safe_defer(interaction):
+            return
 
         try:
             # misc_quest must be in this partial fetch — the quest hook below

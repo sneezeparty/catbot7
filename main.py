@@ -21078,8 +21078,29 @@ async def achievements(message: discord.Interaction):
 
     hidden_counter = 0
 
+    # Discord rejects an embed with more than 25 fields, and this renders one
+    # field per achievement. Categories outgrew that as the fork added aches
+    # (Silly 39, Commands 35, Hard 35, Cat Hunt 29, Hidden 27), and since the
+    # landing category is Cat Hunt the command 400'd for everyone, every time.
+    # So chunk each category into pages of 25 and paginate with ◀ ▶.
+    ACH_FIELDS_PER_PAGE = 25
+
+    def _renders(k, v, category):
+        """Exactly the render conditions of the field loop below — keep the two
+        in step or the page chunks won't line up with what's drawn."""
+        if v["category"] != category:
+            return False
+        if k == "thanksforplaying":
+            return True  # drawn locked or unlocked, unlike everything else
+        return user.has_ach(k) or category != "Hidden"
+
+    def _category_pages(category):
+        keys = [k for k, v in ach_list.items() if _renders(k, v, category)]
+        pages = [keys[i:i + ACH_FIELDS_PER_PAGE] for i in range(0, len(keys), ACH_FIELDS_PER_PAGE)]
+        return pages or [[]]  # an empty Hidden category still needs one page
+
     # this is a single page of the achievement list
-    async def gen_new(category):
+    async def gen_new(category, page=0):
         nonlocal message, unlocked, total_achs, hidden_counter
 
         unlocked = 0
@@ -21111,8 +21132,12 @@ async def achievements(message: discord.Interaction):
         else:
             hidden_counter = 0
 
+        pages = _category_pages(category)
+        page = max(0, min(page, len(pages) - 1))
+        page_keys = set(pages[page])
+
         newembed = discord.Embed(
-            title=category,
+            title=category if len(pages) == 1 else f"{category} ({page + 1}/{len(pages)})",
             description=f"Achievements unlocked (total): {unlocked}/{total_achs}{minus_achs}{hidden_suffix}",
             color=Colors.brown,
         ).set_footer(text=rain_shill)
@@ -21122,7 +21147,7 @@ async def achievements(message: discord.Interaction):
             newembed.set_author(name="You have unread news! /news")
 
         for k, v in ach_list.items():
-            if v["category"] == category:
+            if k in page_keys:
                 if k == "thanksforplaying":
                     if user.has_ach(k):
                         newembed.add_field(
@@ -21155,8 +21180,9 @@ async def achievements(message: discord.Interaction):
         return newembed
 
     # creates buttons at the bottom of the full view
-    def insane_view_generator(category):
+    def insane_view_generator(category, page=0):
         myview = View(timeout=VIEW_TIMEOUT)
+        page_count = len(_category_pages(category))
 
         options = [
             discord.SelectOption(label="Cat Hunt", emoji=get_emoji("staring_cat")),
@@ -21196,6 +21222,32 @@ async def achievements(message: discord.Interaction):
 
         select.callback = callback_hell
         myview.add_item(select)
+
+        # Only worth the row when the category actually spills past one page.
+        # Both buttons are always added (not conditionally) so the row doesn't
+        # reflow as you page — the ends just grey out.
+        if page_count > 1:
+            def _pager(delta):
+                async def _flip(interaction):
+                    if not await _safe_defer(interaction):
+                        return
+                    new_page = max(0, min(page + delta, len(_category_pages(category)) - 1))
+                    try:
+                        await interaction.edit_original_response(
+                            embed=await gen_new(category, new_page),
+                            view=insane_view_generator(category, new_page),
+                        )
+                    except Exception:
+                        logging.exception("achievements: page flip failed (%s p%s)", category, new_page)
+                return _flip
+
+            prev_button = Button(label="← Prev", style=ButtonStyle.gray, disabled=page <= 0)
+            prev_button.callback = _pager(-1)
+            next_button = Button(label="Next →", style=ButtonStyle.gray, disabled=page >= page_count - 1)
+            next_button.callback = _pager(1)
+            myview.add_item(prev_button)
+            myview.add_item(next_button)
+
         return myview
 
     await message.response.send_message(

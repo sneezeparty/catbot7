@@ -4915,21 +4915,54 @@ async def achemb(message, ach_id, send_type, author_string=None):
         if result is None and do and send_type in ("followup", "ephemeral", "response"):
             try:
                 result = await message.channel.send(embed=embed)
+            except discord.Forbidden:
+                logging.info(
+                    "achemb %s: channel fallback blocked by perms in channel %s (guild %s)",
+                    ach_id, getattr(message.channel, "id", None), message.guild.id,
+                )
             except Exception:
                 logging.exception("achemb channel fallback failed for %s", ach_id)
         if token_dead:
             logging.info("achemb %s: interaction token expired (send_type=%s)", ach_id, send_type)
+        elif isinstance(e, discord.Forbidden):
+            # Same story as the level-up announce below — a permission change in
+            # someone's server, not a fault here. Forbidden is 403 and token_dead
+            # is 401/50027, so the two branches can't both match.
+            logging.info(
+                "achemb %s: missing perms to send (send_type=%s, channel %s, guild %s)",
+                ach_id, send_type, getattr(message.channel, "id", None), message.guild.id,
+            )
         else:
             logging.exception("achemb send failed for %s (send_type=%s)", ach_id, send_type)
 
     # XP + level-up sit in their own try so a Discord send failure here doesn't
     # silently swallow the level-up notification (and we can see the traceback).
+    # Grant and announce are split because they fail for completely different
+    # reasons: grant_achievement_xp() saves the profile before it returns any
+    # embeds, so once we're past it the XP, level and rewards are committed and
+    # only the announcement can still be lost. Logging both as "XP/level-up
+    # failed" made a cosmetic miss look like dropped progress.
     try:
         level_up_embeds = await grant_achievement_xp(profile, ach_xp)
-        if level_up_embeds and do:
-            await message.channel.send(f"<@{author}>", embeds=level_up_embeds)
     except Exception:
-        logging.exception("achemb XP/level-up failed for %s", ach_id)
+        logging.exception("achemb XP grant failed for %s", ach_id)
+        level_up_embeds = None
+
+    if level_up_embeds and do:
+        try:
+            await message.channel.send(f"<@{author}>", embeds=level_up_embeds)
+        except discord.Forbidden:
+            # 50001 Missing Access / 50013 Missing Permissions: the channel is
+            # still setupped, but we've since lost View Channel or Send
+            # Messages in it. Not a bug here and not fixable from here — log it
+            # flat with the ids so it's greppable, because a full traceback per
+            # level-up just buries the errors that are actionable.
+            logging.info(
+                "achemb %s: can't post level-up in channel %s (guild %s) — missing perms",
+                ach_id, getattr(message.channel, "id", None), message.guild.id,
+            )
+        except Exception:
+            logging.exception("achemb level-up announce failed for %s", ach_id)
 
     # Also advance the "Get an achievement" misc-quest if the user has it
     # active. This is a separate XP grant path from the per-ach `xp` value.

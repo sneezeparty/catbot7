@@ -21057,6 +21057,13 @@ You can stop. That's okay. Seriously.
 @bot.tree.command(description="View your achievements (achs)")
 async def achievements(message: discord.Interaction):
     # this is very close to /inv's ach counter
+    # Defer BEFORE the heavy work (two ach-list passes + gen_new's User lookup,
+    # get_news, and a many-field embed) — Discord's response window is only 3s
+    # and this command was blowing it under load. Same defer-first pattern as
+    # /roulette. Also lets the funny>=50 achemb followup below actually land
+    # (a followup before any response/defer fails and falls back to a slow
+    # channel send).
+    await message.response.defer(ephemeral=True)
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     if user.funny >= 50:
         await achemb(message, "its_not_working", "followup")
@@ -21198,7 +21205,7 @@ async def achievements(message: discord.Interaction):
         myview.add_item(select)
         return myview
 
-    await message.response.send_message(
+    await message.followup.send(
         embed=await gen_new("Cat Hunt"),
         ephemeral=True,
         view=insane_view_generator("Cat Hunt"),

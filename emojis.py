@@ -34,16 +34,26 @@ Aura variants (<type>cat_y/_c/_p/_a/_r) are what the aura feature renders. If
 some are missing the bot degrades quietly — get_aura_emoji falls back to the
 plain cat — so a partial run is safe to resume.
 
-Generate the three fork-only rarities first:
+All 120 aura variants are generated locally by tools/make_auras.py (the halo is
+placed per cat type; see that file). They're committed under images/auras/, and
+because --extra is applied last they win over anything upstream ships under the
+same name.
 
-    python tools/make_auras.py --out emoji_out/
-    python emojis.py --dry-run --extra emoji_out/
-    python emojis.py --extra emoji_out/
+Refreshing the auras after regenerating them — they keep their names, so they
+need --overwrite or the bot goes on serving the old art:
+
+    python tools/make_auras.py --out images/auras/
+    python emojis.py --dry-run --extra images/auras --overwrite '_[ycpar]$'
+    python emojis.py           --extra images/auras --overwrite '_[ycpar]$'
+
+Add `|^(baby|shadow|terminator)cat$` to that pattern to refresh the three
+fork-only plain cats too.
 """
 
 import argparse
 import asyncio
 import os
+import re
 import sys
 import tempfile
 
@@ -120,12 +130,23 @@ async def main() -> int:
     ap.add_argument("--extra", action="append", default=[], metavar="DIR",
                     help="extra local folder to upload from (e.g. tools/make_auras.py output)")
     ap.add_argument("--replace", action="store_true", help="delete every existing application emoji first")
+    ap.add_argument("--overwrite", metavar="REGEX", help="re-upload existing emoji whose name matches (delete, then create)")
     args = ap.parse_args()
 
-    if not os.environ.get("TOKEN"):
-        print("ERROR: TOKEN env var required (the same one bot.py uses)", file=sys.stderr)
+    # Imported here, not at module scope: config.py reads os.environ["TOKEN"] on
+    # import, so importing it up top makes `--help` and every offline check die
+    # with a bare KeyError before argparse ever runs. Let config find the token
+    # its own way (shell env, or the .env file it loads) rather than second-
+    # guessing it here.
+    try:
+        import config  # noqa: E402
+    except KeyError:
+        print(
+            "ERROR: TOKEN not set. Export it, or add a TOKEN=... line to .env "
+            "(config.py loads that file).",
+            file=sys.stderr,
+        )
         return 2
-    import config  # noqa: E402 — see the note by the discord import
 
     cattypes = fork_cattypes()
     print(f"fork rarities ({len(cattypes)}): {', '.join(cattypes)}\n")
@@ -176,21 +197,40 @@ async def main() -> int:
 
         try:
             # login() authenticates the HTTP session; no gateway connection needed
-            await client.login(config.TOKEN)
+            try:
+                await client.login(config.TOKEN)
+            except (discord.LoginFailure, discord.HTTPException) as e:
+                print(f"\nERROR: Discord rejected the token — {e}", file=sys.stderr)
+                return 2
+
+            existing = await client.fetch_application_emojis()
+            have = {e.name for e in existing}
 
             if args.replace and not args.dry_run:
-                existing = await client.fetch_application_emojis()
                 for emoji in existing:
                     await emoji.delete()
                 print(f"\ndeleted all {len(existing)} existing application emojis")
                 have = set()
-            else:
-                have = {e.name for e in await client.fetch_application_emojis()}
+
+            # Targeted re-upload. Regenerated art keeps its name, so an ordinary run
+            # skips it as "already present" and the bot keeps serving the old image.
+            # --replace would fix that by deleting all 269 emoji, which is a lot of
+            # exposure on a live bot; this only touches what you name.
+            stale = sorted(n for n in have if n in wanted and re.search(args.overwrite, n)) if args.overwrite else []
+            if stale:
+                if not args.dry_run:
+                    by_name = {e.name: e for e in existing}
+                    for name in stale:
+                        await by_name[name].delete()
+                    print(f"\ndeleted {len(stale)} emoji matching {args.overwrite!r} for re-upload")
+                have -= set(stale)
 
             missing = {n: p for n, p in wanted.items() if n not in have}
             already = len(wanted) - len(missing)
 
             print(f"\nalready on the application : {len(have)}")
+            if stale:
+                print(f"matched --overwrite        : {len(stale)}")
             print(f"selected for upload        : {len(wanted)}  ({already} already present, {len(missing)} missing)")
             after = len(have) + len(missing)
             print(f"after this run             : {after} / {EMOJI_LIMIT}")

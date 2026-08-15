@@ -91,6 +91,34 @@ type_dict = {
 # this list stores unique non-duplicate cattypes
 cattypes = list(type_dict.keys())
 
+# How much one cat of each type is "worth" — the inverse of its spawn weight,
+# normalized so a Fine is ~4.3 and an eGirl ~2167. /inventory's Value column and
+# the pack-open rarity roll already computed this inline; the rainbow aura roll
+# needs it too, so it lives here once.
+CAT_VALUES = {k: sum(type_dict.values()) / v for k, v in type_dict.items()}
+
+# Aura suffixes, best first. An aura is a cosmetic glow on your cat emoji that
+# says how much of this server's supply of that rarity you personally hold:
+#   r  rainbow — random drop on catch, permanent, never recomputed
+#   a  red     — you're the server's #1 holder of this type
+#   p  pink    — you hold >7% of the server's supply
+#   c  cyan    — >4%
+#   y  yellow  — >2%
+# Stored one char per cattype in profile.cat_auras; recomputed by refresh_auras.
+AURA_TIERS = ("r", "a", "p", "c", "y")
+# ...of which everything but rainbow is recomputed (and so can be lost again).
+AURA_EARNED_TIERS = ("a", "p", "c", "y")
+# supply share needed for each threshold tier
+AURA_THRESHOLDS = {"p": 0.07, "c": 0.04, "y": 0.02}
+# odds a catch drops the permanent rainbow aura for the type that spawned.
+# Chance is CAT_VALUES[t]/AURA_RAINBOW_ODDS and CAT_VALUES is the inverse of the
+# spawn weight, so the two cancel: every rarity is exactly 1-in-100,000 per
+# catch, and no rainbow is easier to farm than another.
+AURA_RAINBOW_ODDS = 100000
+# 1-in-N catches also re-ranks that guild's threshold auras, so they stay roughly
+# honest without anyone opening /lb. Sampled because it's a guild-wide UPDATE.
+AURA_REFRESH_ON_CATCH_ODDS = 20
+
 # generate a dict with lowercase'd keys
 cattype_lc_dict = {i.lower(): i for i in cattypes}
 
@@ -809,6 +837,38 @@ def fish_emoji(cattype_name):
     if name in emojis:
         return emojis[name]
     return get_emoji(cattype_name.lower() + "cat")
+
+
+def get_short_emoji(name):
+    # <:finecat:123456> -> <:i:123456>. Discord only needs the ID to render an
+    # emoji, so blanking the name buys ~7 chars a pop — the difference between
+    # a rain summary fitting in one message and getting truncated.
+    return re.sub(r":[A-Za-z0-9_]*:", ":i:", get_emoji(name), count=1)
+
+
+def has_aura_art(cattype_name, suffix):
+    """Whether the <type>cat_<suffix> aura variant was actually uploaded."""
+    return f"{cattype_name.lower()}cat_{suffix}" in emojis
+
+
+def get_aura_emoji(cattype_name, auras, short=False):
+    """The player's cat emoji for `cattype_name`, wearing their aura if any.
+
+    `auras` is a profile's cat_auras array — one char per entry in cattypes,
+    ' ' for none. Falls back to the plain emoji whenever the aura variant isn't
+    among the uploaded app emojis, same as fish_emoji does: upstream never drew
+    aura art for the fork-only Baby/Shadow/Terminator types, and a half-finished
+    emoji upload shouldn't turn people's cats into 🔳.
+    """
+    base = cattype_name.lower() + "cat"
+    try:
+        suffix = (auras[cattypes.index(cattype_name)] or "").strip()
+    except (ValueError, IndexError, TypeError):
+        # unknown type, or an array shorter than cattypes because a rarity got
+        # added after the column was sized — no aura rather than a crash
+        suffix = ""
+    name = f"{base}_{suffix}" if suffix in AURA_TIERS and has_aura_art(cattype_name, suffix) else base
+    return get_short_emoji(name) if short else get_emoji(name)
 
 
 def get_news():
@@ -7813,7 +7873,7 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
             profile.bonus_catches += 1
             profile[f"cat_{cattype}"] += 3
             await profile.save()
-            icon = get_emoji(cattype.lower() + "cat")
+            icon = get_aura_emoji(cattype, profile.cat_auras)
             await interaction.response.send_message(f"✅ {interaction.user.mention} got +3 {icon} {cattype} bonus cats.")
             await progress(interaction, profile, "bonus")
             await progress(interaction, profile, "bonus_win")
@@ -8580,6 +8640,34 @@ async def on_message(message: discord.Message):
                     else:
                         suffix_string += f"\n{blesser_text} blessed your catch and it got saved!"
 
+                # aura farming — roll for the permanent rainbow aura.
+                # Deliberately rolls on the SPAWN rarity, not the boosted one:
+                # the odds are the inverse of the spawn weight, so rolling on
+                # what spawned makes every rarity exactly 1-in-AURA_RAINBOW_ODDS
+                # per catch. Rolling on the boosted type instead would let a
+                # prism farm the rare rainbows.
+                # `in CAT_VALUES` is the guard, not a style choice: on the
+                # fetch-message fallback path channel.cattype is "", and there's
+                # no rarity to award a rainbow for.
+                if channel.cattype in CAT_VALUES and random.random() < CAT_VALUES[channel.cattype] / AURA_RAINBOW_ODDS:
+                    # rebuild the list instead of mutating in place — catpg
+                    # tracks dirty fields through __setattr__, so an in-place
+                    # edit would never be written back (upstream shipped this
+                    # bug and had to fix it a commit later)
+                    new_auras = list(user.cat_auras or [])
+                    new_auras += [" "] * (len(cattypes) - len(new_auras))
+                    if new_auras[cattypes.index(channel.cattype)] != "r":
+                        new_auras[cattypes.index(channel.cattype)] = "r"
+                        user.cat_auras = new_auras
+                        # Don't announce what we can't show. The aura is stored
+                        # either way, so it lights up the moment the art for the
+                        # fork-only rarities gets uploaded.
+                        if has_aura_art(channel.cattype, "r"):
+                            suffix_string += (
+                                f"\n{get_emoji(channel.cattype.lower() + 'cat_r')} "
+                                f"Rainbow aura for {channel.cattype} cat unlocked!!!"
+                            )
+
                 # calculate prism boost
                 total_count = await Prism.count("guild_id = $1", message.guild.id)
                 user_count = await Prism.count("guild_id = $1 AND user_id = $2", message.guild.id, message.author.id)
@@ -8662,9 +8750,9 @@ async def on_message(message: discord.Message):
                     xp_tag = f" (+{PRISM_OWNER_XP_PER_BOOST} XP)" if is_cross_user_boost else ""
                     if normal_bump:
                         if double_boost:
-                            suffix_string += f"\n{get_emoji('prism')}{get_emoji('prism')} {boost_applied_prism} boosted this catch twice from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!{xp_tag}"
+                            suffix_string += f"\n{get_emoji('prism')}{get_emoji('prism')} {boost_applied_prism} boosted this catch twice from a {get_aura_emoji(le_old_emoji, user.cat_auras)} {le_old_emoji} cat!{xp_tag}"
                         else:
-                            suffix_string += f"\n{get_emoji('prism')} {boost_applied_prism} boosted this catch from a {get_emoji(le_old_emoji.lower() + 'cat')} {le_old_emoji} cat!{xp_tag}"
+                            suffix_string += f"\n{get_emoji('prism')} {boost_applied_prism} boosted this catch from a {get_aura_emoji(le_old_emoji, user.cat_auras)} {le_old_emoji} cat!{xp_tag}"
                     elif not channel.forcespawned:
                         suffix_string += (
                             f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but failed! A {rainboost // 60}m rain will start!{xp_tag}"
@@ -8711,7 +8799,7 @@ async def on_message(message: discord.Message):
                 def _is_type(target):
                     return target and (spawn_type == target or caught_type == target)
 
-                icon = get_emoji(le_emoji.lower() + "cat")
+                icon = get_aura_emoji(le_emoji, user.cat_auras)
 
                 if channel.channel_id in config.cat_cought_rain:
                     if le_emoji not in config.cat_cought_rain[channel.channel_id]:
@@ -8832,7 +8920,7 @@ async def on_message(message: discord.Message):
                         if cat_rain_end or channel.cat_rains > 0:
                             # rains move fast - flat +1 instead of a minigame
                             user[f"cat_{bonus_cattype}"] += 1
-                            suffix_string += f"\n🎁 Bonus {get_emoji(bonus_cattype.lower() + 'cat')} {bonus_cattype} cat! +1 extra cat."
+                            suffix_string += f"\n🎁 Bonus {get_aura_emoji(bonus_cattype, user.cat_auras)} {bonus_cattype} cat! +1 extra cat."
                             if channel.channel_id in config.cat_cought_rain:
                                 if bonus_cattype not in config.cat_cought_rain[channel.channel_id]:
                                     config.cat_cought_rain[channel.channel_id][bonus_cattype] = []
@@ -8883,7 +8971,7 @@ async def on_message(message: discord.Message):
                 if bonus_minigame and gather_results[1]:
                     # defined here (not on every catch) — bonus rolls are rare
                     async def send_bonus_prompt(confirm_msg):
-                        bonus_icon = get_emoji(bonus_cattype.lower() + "cat")
+                        bonus_icon = get_aura_emoji(bonus_cattype, user.cat_auras)
                         attempted = False
                         prompt = None
 
@@ -9157,6 +9245,14 @@ async def on_message(message: discord.Message):
                                 break
 
                     await channel.save()
+
+                    # Occasionally re-rank this guild's auras for the rarity
+                    # that was just caught, so they drift toward correct without
+                    # anyone opening /lb. Sampled rather than every catch because
+                    # it's a guild-wide UPDATE, and fired detached so the catch
+                    # confirmation never waits on it.
+                    if random.randint(1, AURA_REFRESH_ON_CATCH_ODDS) == 1:
+                        bot.loop.create_task(_refresh_auras_bg(message.guild.id, channel.cattype))
 
                     # Bait & Switch: schedule an immediate respawn that races
                     # the normal post-cooldown spawn. spawn_cat is self-guarded
@@ -10463,6 +10559,102 @@ async def stats_command(message: discord.Interaction, person_id: Optional[discor
     await message.followup.send(embed=embedVar)
 
 
+# Discord has no table markup and its font is proportional, so the only way to
+# line up a second column inside an embed is to pad with spaces of known width.
+# Values are px at msg2img's 32px measuring scale; 2px is the finest step, so
+# any gap is reachable to within a pixel — half a pixel as rendered.
+#
+# These widths are NOT measurable locally: gg sans ships no glyphs for the
+# fixed-width spaces (PIL reports one fallback width for all of them), so it's
+# the viewer's browser that substitutes them, at their canonical Unicode
+# fractions of an em. Hence the hardcoded table. The one entry we can verify,
+# U+0020, measures 7px in the real gg sans — which is what pins the scale.
+#
+# On screen these keys are nine indistinguishable blanks, and anything that
+# normalizes whitespace (an editor, a careless paste) silently collapses the
+# dict to two entries and wrecks the layout — hence the assert below, and the
+# codepoint named in each comment. Verify with ord(), not your eyes.
+INVENTORY_SHIFT_WIDTHS = {
+    "　": 32,  # ideographic space — 1em  (U+3000)
+    " ": 18,  # figure space — one digit  (U+2007)
+    " ": 16,  # en space — 1/2em  (U+2002)
+    " ": 10,  # three-per-em space  (U+2004)
+    " ": 8,  # four-per-em space  (U+2005)
+    " ": 7,  # plain space  (U+0020)
+    " ": 6,  # thin space  (U+2009)
+    " ": 5,  # six-per-em space  (U+2006)
+    " ": 2,  # hair space  (U+200A)
+}
+# guards the collapse described above
+assert len(INVENTORY_SHIFT_WIDTHS) == 9, "padding characters collapsed — check for normalized whitespace"
+# below this many rows a single column reads better than two cramped ones
+INVENTORY_COLUMN_MIN_ROWS = 10
+# breathing room between the two columns, in the same 32px-scale px
+INVENTORY_COLUMN_GAP = 50
+# widest gap the padding table is precomputed for
+_SHIFT_MAX = 1000
+
+
+def _build_shift_table():
+    """Fewest-characters spelling of every gap width from 0 to _SHIFT_MAX px.
+
+    Classic coin-change DP over INVENTORY_SHIFT_WIDTHS. Built once at import:
+    upstream rebuilds the whole table inside the per-row helper, which at 24 cat
+    types means reconstructing a 1000-entry table a dozen times for every single
+    /inventory. It only depends on constants, so it can just be a module global.
+    """
+    widths = sorted(set(INVENTORY_SHIFT_WIDTHS.values()))
+    char_for = {v: k for k, v in INVENTORY_SHIFT_WIDTHS.items()}
+    # best[w] = (character count, previous width, width of the char added)
+    best = {0: (0, None, None)}
+    for target in range(1, _SHIFT_MAX + 1):
+        winner = None
+        for w in widths:
+            prev = target - w
+            if prev in best and (winner is None or best[prev][0] + 1 < winner[0]):
+                winner = (best[prev][0] + 1, prev, w)
+        if winner is not None:
+            best[target] = winner
+
+    table = {}
+    for width in best:
+        chars, cursor = [], width
+        while cursor:
+            _, prev, added = best[cursor]
+            chars.append(char_for[added])
+            cursor = prev
+        table[width] = "".join(chars)
+    return table
+
+
+_SHIFT_TABLE = _build_shift_table()
+_SHIFT_REACHABLE = sorted(_SHIFT_TABLE)
+
+
+def _shift_to(width):
+    """Spaces totalling as close to `width` px as the character set allows."""
+    if width <= 0:
+        return ""
+    width = min(width, _SHIFT_MAX)
+    closest = min(_SHIFT_REACHABLE, key=lambda w: (abs(w - width), len(_SHIFT_TABLE[w])))
+    return _SHIFT_TABLE[closest]
+
+
+def _two_column(elements):
+    """Lay rows out left-to-right in two columns padded to a common width."""
+    left, right = elements[0::2], elements[1::2]
+    widths = {row: msg2img.markdown_width(row) for row in left}
+    goal = max(widths.values()) + INVENTORY_COLUMN_GAP
+    lines = []
+    for idx, row in enumerate(left):
+        if idx >= len(right):
+            # odd number of rows — last one has no partner, so no padding
+            lines.append(row)
+            break
+        lines.append(row + _shift_to(goal - widths[row]) + right[idx])
+    return "\n".join(lines)
+
+
 async def gen_inventory(message, person_id):
     # check if we are viewing our own inv or some other person
     if person_id is None:
@@ -10541,25 +10733,36 @@ async def gen_inventory(message, person_id):
     valuenum = 0
 
     # for every cat
-    cat_desc = ""
+    cat_elements = []
     for i in cattypes:
-        icon = get_emoji(i.lower() + "cat")
+        icon = get_aura_emoji(i, person.cat_auras)
         cat_num = person[f"cat_{i}"]
         if cat_num < 0:
             debt = True
         if cat_num != 0:
             total += cat_num
-            valuenum += (sum(type_dict.values()) / type_dict[i]) * cat_num
-            cat_desc += f"{icon} **{i}** {cat_num:,}\n"
+            valuenum += CAT_VALUES[i] * cat_num
+            cat_elements.append(f"{icon} **{i}** {cat_num:,}")
         else:
             give_collector = False
 
     if user.custom:
         icon = get_emoji(str(user.user_id) + "cat")
-        cat_desc += f"{icon} **{user.custom}** {user.custom_num:,}"
+        cat_elements.append(f"{icon} **{user.custom}** {user.custom_num:,}")
 
-    if len(cat_desc) == 0:
+    # Column layout is about the screen it's being read on, so it follows
+    # whoever ran the command — not the person whose inventory this is. Same
+    # row object in the overwhelmingly common case of viewing your own.
+    viewer = user if me else await User.get_or_create(user_id=message.user.id)
+
+    if not cat_elements:
         cat_desc = f"u hav no cats {get_emoji('cat_cry')}"
+    elif len(cat_elements) <= INVENTORY_COLUMN_MIN_ROWS or viewer.compact_inventory:
+        # Short lists look fine stacked, and compact_inventory is the opt-out
+        # for anyone whose client wraps the padded version (phones, mostly).
+        cat_desc = "\n".join(cat_elements)
+    else:
+        cat_desc = _two_column(cat_elements)
 
     if embedVar.description:
         coins_now = int(person.coins or 0)
@@ -10679,8 +10882,36 @@ async def inventory(message: discord.Interaction, person_id: Optional[discord.Us
                     highlighted_stat = stat
                     break
 
+        async def toggle_compact_inventory(interaction: discord.Interaction):
+            if not await _safe_defer(interaction):
+                return
+            user.compact_inventory = not user.compact_inventory
+            await user.save()
+            await interaction.edit_original_response(
+                content=(
+                    "Your inventory will now list cats in one column."
+                    if user.compact_inventory
+                    else "Your inventory will now list cats in two columns."
+                ),
+                embed=None,
+                view=None,
+            )
+
         view = View(timeout=VIEW_TIMEOUT)
+        layout_button = Button(
+            style=ButtonStyle.blurple,
+            label="Switch to One Column" if not user.compact_inventory else "Switch to Two Columns",
+        )
+        layout_button.callback = toggle_compact_inventory
+        view.add_item(layout_button)
         view.add_item(category_select())
+
+        # compact_inventory is stored inverted from how it reads here: True means
+        # the plain one-per-line list, False (the default) means two columns.
+        layout_line = f"""
+
+__Inventory Layout__
+{"1️⃣ One column" if user.compact_inventory else "2️⃣ Two columns"}"""
 
         if user.premium:
             if not user.color:
@@ -10692,7 +10923,7 @@ Global, change with `/editprofile`.
 **Image**: {"Yes" if user.image.startswith("https://cdn.discordapp.com/attachments/") else "No"}
 
 __Highlighted Stat__
-{highlighted_stat[1]} {highlighted_stat[2]}"""
+{highlighted_stat[1]} {highlighted_stat[2]}{layout_line}"""
 
             embed = discord.Embed(
                 title=f"{(user.emoji + ' ') if user.emoji else ''}Edit Profile", description=description, color=discord.Colour.from_str(user.color)
@@ -10712,7 +10943,7 @@ __Highlighted Stat__
 👑 **Image**
 
 __Highlighted Stat__
-{highlighted_stat[1]} {highlighted_stat[2]}"""
+{highlighted_stat[1]} {highlighted_stat[2]}{layout_line}"""
 
             embed = discord.Embed(title="Edit Profile", description=description, color=Colors.brown)
 
@@ -10897,8 +11128,8 @@ async def rain_end(message, channel, force_summary=None):
             if key in pack_names:
                 rain_packs.append(key)
 
-        funny_cat_emojis = {k: re.sub(r":[A-Za-z0-9_]*:", ":i:", get_emoji(k.lower() + "cat"), count=1) for k in rain_cats}
-        funny_pack_emojis = {k: re.sub(r":[A-Za-z0-9_]*:", ":i:", get_emoji(k.lower() + "pack"), count=1) for k in rain_packs}
+        funny_cat_emojis = {k: get_short_emoji(k.lower() + "cat") for k in rain_cats}
+        funny_pack_emojis = {k: get_short_emoji(k.lower() + "pack") for k in rain_packs}
 
         funny_emojis = funny_cat_emojis | funny_pack_emojis
 
@@ -10909,6 +11140,26 @@ async def rain_end(message, channel, force_summary=None):
                 if user_id not in reverse_mapping:
                     reverse_mapping[user_id] = []
                 reverse_mapping[user_id].append(thing_type)
+
+        # Auras for everyone who caught something, in ONE query. The keys of
+        # reverse_mapping are "<@123>" mention strings, so dig the id back out.
+        # A busy rain can have dozens of catchers and this runs while the
+        # channel is still locked, so a query per person is not an option.
+        auras_by_user = {}
+        rain_user_ids = set()
+        for mention in reverse_mapping:
+            found = re.findall(r"\d+", str(mention))
+            if found:
+                rain_user_ids.add(int(found[0]))
+        if rain_user_ids:
+            try:
+                for row in await Profile.collect_limit(
+                    ["user_id", "cat_auras"], "guild_id = $1 AND user_id = ANY($2)", message.guild.id, list(rain_user_ids)
+                ):
+                    auras_by_user[row["user_id"]] = row["cat_auras"]
+            except Exception:
+                # cosmetic — fall through and everyone renders aura-less
+                logging.exception("rain summary aura lookup failed")
 
         evil_types = []
         epic_fail = False
@@ -10922,13 +11173,18 @@ async def rain_end(message, channel, force_summary=None):
                 dictdict = type_dict | pack_yeah
                 cat_types.sort(reverse=True, key=lambda x: dictdict[x])
                 pack_amount = 0
+                _found = re.findall(r"\d+", str(user_id))
+                my_auras = auras_by_user.get(int(_found[0]), []) if _found else []
                 for cat_type_two in cat_types:
                     if cat_type_two in evil_types:
                         shortened_types = True
                         continue
                     if cat_type_two in pack_names:
                         pack_amount += 1
-                    show_cats += funny_emojis[cat_type_two]
+                        show_cats += funny_emojis[cat_type_two]
+                    else:
+                        # cats wear the catcher's own aura; packs have none
+                        show_cats += get_aura_emoji(cat_type_two, my_auras, short=True)
                 if show_cats != "":
                     if shortened_types:
                         show_cats = ": ..." + show_cats
@@ -11594,7 +11850,7 @@ async def packs(message: discord.Interaction):
             cat_summary = []
             for cat in cattypes:
                 if results_percat[cat] > 0:
-                    cat_summary.append(f"{get_emoji(cat.lower() + 'cat')} x{results_percat[cat]:,}")
+                    cat_summary.append(f"{get_aura_emoji(cat, user.cat_auras)} x{results_percat[cat]:,}")
             final_result = "\n".join(cat_summary)
 
         if len(final_result) > 0:
@@ -11775,8 +12031,8 @@ async def packs(message: discord.Interaction):
             # else: variant rolled but final tier is special — silently
             # behave as a regular open (coin_amount stays 0, goal_value full).
         chosen_type = random.choice(_season_eligible_cattypes())
-        cat_emoji = get_emoji(chosen_type.lower() + "cat")
-        pre_cat_amount = goal_value / (sum(type_dict.values()) / type_dict[chosen_type])
+        cat_emoji = get_aura_emoji(chosen_type, user.cat_auras)
+        pre_cat_amount = goal_value / CAT_VALUES[chosen_type]
         if pre_cat_amount % 1 > random.random():
             cat_amount = math.ceil(pre_cat_amount)
         else:
@@ -11787,7 +12043,7 @@ async def packs(message: discord.Interaction):
         if pre_cat_amount < 1:
             if is_single:
                 reward_texts.append(
-                    reward_texts[-1] + f"\n{round(pre_cat_amount * 100, 2)}% chance for a {get_emoji(chosen_type.lower() + 'cat')} {chosen_type} cat"
+                    reward_texts[-1] + f"\n{round(pre_cat_amount * 100, 2)}% chance for a {get_aura_emoji(chosen_type, user.cat_auras)} {chosen_type} cat"
                 )
                 reward_texts.append(reward_texts[-1] + ".")
                 reward_texts.append(reward_texts[-1] + ".")
@@ -11821,12 +12077,12 @@ async def packs(message: discord.Interaction):
                     if is_single:
                         reward_texts.append(reward_texts[-1] + "\n🎲 Re-rolling cat type...")
                     new_type = random.choice(_season_eligible_cattypes())
-                    new_pre = goal_value / (sum(type_dict.values()) / type_dict[new_type])
+                    new_pre = goal_value / CAT_VALUES[new_type]
                     if new_pre % 1 > random.random():
                         new_amount = math.ceil(new_pre)
                     else:
                         new_amount = math.floor(new_pre)
-                    new_emoji = get_emoji(new_type.lower() + "cat")
+                    new_emoji = get_aura_emoji(new_type, user.cat_auras)
                     if new_amount >= 1:
                         chosen_type = new_type
                         cat_amount = new_amount
@@ -11878,7 +12134,7 @@ async def packs(message: discord.Interaction):
             build_string += f" {cat_emoji} {cat_amount:,}"
         if is_single:
             if not skip_final_line:
-                reward_texts.append(reward_texts[-1] + f"\nYou got {get_emoji(chosen_type.lower() + 'cat')} {cat_amount:,} {chosen_type} cats!")
+                reward_texts.append(reward_texts[-1] + f"\nYou got {get_aura_emoji(chosen_type, user.cat_auras)} {cat_amount:,} {chosen_type} cats!")
             return chosen_type, cat_amount, upgrades, reward_texts, coin_amount
         return chosen_type, cat_amount, upgrades, build_string, coin_amount
 
@@ -17786,10 +18042,11 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                     valuestr += f"☔ {v:,}m of Cat Rains\n"
                     valuenum += 900 * v
                 elif k in cattypes:
-                    # cats
-                    valuenum += (sum(type_dict.values()) / type_dict[k]) * v
+                    # cats — wearing the aura of whoever is giving them away,
+                    # not the viewer's
+                    valuenum += CAT_VALUES[k] * v
                     total += v
-                    aicon = get_emoji(k.lower() + "cat")
+                    aicon = get_aura_emoji(k, (user1 if number == 1 else user2).cat_auras)
                     valuestr += f"{aicon} {k} {v:,}\n"
                 else:
                     # packs
@@ -20929,7 +21186,7 @@ You can stop. That's okay. Seriously.
                 if bounty_total - bounty_progress == 1:
                     desc = desc.replace("cats", "cat")
 
-                desc = desc.replace("type", f"{get_emoji(bounty_type.lower() + 'cat')} {bounty_type}")
+                desc = desc.replace("type", f"{get_aura_emoji(bounty_type, user.cat_auras)} {bounty_type}")
 
             if not user.hibernation:
                 if user.bounties == 1:
@@ -20948,9 +21205,9 @@ You can stop. That's okay. Seriously.
                     format_bounty("bonus")
                 desc += "\n"
                 if not all_complete:
-                    desc += f"\n**Pay Up!** {amount} {get_emoji(cat_type.lower() + 'cat')} {cat_type} after completing your bounties"
+                    desc += f"\n**Pay Up!** {amount} {get_aura_emoji(cat_type, user.cat_auras)} {cat_type} after completing your bounties"
                 else:
-                    desc += f"\n**Pay Up!** {amount} {get_emoji(cat_type.lower() + 'cat')} {cat_type} to proceed"
+                    desc += f"\n**Pay Up!** {amount} {get_aura_emoji(cat_type, user.cat_auras)} {cat_type} to proceed"
             else:
                 desc += "\nPress **Begin Bounties** to view your bounties and cost!"
                 if user.catnip_active > time.time():
@@ -21307,6 +21564,97 @@ async def catch(message: discord.Interaction, msg: discord.Message):
         await achemb(message, "not_like_that", "followup")
 
 
+def _aura_case_sql(idx, cattype):
+    """The CASE that decides one profile's aura for one rarity.
+
+    `idx` is the 1-based cat_auras slot (PostgreSQL arrays start at 1). Reads
+    p.* for the profile row and s.* for that guild's precomputed supply stats.
+    Tiers are checked best-first, so a #1 holder never gets downgraded to pink.
+    """
+    col = f'p."cat_{cattype}"'
+    cur = f"COALESCE(p.cat_auras[{idx}], ' ')"
+    return (
+        # rainbow is a permanent drop, not a ranking — it outranks and survives
+        # everything, so it has to be the first branch
+        f"CASE WHEN {cur} = 'r' THEN 'r' "
+        # `> 0` matters: without it, in a guild where nobody owns this rarity
+        # every row ties MAX() = 0 and the whole server gets the #1 aura for a
+        # cat none of them have. (upstream has this bug.)
+        f"WHEN {col} > 0 AND {col} = s.maximum_{idx} THEN 'a' "
+        f"WHEN {col} > s.total_{idx} * {AURA_THRESHOLDS['p']} THEN 'p' "
+        f"WHEN {col} > s.total_{idx} * {AURA_THRESHOLDS['c']} THEN 'c' "
+        f"WHEN {col} > s.total_{idx} * {AURA_THRESHOLDS['y']} THEN 'y' "
+        # held a threshold aura, no longer qualifies -> back to nothing
+        f"WHEN {cur} IN ({', '.join(repr(t) for t in AURA_EARNED_TIERS)}) THEN ' ' "
+        f"ELSE {cur} END"
+    )
+
+
+async def refresh_auras(guild_id, specific_cat=None):
+    """Recompute one guild's threshold auras (rainbows are left alone).
+
+    One statement: a CTE totals the guild's supply of each rarity, then a single
+    UPDATE re-derives every member's aura from it. `specific_cat` narrows it to
+    one rarity (what /lb does when you're looking at a single cat type);
+    None does all of them at once.
+
+    The `IS DISTINCT FROM` guard is the important part — this touches every
+    profile row in the guild, and in a big server the overwhelming majority of
+    them don't change on any given run. Without it we'd rewrite thousands of
+    rows to store what they already said.
+
+    Takes a guild_id rather than upstream's Interaction/Message so the catch
+    path can fire it without inventing a message object.
+    """
+    targets = [specific_cat] if specific_cat else cattypes
+    idxs = [(cattypes.index(c) + 1, c) for c in targets if c in cattypes]
+    if not idxs:
+        return
+
+    # supply totals ignore debt: a member sitting at -40 Fine shouldn't shrink
+    # the pool everyone else's percentage is measured against
+    stats = ", ".join(
+        f'COALESCE(SUM(GREATEST("cat_{cat}", 0)), 0) AS total_{i}, COALESCE(MAX("cat_{cat}"), 0) AS maximum_{i}'
+        for i, cat in idxs
+    )
+    if specific_cat:
+        i, cat = idxs[0]
+        assignment = f"cat_auras[{i}] = {_aura_case_sql(i, cat)}"
+        changed = f"COALESCE(p.cat_auras[{i}], ' ') IS DISTINCT FROM {_aura_case_sql(i, cat)}"
+    else:
+        auras = ", ".join(_aura_case_sql(i, cat) for i, cat in idxs)
+        assignment = f"cat_auras = ARRAY[{auras}]::character(1)[]"
+        changed = f"p.cat_auras IS DISTINCT FROM ARRAY[{auras}]::character(1)[]"
+
+    await pool.execute(
+        f"""
+        WITH s AS (
+            SELECT {stats}
+            FROM profile
+            WHERE guild_id = $1
+        )
+        UPDATE profile AS p
+        SET {assignment}
+        FROM s
+        WHERE p.guild_id = $1 AND {changed}
+        """,
+        guild_id,
+    )
+
+
+async def _refresh_auras_bg(guild_id, specific_cat=None):
+    """refresh_auras for fire-and-forget callers.
+
+    A detached create_task that raises logs "Task exception was never retrieved"
+    with no useful context, and auras are cosmetic — a failed refresh should cost
+    a log line, not a traceback in the catch path.
+    """
+    try:
+        await refresh_auras(guild_id, specific_cat)
+    except Exception:
+        logging.exception("background aura refresh failed for guild %s", guild_id)
+
+
 @bot.tree.command(description="View the leaderboards (lbs)")
 @discord.app_commands.rename(leaderboard_type="type")
 @discord.app_commands.describe(
@@ -21351,7 +21699,9 @@ async def leaderboards(
 
             if specific_cat != "All":
                 result = await Profile.collect_limit(
-                    ["user_id", f"cat_{specific_cat}"], f'guild_id = $1 AND "cat_{specific_cat}" > 0 ORDER BY "cat_{specific_cat}" DESC', message.guild.id
+                    ["user_id", f"cat_{specific_cat}", "cat_auras"],
+                    f'guild_id = $1 AND "cat_{specific_cat}" > 0 ORDER BY "cat_{specific_cat}" DESC',
+                    message.guild.id,
                 )
                 final_value = f"cat_{specific_cat}"
             else:
@@ -21547,9 +21897,10 @@ async def leaderboards(
         elif messager and type == "Fast" and messager >= 99999999999999:
             messager_placement = 0
 
+        # On a single-cat board the emoji is per-row, since each entry wears its
+        # own owner's aura — it gets reassigned inside the loop below. Everything
+        # else has no emoji at all.
         emoji = ""
-        if type == "Cats" and specific_cat != "All":
-            emoji = get_emoji(specific_cat.lower() + "cat")
 
         # the little place counter
         current = 1
@@ -21594,11 +21945,20 @@ async def leaderboards(
                     break
                 elif type == "Coins" and num == 0:
                     break
+                if type == "Cats" and specific_cat != "All":
+                    emoji = get_aura_emoji(specific_cat, i["cat_auras"])
                 string = string + f"{current}. {emoji} **{num:,}** {unit}: <@{i['user_id']}>\n"
 
             if message.user.id == i["user_id"] and current <= 5:
                 leader = True
             current += 1
+
+        # The loop left `emoji` holding whichever aura the last-listed player
+        # happened to have. The "..." placement lines below are about the viewer,
+        # not that player, so drop back to the plain icon rather than handing
+        # someone else's aura to them.
+        if type == "Cats" and specific_cat != "All":
+            emoji = get_emoji(specific_cat.lower() + "cat")
 
         # add the messager and interactor
         if messager_placement > show_amount or interactor_placement > show_amount:
@@ -21699,6 +22059,17 @@ async def leaderboards(
 
         if leader:
             await achemb(message, "leader", "followup")
+
+        # Recompute auras AFTER the board has been sent, never before: the
+        # UPDATE walks every profile row in the guild, and making the player
+        # wait on it just to render a leaderboard they can already see is a
+        # good way to blow the interaction window. The board they're looking
+        # at is one refresh stale; the next one they open is current.
+        if type == "Cats":
+            try:
+                await refresh_auras(message.guild.id, None if specific_cat == "All" else specific_cat)
+            except Exception:
+                logging.exception("aura refresh failed for guild %s", message.guild.id)
 
     await lb_handler(message, leaderboard_type, False, cat_type)
 

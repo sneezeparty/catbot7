@@ -400,7 +400,8 @@ CREATE TABLE public.profile (
     bonus_played integer DEFAULT 0 NOT NULL,
     scratchcards_scratched integer DEFAULT 0 NOT NULL,
     scratchcards_earned integer DEFAULT 0 NOT NULL,
-    chaos_clicks integer DEFAULT 0 NOT NULL
+    chaos_clicks integer DEFAULT 0 NOT NULL,
+    cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[24])
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;
@@ -468,7 +469,8 @@ CREATE TABLE public."user" (
     last_bakegg_get smallint DEFAULT 0,
     queued_chef_pack boolean DEFAULT false,
     last_catch_day bigint DEFAULT 0,
-    entitlements jsonb DEFAULT '[]'::jsonb NOT NULL
+    entitlements jsonb DEFAULT '[]'::jsonb NOT NULL,
+    compact_inventory boolean DEFAULT false
 );
 
 ALTER TABLE public."user" OWNER TO cat_bot;

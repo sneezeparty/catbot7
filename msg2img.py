@@ -18,17 +18,76 @@
 import datetime
 import io
 import os
+import re
 
 import discord
 import requests
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 from pilmoji import Pilmoji
+from pilmoji.helpers import getsize as pilmoji_getsize
 
 
 def getsize(font, token):
     # thanks pillow
     left, top, right, bottom = font.getbbox(token)
     return right - left, bottom - top
+
+
+# --- text measurement, used by /inventory's two-column layout ---------------
+#
+# Discord renders embeds in a proportional font, so laying out two columns means
+# knowing how wide a line will actually be in pixels. Everything below measures
+# at 32px, i.e. double Discord's 16px body text — the padding characters the
+# caller picks from have integer widths at that scale, so working at 1x would
+# round them all into each other.
+#
+# Upstream downloads Discord's real gg sans woff2 at import time. We use the
+# copy already in fonts/ instead: no network call on startup, and so no way for
+# a rotated Discord asset URL to take the bot down.
+#
+# All four styles map to the same face deliberately. The repo has no real gg
+# sans Bold, and substituting whitneysemibold measured WORSE, not better: across
+# all 24 cat type names the row-width error spread is 6px with ggsans-Medium
+# throughout versus 10px with whitneysemibold for the bold run. Spread is what
+# matters — a constant offset cancels out, since every row is padded to the same
+# target. 6px here is 3px as rendered, under half a space.
+FONT_SIZE = 32
+EMOJI_SCALE = 1.4
+
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_BODY_FACE = ImageFont.truetype(os.path.join(_FONT_DIR, "ggsans-Medium.ttf"), FONT_SIZE)
+body_fonts = {"normal": _BODY_FACE, "bold": _BODY_FACE, "italic": _BODY_FACE, "bold_italic": _BODY_FACE}
+
+_MD_RE = re.compile(r"\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*")
+
+
+def _parse_markdown(text: str) -> list[tuple[str, str]]:
+    """Split text into (style, chunk) pairs so bold runs measure as bold."""
+    segments: list[tuple[str, str]] = []
+    pos = 0
+    for m in _MD_RE.finditer(text):
+        if m.start() > pos:
+            segments.append(("normal", text[pos : m.start()]))
+        if m.group(1) is not None:
+            segments.append(("bold_italic", m.group(1)))
+        elif m.group(2) is not None:
+            segments.append(("bold", m.group(2)))
+        else:
+            segments.append(("italic", m.group(3)))
+        pos = m.end()
+    if pos < len(text):
+        segments.append(("normal", text[pos:]))
+    return segments
+
+
+def _measure(text: str, font: ImageFont.FreeTypeFont) -> int:
+    """Rendered width of `text` in px, counting <:name:id> emoji as one glyph."""
+    return pilmoji_getsize(text, font, emoji_scale_factor=EMOJI_SCALE)[0] if text else 0
+
+
+def markdown_width(text: str) -> int:
+    """Rendered width of a line that may contain **bold** and custom emoji."""
+    return sum(_measure(chunk, body_fonts[style]) for style, chunk in _parse_markdown(text))
 
 
 def msg2img(message: discord.Message, member: discord.Member):

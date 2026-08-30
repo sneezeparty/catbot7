@@ -21128,6 +21128,14 @@ You can stop. That's okay. Seriously.
         await edit_main(interaction, await gen_main())
 
     async def gen_main():
+        # nonlocal, not a fresh local: pay_catnip's "nice try" guard compares
+        # the DB level against this, and it used to be frozen at whatever the
+        # level was when /catnip was invoked. So the panel only ever allowed
+        # ONE level-up — begin bounties, complete them, press Pay Up! again on
+        # the same (correctly re-rendered) panel and you got "nice try" until
+        # you re-ran /catnip. Re-pointing it here keeps the guard meaning what
+        # it's supposed to mean: "the panel you clicked is out of date".
+        nonlocal level
         await user.refresh_from_db()
         level = user.catnip_level
         level_data = catnip_list["levels"][level]
@@ -21274,6 +21282,23 @@ You can stop. That's okay. Seriously.
         elif user.catnip_level < 11:
 
             async def reroll_warning(interaction2):
+                # Acknowledge as a message UPDATE before sending the warning,
+                # then send the warning as a FOLLOWUP (same shape as
+                # begin_bounties/callbacks_are_so_fun below).
+                #
+                # This used to answer with response.send_message(), which
+                # re-points interaction2's "original response" at the warning
+                # message instead of the catnip panel. continue_pay_catnip then
+                # deletes that warning and hands interaction2 to pay_catnip, so
+                # every edit_main() further down the chain (perk_screen, the
+                # panel refresh) tried to edit a message that no longer existed
+                # -> 404, swallowed by edit_main's except, panel silently frozen
+                # on the pre-payment state. The level-up itself had already
+                # committed, so the next "Pay Up!" press hit the stale-level
+                # guard in pay_catnip and answered "nice try" — which is exactly
+                # what reroll holders were seeing.
+                await interaction2.response.defer()
+
                 async def continue_pay_catnip(interaction3):
                     await interaction3.response.defer()
                     await interaction3.delete_original_response()
@@ -21283,7 +21308,7 @@ You can stop. That's okay. Seriously.
                 button = Button(label="Yes")
                 button.callback = continue_pay_catnip
                 view2.add_item(button)
-                await interaction2.response.send_message(
+                await interaction2.followup.send(
                     "Warning: You will lose your reroll if you level up now. Use it first.\nStill continue?", view=view2, ephemeral=True
                 )
 

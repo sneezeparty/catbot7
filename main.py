@@ -4774,6 +4774,9 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
                 user[f"cat_{extra}"] += extra_amt
             elif extra == "Rain":
                 user.rain_minutes += extra_amt
+            elif extra == "Scratchcard":
+                user.scratchcards += extra_amt
+                _bump(user, "scratchcards_earned", extra_amt)
             else:
                 user[f"pack_{extra.lower()}"] += 1
         bonus_pack_name, _ = grant_bonus_pack(user)
@@ -4801,6 +4804,8 @@ async def grant_achievement_xp(user: Profile, amount: int) -> list[discord.Embed
             extra_amt = active_level_data.get("extra_amount", 1)
             if extra == "Rain":
                 description += f"\nPlus ☔ {extra_amt} rain minute{'s' if extra_amt != 1 else ''}!"
+            elif extra == "Scratchcard":
+                description += f"\nPlus 🍀 {extra_amt} /scratch card{'s' if extra_amt != 1 else ''}! Reveal with /scratch!"
             elif extra in cattypes:
                 description += f"\nPlus {get_emoji(extra.lower() + 'cat')} {extra_amt} {extra}!"
             else:
@@ -5835,6 +5840,9 @@ async def progress(
                     user[f"cat_{extra}"] += extra_amt
                 elif extra == "Rain":
                     user.rain_minutes += extra_amt
+                elif extra == "Scratchcard":
+                    user.scratchcards += extra_amt
+                    _bump(user, "scratchcards_earned", extra_amt)
                 else:
                     user[f"pack_{extra.lower()}"] += 1
             bonus_pack_name, _ = grant_bonus_pack(user)
@@ -5863,6 +5871,8 @@ async def progress(
                     extra_amt = active_level_data.get("extra_amount", 1)
                     if extra == "Rain":
                         description += f"\nPlus ☔ {extra_amt} rain minute{'s' if extra_amt != 1 else ''}!"
+                    elif extra == "Scratchcard":
+                        description += f"\nPlus 🍀 {extra_amt} /scratch card{'s' if extra_amt != 1 else ''}! Reveal with /scratch!"
                     elif extra in cattypes:
                         description += f"\nPlus {get_emoji(extra.lower() + 'cat')} {extra_amt} {extra}!"
                     else:
@@ -12734,19 +12744,37 @@ async def battlepass(message: discord.Interaction):
             description += f"**{user.battlepass}** " + get_emoji("staring_square") * colored + "⬛" * (10 - colored) + f" **{user.battlepass + 1}**\n"
 
             if level_data["reward"] == "Rain":
-                description += f"Reward: ☔ {level_data['amount']} minutes of rain\n\n"
+                reward_text = f"☔ {level_data['amount']} minutes of rain"
             elif level_data["reward"] in cattypes:
-                description += f"Reward: {get_emoji(level_data['reward'].lower() + 'cat')} {level_data['amount']} {level_data['reward']} cats\n\n"
+                reward_text = f"{get_emoji(level_data['reward'].lower() + 'cat')} {level_data['amount']} {level_data['reward']} cats"
             elif level_data["reward"] == "Mystery":
-                description += f"Reward: {get_emoji('mysterypack')} Mystery box — open it in /packs, could be anything!\n\n"
+                reward_text = f"{get_emoji('mysterypack')} Mystery box — open it in /packs, could be anything!"
             elif level_data["reward"] == "Scratchcard":
                 # Scratch cards aren't packs, so the pack-emoji fallback below
                 # would render 🔳 and call them one. 🍀 matches the /packs
                 # button and the quest-reward line.
                 amt = level_data["amount"]
-                description += f"Reward: 🍀 {amt} Scratchcard{'s' if amt != 1 else ''} — scratch in /scratch!\n\n"
+                reward_text = f"🍀 {amt} Scratchcard{'s' if amt != 1 else ''} — scratch in /scratch!"
             else:
-                description += f"Reward: {get_emoji(level_data['reward'].lower() + 'pack')} {level_data['reward']} pack\n\n"
+                reward_text = f"{get_emoji(level_data['reward'].lower() + 'pack')} {level_data['reward']} pack"
+
+            # Optional stacked second reward (S5 L30's scratch card, S3 L40's
+            # rain minute). The level-up embed has always granted and named it;
+            # until now the preview didn't, so it was a surprise instead of a
+            # reason to push for the level.
+            if level_data.get("extra_reward"):
+                _x = level_data["extra_reward"]
+                _xa = level_data.get("extra_amount", 1)
+                if _x == "Rain":
+                    reward_text += f" **+** ☔ {_xa} rain minute{'s' if _xa != 1 else ''}"
+                elif _x == "Scratchcard":
+                    reward_text += f" **+** 🍀 {_xa} Scratchcard{'s' if _xa != 1 else ''}"
+                elif _x in cattypes:
+                    reward_text += f" **+** {get_emoji(_x.lower() + 'cat')} {_xa} {_x}"
+                else:
+                    reward_text += f" **+** {get_emoji(_x.lower() + 'pack')} {_x} pack"
+
+            description += f"Reward: {reward_text}\n\n"
 
         # next reward
         levels = config.battle["seasons"][str(user.season)]

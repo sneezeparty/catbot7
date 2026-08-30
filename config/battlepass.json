@@ -909,7 +909,9 @@
       {
         "xp": 1800,
         "reward": "Rain",
-        "amount": 2
+        "amount": 2,
+        "extra_reward": "Scratchcard",
+        "extra_amount": 1
       },
       {
         "xp": 2500,

@@ -6986,6 +6986,55 @@ def _quest_eligible_cattypes() -> list[str]:
     return [k for k in base if RARITY_MIN_SEASON.get(k, 0) != current_season]
 
 
+# ---------------------------------------------------------------------------
+# One-time eGirl event
+# ---------------------------------------------------------------------------
+# Armed with `cat!egirl` (bot-owner only — it sits behind the OWNER_ID gate in
+# on_message, so guild owners can't reach it). Every armed guild's NEXT natural
+# spawn comes up eGirl instead of rolling the weighted table, and then that
+# guild disarms itself and everything goes back to normal forever.
+#
+# The pending set is a channel_id -> guild_id map persisted to egirl_event.json,
+# in the same spirit as cursor.txt / season_recap.json: it has to survive both
+# cat!restart (which re-imports this module) and a full process restart, and
+# `channel` has no column to hang it off — nor should it grow one for a
+# one-shot.
+#
+# Armed guild-wide, not channel-wide. Every catch channel in the guild goes into
+# the map, but whichever one spawns first wins and cancels its siblings, so a
+# server still gets exactly one eGirl. Pre-picking a single channel per guild
+# would instead park the event behind whichever channel happens to be dead.
+EGIRL_EVENT_FILE = "egirl_event.json"
+
+try:
+    with open(EGIRL_EVENT_FILE, "r", encoding="utf-8") as f:
+        _egirl_event_pending: dict[int, int] = {int(k): int(v) for k, v in json.load(f).items()}
+except Exception:
+    _egirl_event_pending = {}
+
+
+def _egirl_event_save() -> None:
+    try:
+        with open(EGIRL_EVENT_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): str(v) for k, v in _egirl_event_pending.items()}, f)
+    except Exception:
+        logging.exception("failed to persist eGirl event marker")
+
+
+def _egirl_event_disarm(ch_id: int, whole_guild: bool) -> None:
+    """Drop ch_id from the pending map. whole_guild=True also drops every other
+    channel sharing its guild — the event fired there, so the siblings are done.
+    False drops only this channel (used when its row is being deleted, so the
+    rest of the guild still gets its eGirl)."""
+    guild_id = _egirl_event_pending.pop(ch_id, None)
+    if guild_id is None:
+        return
+    if whole_guild:
+        for sibling in [c for c, g in _egirl_event_pending.items() if g == guild_id]:
+            del _egirl_event_pending[sibling]
+    _egirl_event_save()
+
+
 async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     try:
         channel = await Channel.get_or_none(channel_id=int(ch_id))
@@ -6996,6 +7045,13 @@ async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     if channel.cat or channel.yet_to_spawn > time.time() + 10:
         return False
 
+    # One-time eGirl event. Only replaces the weighted roll — an explicit
+    # localcat (cat!custom and friends) is left alone and does NOT burn the
+    # guild's arming, so the event still fires on a real spawn later.
+    egirl_event = False
+    if not localcat and int(ch_id) in _egirl_event_pending:
+        localcat = "eGirl"
+        egirl_event = True
     if not localcat:
         eligible = _spawn_eligible_type_dict()
         localcat = random.choices(list(eligible.keys()), weights=list(eligible.values()))[0]
@@ -7020,13 +7076,20 @@ async def spawn_cat(ch_id, localcat=None, force_spawn=None):
         )
     except discord.Forbidden:
         await channel.delete()
+        # The row is going away, so this channel can never fire the event.
+        # whole_guild=False on purpose: the guild's other catch channels (if
+        # any) stay armed and one of them still gets the eGirl.
+        _egirl_event_disarm(int(ch_id), whole_guild=False)
         temp_spawns_storage.remove(int(ch_id))
         return False
     except discord.NotFound:
         await channel.delete()
+        _egirl_event_disarm(int(ch_id), whole_guild=False)
         temp_spawns_storage.remove(int(ch_id))
         return False
     except Exception:
+        # Transient — the channel row survives, so leave the arming in place
+        # and let the next spawn attempt carry the event.
         temp_spawns_storage.remove(int(ch_id))
         return False
 
@@ -7035,6 +7098,11 @@ async def spawn_cat(ch_id, localcat=None, force_spawn=None):
     channel.forcespawned = bool(force_spawn)
     channel.cattype = localcat
     await channel.save()
+    # Only disarm once the spawn is durably live — every early return above
+    # would otherwise burn the guild's one eGirl on a cat nobody ever saw.
+    if egirl_event:
+        _egirl_event_disarm(int(ch_id), whole_guild=True)
+        logging.info("eGirl event fired in channel %s (%d channels still armed)", ch_id, len(_egirl_event_pending))
     temp_spawns_storage.remove(int(ch_id))
     logging.debug("Cat spawned, forced: %s", bool(force_spawn))
     return True
@@ -9278,6 +9346,47 @@ async def on_message(message: discord.Message):
     # only letting the owner of the bot access anything past this point
     if message.author.id != OWNER_ID:
         return
+
+    if text.lower().startswith("cat!egirl"):
+        # One-time event: arm every setupped guild so its next natural spawn is
+        # an eGirl, then it disarms itself. `cat!egirl` arms, `cat!egirl status`
+        # reports, `cat!egirl cancel` calls it off before it fires.
+        parts = text.split()
+        sub = parts[1].lower() if len(parts) > 1 else "arm"
+        if sub == "status":
+            await message.reply(
+                f"eGirl event: {len(set(_egirl_event_pending.values()))} guild(s) still armed "
+                f"across {len(_egirl_event_pending)} channel(s)."
+            )
+        elif sub == "cancel":
+            count = len(_egirl_event_pending)
+            _egirl_event_pending.clear()
+            _egirl_event_save()
+            await message.reply(f"eGirl event cancelled, disarmed {count} channel(s).")
+        else:
+            armed: dict[int, int] = {}
+            unresolved = 0
+            async for ch in Channel.all():
+                ch_obj = bot.get_channel(int(ch.channel_id))
+                guild = getattr(ch_obj, "guild", None)
+                if guild is None:
+                    # Not in the channel cache (kicked, deleted, or the bot is
+                    # still connecting). Can't attribute it to a guild, and
+                    # arming it blind would break the one-per-server promise.
+                    unresolved += 1
+                    continue
+                armed[int(ch.channel_id)] = guild.id
+            _egirl_event_pending.clear()
+            _egirl_event_pending.update(armed)
+            _egirl_event_save()
+            reply = (
+                f"eGirl event armed: **{len(set(armed.values()))} guild(s)** across {len(armed)} channel(s).\n"
+                "Each guild's next spawn is an eGirl, then it disarms itself. Spawns normally otherwise "
+                "(no announcement, not marked forcespawned)."
+            )
+            if unresolved:
+                reply += f"\n⚠️ skipped {unresolved} channel(s) I couldn't resolve to a guild — re-run once fully connected."
+            await message.reply(reply)
 
     # those are "owner" commands which are not really interesting
     if text.lower().startswith("cat!sweep"):

@@ -11950,6 +11950,10 @@ async def packs(message: discord.Interaction):
         cap_idx = next((i for i, p in enumerate(pack_data) if p["name"].lower() == "silver"), len(pack_data) - 1)
         perk_msgs: list[str] = []
         bonus_cat_total = 0
+        # Padded Crate drops are rolled per-pack and folded into results_percat
+        # with everything else, so the summary alone can't say WHICH cats the
+        # perk handed you. Keep a parallel tally purely for the perk line.
+        bonus_percat = {cat: 0 for cat in cattypes}
         coin_total = 0   # aggregated coin-variant payout across the batch
 
         for level, pack in enumerate(pack_names):
@@ -12000,14 +12004,24 @@ async def packs(message: discord.Interaction):
                 results_percat[chosen_type] += cat_amount
 
                 if bonus_cat_active:
-                    results_percat[random.choice(_season_eligible_cattypes())] += 1
+                    bonus_type = random.choice(_season_eligible_cattypes())
+                    results_percat[bonus_type] += 1
+                    bonus_percat[bonus_type] += 1
                     bonus_cat_total += 1
 
             user[pack_id] -= opening_this
             opened_so_far += opening_this
 
         if bonus_cat_total > 0:
-            perk_msgs.append(f"➕ Padded Crate: +{bonus_cat_total:,} bonus cats.")
+            # Icons only, one line, rarity order — matches the cat_summary
+            # style below (aura-aware emoji + "xN") so the two read as the
+            # same vocabulary.
+            bonus_icons = " ".join(
+                f"{get_aura_emoji(cat, user.cat_auras)} x{bonus_percat[cat]:,}"
+                for cat in cattypes
+                if bonus_percat[cat] > 0
+            )
+            perk_msgs.append(f"➕ Padded Crate: +{bonus_cat_total:,} bonus cats — {bonus_icons}")
 
         user.packs_opened += opened_so_far
         user.pack_upgrades += total_upgrades
@@ -12025,7 +12039,18 @@ async def packs(message: discord.Interaction):
         pack_list = "**" + ", ".join(results_header) + "**"
         final_result = "\n".join(results_detail)
 
-        if display_cats or len(final_result) > 4000 - len(pack_list):
+        coin_footer = f"\n\n💰 **+{coin_total:,}** coins" if coin_total > 0 else ""
+
+        perk_footer = ""
+        if perk_msgs:
+            perk_footer = "\n\n" + "\n".join(perk_msgs)
+
+        # Budget the per-pack detail against everything else that has to fit,
+        # not just the pack list — the Padded Crate icon line alone can run
+        # several hundred characters on a wide spread, and the old check
+        # ignored both footers entirely.
+        detail_budget = 4000 - len(pack_list) - len(coin_footer) - len(perk_footer)
+        if display_cats or len(final_result) > detail_budget:
             cat_summary = []
             for cat in cattypes:
                 if results_percat[cat] > 0:
@@ -12035,13 +12060,12 @@ async def packs(message: discord.Interaction):
         if len(final_result) > 0:
             final_result = "\n\n" + final_result
 
-        coin_footer = f"\n\n💰 **+{coin_total:,}** coins" if coin_total > 0 else ""
-
-        perk_footer = ""
-        if perk_msgs:
-            perk_footer = "\n\n" + "\n".join(perk_msgs)
-
-        return discord.Embed(title=final_header, description=f"{pack_list}{final_result}{coin_footer}{perk_footer}", color=Colors.brown)
+        description = f"{pack_list}{final_result}{coin_footer}{perk_footer}"
+        if len(description) > 4096:
+            # Last resort: even the compact summary + footers overflowed.
+            # Drop the detail rather than 400 the whole result screen.
+            description = f"{pack_list}{coin_footer}{perk_footer}"[:4096]
+        return discord.Embed(title=final_header, description=description, color=Colors.brown)
 
     async def confirm_open_all(interaction: discord.Interaction):
         if interaction.user != message.user:

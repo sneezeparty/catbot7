@@ -449,6 +449,12 @@ RARITY_MIN_SEASON: dict[str, int] = config.tuning.get("rarity_min_season", {})
 # between the wipe and the next interaction keep the higher balance.
 SEASON_STARTING_COINS = int(config.tuning.get("season_starting_coins", 100))
 
+# How many days before a season ends /battlepass starts shouting about the
+# reset (banner line + the "WHAT?" explainer button). The channel-wide
+# _broadcast_season_warning still only fires on the final day; this is the
+# quieter, per-player heads-up that gives people time to actually spend.
+SEASON_FINAL_WARNING_DAYS = int(config.tuning.get("season_final_warning_days", 3))
+
 # Jobs / Mafia Killings. Loaded from config/jobs.json above; re-read here on every
 # module reload so cat!restart picks up edits to send power, tiers, NPCs, etc.
 JOBS_SEND_POWER = config.jobs["send_power"]
@@ -6467,6 +6473,70 @@ def _build_season_warning_embed(current_season: int) -> discord.Embed:
     )
 
 
+def _build_season_reset_explainer_embed(current_season: int, ends_at: int) -> discord.Embed:
+    """The "WHAT?" button on /battlepass during a season's final days.
+
+    Same facts as _build_season_warning_embed (the last-day channel
+    broadcast), but written to the one player who clicked it, and with the
+    actionable half spelled out: coins are the only thing that goes straight
+    back to zero-ish, so turn them into cats before the 1st.
+
+    Keep in sync with the rollover block in refresh_quests and its helpers
+    (_wipe_catnip_state / _wipe_jobs_state / _wipe_packs) — this embed is a
+    promise about what survives, and a stale promise is worse than none.
+    """
+    next_season = current_season + 1
+    try:
+        next_levels = len(config.battle["seasons"][str(next_season)])
+    except Exception:
+        next_levels = None
+    levels_line = (
+        f"\n\n🆕 **Season {next_season}** opens with **{next_levels} fresh levels** to climb."
+        if next_levels
+        else ""
+    )
+    return discord.Embed(
+        title="❓ What happens when the season resets?",
+        color=Colors.brown,
+        description=(
+            f"Season {current_season} ends <t:{ends_at}:R> (<t:{ends_at}:f>). "
+            "When it does, **your profile in this server** rolls over — here's exactly what that means."
+            + levels_line
+        ),
+    ).add_field(
+        name="🗑️ Wiped",
+        value=(
+            f"🪙 **Coins** → back down to **{SEASON_STARTING_COINS:,}**\n"
+            "⬆️ **Cattlepass** level, XP and all quest progress\n"
+            "📦 **Every pack** — event packs and Mystery boxes too\n"
+            "🍀 **Scratchcards** and 🎟️ **vouchers**\n"
+            "🎩 **Catnip** level, bounties and catnip perks\n"
+            "🔫 **Jobs** heat, respect, faction rep and job perks"
+        ),
+        inline=False,
+    ).add_field(
+        name="✅ Kept",
+        value=(
+            "🐈 **Your cats** — every last one of them\n"
+            "🔮 **Prisms** and 📈 **stocks**\n"
+            "☔ **Rain** minutes you haven't spent yet\n"
+            "🔍 **Discovered cats**, 🏆 **achievements** and 🔥 **streaks**\n"
+            "📊 Lifetime stats, medals and your `/catprofile`"
+        ),
+        inline=False,
+    ).add_field(
+        name="💸 So, before the 1st",
+        value=(
+            "- **Spend your coins in `/catstore`.** Buying cats turns coins (wiped) into cats (kept forever) — "
+            "it's the only way to carry a balance across the reset. Rain blocks work too.\n"
+            "- **Open every pack** you're hoarding. They do not survive the rollover.\n"
+            "- **Scratch your scratchcards** and cash in any vouchers.\n"
+            "- **Finish the levels you're close to** — rewards you never claimed are gone."
+        ),
+        inline=False,
+    ).set_footer(text="Nothing you've caught is ever taken away.")
+
+
 async def _broadcast_season_warning() -> int:
     """Post the season-ending warning to every setupped channel whose server
     hasn't opted out. The channel table is keyed by channel_id with no
@@ -12393,6 +12463,9 @@ async def packs(message: discord.Interaction):
 @bot.tree.command(description="why would anyone think a cattlepass would be a good idea (bp)")
 async def battlepass(message: discord.Interaction):
     current_mode = ""
+    # Season-end unix time, stamped by gen_main so the "WHAT?" explainer quotes
+    # the same deadline the embed just rendered.
+    season_ends_at = [0]
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     global_user = await User.get_or_create(user_id=message.user.id)
 
@@ -12436,6 +12509,16 @@ async def battlepass(message: discord.Interaction):
         )
         await interaction.edit_original_response(view=view)
 
+    async def explain_reset(interaction: discord.Interaction):
+        """The "WHAT?" button shown in a season's final days. Ephemeral and
+        open to anyone who clicks — it's a rules explainer, and the person
+        most confused about the reset is usually the bystander, not the
+        player who ran the command."""
+        await interaction.response.send_message(
+            embed=_build_season_reset_explainer_embed(user.season, season_ends_at[0]),
+            ephemeral=True,
+        )
+
     async def gen_main(interaction, first=False):
         nonlocal current_mode
         if interaction.user.id != message.user.id:
@@ -12457,16 +12540,33 @@ async def battlepass(message: discord.Interaction):
         # season end
         now = discord.utils.utcnow() + datetime.timedelta(hours=4)
 
+        # tzinfo=utc, same as the weekly rotation block below: refresh_quests
+        # rolls the season when (utcnow() + 4h) enters a new month, so the
+        # boundary is a fixed UTC instant. Building it naive and running it
+        # through time.mktime() read it as *host local* time, which put the
+        # countdown a whole UTC-offset off (7h late on a PDT host) — the clock
+        # would still be ticking down hours after the wipe had landed.
         if now.month == 12:
-            next_month = datetime.datetime(now.year + 1, 1, 1)
+            next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=datetime.timezone.utc)
         else:
-            next_month = datetime.datetime(now.year, now.month + 1, 1)
+            next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=datetime.timezone.utc)
 
         next_month -= datetime.timedelta(hours=4)
 
-        timestamp = int(time.mktime(next_month.timetuple()))
+        timestamp = int(next_month.timestamp())
 
-        description = f"Season ends <t:{timestamp}:R>\n\n"
+        # Final-stretch warning. Derived from the same `timestamp` the countdown
+        # above renders, so the banner and the <t:...:R> can never disagree.
+        final_stretch = 0 < timestamp - time.time() <= SEASON_FINAL_WARNING_DAYS * 86400
+        season_ends_at[0] = timestamp
+
+        description = f"Season ends <t:{timestamp}:R>\n"
+        if final_stretch:
+            description += (
+                "⚠️ **Everything resets when it does** — coins, packs, Cattlepass level, "
+                "catnip and mafia progress. Your cats are safe. Spend coins in `/catstore` while they still buy something.\n"
+            )
+        description += "\n"
 
         # Completed daily quests refresh at the next daily boundary (pure-daily
         # reset, migration 036) — the +4h-aligned day used by refresh_quests —
@@ -12669,6 +12769,11 @@ async def battlepass(message: discord.Interaction):
         button = Button(emoji="🔄", label="Refresh", style=ButtonStyle.blurple)
         button.callback = gen_main
         view.add_item(button)
+
+        if final_stretch:
+            button = Button(label="WHAT? ← click to explain", emoji="❓", style=ButtonStyle.red)
+            button.callback = explain_reset
+            view.add_item(button)
 
         if len(get_news()) > len(global_user.news_state.strip()) or "0" in global_user.news_state.strip()[-4:]:
             embedVar.set_author(name="You have unread news! /news")

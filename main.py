@@ -7050,6 +7050,23 @@ def _season_eligible_cattypes() -> list[str]:
     return [k for k in cattypes if RARITY_MIN_SEASON.get(k, 0) <= current_season]
 
 
+def _spawn_weighted_cattype() -> str:
+    """One cattype drawn on the natural spawn distribution.
+
+    For paths that hand the player a flat cat with no value scaling — i.e.
+    the Padded Crate job perk. A uniform pick there is a ~90x boost to the
+    rarest cats, because 1-of-24 has nothing to do with a rarity's spawn
+    weight (eGirl is 1-in-2,167 on a real spawn).
+
+    The pack roll itself must NOT use this. It picks uniformly and then
+    divides the pack's value by CAT_VALUES, which is total_weight/weight —
+    so the amount it lands on is already proportional to spawn weight.
+    Weighting the pick there too would square the rarity curve.
+    """
+    eligible = _spawn_eligible_type_dict()
+    return random.choices(list(eligible.keys()), weights=list(eligible.values()))[0]
+
+
 def _quest_eligible_cattypes() -> list[str]:
     """cattypes filtered for quest/bounty/price ASSIGNMENT — strict subset of
     _season_eligible_cattypes(). Additionally excludes rarities whose
@@ -12014,7 +12031,7 @@ async def packs(message: discord.Interaction):
                 results_percat[chosen_type] += cat_amount
 
                 if bonus_cat_active:
-                    bonus_type = random.choice(_season_eligible_cattypes())
+                    bonus_type = _spawn_weighted_cattype()
                     results_percat[bonus_type] += 1
                     bonus_percat[bonus_type] += 1
                     bonus_cat_total += 1
@@ -12403,7 +12420,7 @@ async def packs(message: discord.Interaction):
         bonus_type = None
         bonus_amount = 0
         if "pack_bonus_cat" in _perks_active_ids(user):
-            bonus_type = random.choice(_season_eligible_cattypes())
+            bonus_type = _spawn_weighted_cattype()
             bonus_amount = 1
             perk_msgs.append(f"➕ Padded Crate: +1 {bonus_type} cat.")
 

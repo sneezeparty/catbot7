@@ -172,6 +172,7 @@ SECTIONS: dict[str, dict] = {
             "profile.quests_day (integer, +4h-clock day-index the daily quest slots were last rolled over — migration 036; INT_FIELDS)",
             "profile.quests_variety_types (smallint[] of cattype indices caught since the last daily reset, backs the 'variety5' challenge quest — migration 036; JSONB_FIELDS, same treatment as weekly_cattypes)",
             "config/battlepass.json quests.challenge pool grew 5->10 (added under2/under5/epic3/bonus_win/variety5) — webui only stores/displays the assigned challenge_quest id + its progress/cooldown/reward ints, never enumerates the pool, so no code change needed (same as the misc/extra pool growing earlier)",
+            "profile.clean_record_broken (boolean DEFAULT false — migration 039; sticky flag set by main._jobs_apply_commit_heat the first time heat would exceed 30, backs the 'Discreet' ach; in BOOL_FIELDS under the Jobs group, not leaderboard-worthy — it's a one-shot flag, not a counter)",
             "NOTE: the row (guild_id=666, user_id=<bot>) is the /chaos global counter sentinel (cookies column) — not a real profile; harmless if it shows in searches",
         ],
     },

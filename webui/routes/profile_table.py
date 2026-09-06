@@ -168,6 +168,8 @@ BOOL_FIELDS = [
     "whiskers_favor_active",     # whether a Whiskers Favor is currently pending use
     "jobs_send_screen_seen",     # UX: has the player seen the send screen intro?
     "tutorial_errand_complete",  # UX: has the tutorial errand been completed?
+    "clean_record_broken",       # sticky flag: heat has exceeded 30 at least once (migration 039);
+                                  # backs the "Discreet" ach (20 jobs completed with this still false)
 ]
 
 # JSONB list columns — view-only (no edit route; freeform JSONB editing is

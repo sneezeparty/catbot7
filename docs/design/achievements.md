@@ -11,7 +11,7 @@ Categories (heuristic, not enforced; counts as of writing):
 - **Commands** (~35) — "you used `/randomizer`", "you brewed coffee", "you read /news". Rewards command discovery; the biggest single bucket alongside Silly.
 - **Hard** (~35) — feats that take effort or luck: gambling streaks, max-party Catstore monsoons, prism crafting milestones, catching at an exact timestamp, etc. The "I went out of my way" tier.
 - **Random** (~18) — situational triggers nobody plans for: pineapple-react, getting DMed, being the only catcher in a server, etc.
-- **Silly** (~39) — meme/joke triggers ("nice", "that's rude", "nerd") plus the single-rarity hoard ladder (hold 100/250/500/1,000/2,000/5,000/100,000 of one type, hardcoded and keyed on the just-caught type's current inventory), the x86-CPU easter eggs (hoard 286/386/486 of one type), and the eGirl collection ladder (5/10/25/50/100, `cat_rarity_count` trigger). Personality and hoarding, not progress.
+- **Silly** (~46) — meme/joke triggers ("nice", "that's rude", "nerd") plus the single-rarity hoard ladder (hold 100/200/250/500/1,000/2,000/4,000/5,000/10,000/15,000/20,000/30,000/50,000/100,000 of one type, hardcoded and keyed on the just-caught type's current inventory — 14 tiers, XP ramping 250→750), the x86-CPU easter eggs (hoard 286/386/486 of one type, interleaved in the same award loop), and the eGirl collection ladder (5/10/25/50/100, `cat_rarity_count` trigger). Personality and hoarding, not progress.
 - **Hidden** (~27) — Easter eggs and weird message triggers that should feel like secret discoveries.
 
 `Hidden` category aches don't count toward the "have 30 achs" misc-quest threshold (`unlocked > 30` skip in `generate_quest`), and the `/achievements` browser hides their entries until unlocked. Both checks live behind the same `ach_list[k]["category"] == "Hidden"` predicate; renaming the `Hidden` category would silently break them.
@@ -59,7 +59,7 @@ Events currently registered — adding a new one = `await ach_engine.evaluate("e
 - `pig_play` — fires per /pig round with the final score in ctx (used by `stat_threshold` conditions).
 - `message_text` — fires from `on_message` for chat-content aches (the `startswith`/`exact` matches that used to be hardcoded in the `achs` list).
 - `prism` — fires when a prism boosts a catch.
-- `command` — fires on slash-command invocation; the `command_use` condition matches by command name (e.g. the Brew Coffee ach).
+- `command` — fires from `on_app_command_completion` (previously `on_interaction`) once the slash command's callback has returned; the `command_use` condition matches by command name (e.g. the Brew Coffee ach). Moved off `on_interaction` because that event raced the command callback: it could fire — and send the achievement embed's "followup" — before the interaction was even acked. `on_app_command_completion` only runs after a successful callback, so the interaction is guaranteed acked, autocomplete interactions never reach it, and commands that raised are skipped. Separately, `slots`, `catslots`, and `define` had their `command_use` triggers removed from `config/aches.json`: those three now unlock only via the pre-existing hardcoded `achemb(...)` calls at the moment of an actual spin / successful lookup (see [Hardcoded sites](#hardcoded-sites)), not merely on invoking the command.
 
 Condition types are pluggable via `@_evaluator("name")` in `ach_engine.py`. Adding a new condition type = decorate a new evaluator function.
 
@@ -89,3 +89,7 @@ If `server.auto_delete_achievements` is set, achievement embeds delete after 10 
 2. **Do not** add a new boolean column to `schema.sql` for it — rely on `unlocked_aches`.
 3. If the unlock condition isn't expressible as a `trigger`, find the right call site and `await achemb(...)` from there.
 4. The `design-docs-sync` agent will catch new achs whose IDs aren't yet referenced anywhere — that's a hint that you forgot the wiring.
+
+> **STALE:** new mechanic `clean_record` (the hidden "Discreet" achievement — complete 20 jobs while heat never once exceeds 30, tracked via a sticky `profile.clean_record_broken` flag set in `_jobs_apply_commit_heat` and preserved across `_wipe_jobs_state`; backing column added in `migrations/039_clean_record.py`) (from `main.py`, `schema.sql`, `config/aches.json`) is not represented in design docs.
+
+> **STALE:** new mechanic (entitlement-triggered achievement unlocks — `store_first_purchase` and `store_supporter` from `on_entitlement_create`, which now resolve to the player's most-recently-active `Profile` by `last_catch` since entitlement events carry no guild) (from `main.py`) is not represented in design docs.

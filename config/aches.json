@@ -249,14 +249,7 @@
         "description": "spin the /slots machine",
         "is_hidden": false,
         "category": "Commands",
-        "xp": 150,
-        "trigger": {
-            "event": "command",
-            "condition": {
-                "type": "command_use",
-                "command": "slots"
-            }
-        }
+        "xp": 150
     },
     "win_slots": {
         "title": "Pro Gambler",
@@ -270,14 +263,7 @@
         "description": "spin the /catslots machine",
         "is_hidden": false,
         "category": "Commands",
-        "xp": 150,
-        "trigger": {
-            "event": "command",
-            "condition": {
-                "type": "command_use",
-                "command": "catslots"
-            }
-        }
+        "xp": 150
     },
     "win_catslots": {
         "title": "Whisker Winner",
@@ -347,14 +333,7 @@
         "description": "find out a definition of a word",
         "is_hidden": false,
         "category": "Commands",
-        "xp": 150,
-        "trigger": {
-            "event": "command",
-            "condition": {
-                "type": "command_use",
-                "command": "define"
-            }
-        }
+        "xp": 150
     },
     "cookieclicker": {
         "title": "Cookie Clicker",
@@ -1291,6 +1270,13 @@
         "category": "Silly",
         "xp": 250
     },
+    "same_type_200": {
+        "title": "Seeing Double",
+        "description": "hold 200 of a single type. blink twice if you need help.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 275
+    },
     "same_type_250": {
         "title": "Type Cast",
         "description": "hold 250 of one rarity. you have a favorite and it shows.",
@@ -1319,12 +1305,54 @@
         "category": "Silly",
         "xp": 450
     },
+    "same_type_4000": {
+        "title": "Assembly Line",
+        "description": "hold 4,000 of one rarity. quantity has a quality all its own.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 500
+    },
     "same_type_5000": {
         "title": "Hall of Mirrors",
         "description": "hold 5,000 of one rarity. which one is the real one?",
         "is_hidden": false,
         "category": "Silly",
         "xp": 550
+    },
+    "same_type_10000": {
+        "title": "Xerox Fever",
+        "description": "hold 10,000 of a single type. the copier is smoking.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 600
+    },
+    "same_type_15000": {
+        "title": "Echo Chamber",
+        "description": "hold 15,000 of one rarity. hello? (hello? (hello?))",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 625
+    },
+    "same_type_20000": {
+        "title": "Groupthink",
+        "description": "hold 20,000 of a single type. nobody in there disagrees with anybody.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 650
+    },
+    "same_type_30000": {
+        "title": "Diminishing Returns",
+        "description": "hold 30,000 of one rarity. the 30,000th felt exactly like the 29,999th.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 675
+    },
+    "same_type_50000": {
+        "title": "Please Diversify",
+        "description": "hold 50,000 of a single type. this is not financial advice.",
+        "is_hidden": false,
+        "category": "Silly",
+        "xp": 700
     },
     "same_type_100000": {
         "title": "The Hivemind",

@@ -384,6 +384,7 @@ CREATE TABLE public.profile (
     season_stat_baseline jsonb DEFAULT '{}'::jsonb NOT NULL,
     job_rerolls_window integer DEFAULT 0 NOT NULL,
     job_rerolls_window_idx bigint DEFAULT 0 NOT NULL,
+    clean_record_broken boolean DEFAULT false NOT NULL,
     season_trophies jsonb DEFAULT '[]'::jsonb NOT NULL,
     bonus_catches integer DEFAULT 0,
     fish_caught integer DEFAULT 0,

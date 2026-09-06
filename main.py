@@ -594,6 +594,11 @@ catslots_last_bet: dict[int, tuple[int, int]] = {}
 # use: the entry is popped the moment the spin reads it. Module-scope so it
 # survives /catstore-style command teardowns but not bot restarts.
 catslots_force_bonus_users: dict[int, int] = {}
+# Same idea for /roulette: last (bet_value, bet_amount) per user_id+guild_id.
+# bet_value is the raw target string ("red"/"black"/"green" or "0".."36").
+# Powers the lobby's "Repeat" button so a fresh /roulette can replay the
+# previous bet without retyping it into the modal. Resets on bot restart.
+roulette_last_bet: dict[int, tuple[str, int]] = {}
 
 # ???
 rigged_users = []
@@ -2937,6 +2942,12 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
     if prior_heat == 0:
         profile.unlock_ach("stone_cold")
 
+    # Discreet — 20 completed jobs with the flag never tripped.
+    if (outcome == "success"
+            and int(getattr(profile, "jobs_completed", 0) or 0) >= JOBS_CLEAN_RECORD_JOBS
+            and not bool(getattr(profile, "clean_record_broken", False))):
+        profile.unlock_ach("clean_record")
+
     # Complication-driven aches.
     comp_id = (_jobs_col(job, "complication", "") or "").strip()
     if comp_id:
@@ -2984,6 +2995,12 @@ async def _jobs_commits_this_window(user_id: int, guild_id: int, now: int) -> in
 JOBS_PINCH_THRESHOLD = JOBS_TUNING.get("pinch_threshold", 100)
 JOBS_PINCH_LOCKOUT = JOBS_TUNING.get("pinch_lockout_seconds", 43200)
 JOBS_PINCH_RESET = JOBS_TUNING.get("pinch_reset_heat", 30)
+
+# "Discreet" (clean_record): complete 20 jobs while heat has never once gone
+# above 30. Tracked with a sticky profile flag rather than a max-heat column
+# because heat decays — by the time you finish job 20 the peak is long gone.
+JOBS_CLEAN_RECORD_JOBS = 20
+JOBS_CLEAN_RECORD_MAX_HEAT = 30
 JOBS_HEAT_DECAY_PER_HOUR = JOBS_TUNING.get("heat_decay_per_hour", 2)
 # Heat band cutoffs derived from the pinch threshold so the heat bar, color
 # bands, "scrutiny" cost ramp, and complication tiers all scale together when
@@ -3334,16 +3351,33 @@ async def _apply_entitlement_create(entitlement) -> None:
     await user.save()
 
     # Aches fire after the DB write so a read of has_ach() reflects truth.
-    # entitlement events arrive without an Interaction or Message handle, so
-    # we use achemb with "send" via a synthetic shim — instead, just unlock
-    # silently and skip the celebratory embed (there's no channel context).
+    #
+    # These have to land on a Profile, not on `user` — unlock_ach/has_ach are
+    # Profile methods (aches are per-(user, guild)), and catpg resolves unknown
+    # attributes through __getattr__ into a KeyError, so calling them on a User
+    # just threw straight into the except below and the aches never unlocked.
+    #
+    # Entitlement events carry no guild, so there's no "right" profile — we use
+    # the one the player most recently caught a cat in. Still no Interaction or
+    # Message handle either, so this stays a silent unlock (no celebratory
+    # embed); players see it in /achievements.
     try:
-        if not user.unlock_ach("store_first_purchase"):
-            pass  # already unlocked
-        await user.save()
-        if is_premium and not was_premium:
-            user.unlock_ach("store_supporter")
-            await user.save()
+        recent = await Profile.collect(
+            "user_id = $1 ORDER BY last_catch DESC LIMIT 1", user_id
+        )
+        if not recent:
+            # Bought before ever using the bot in a server. Nothing to attach
+            # the ach to; it stays locked until they buy again with a profile.
+            logging.info(
+                "store aches: no profile for user=%s, skipping unlock (sku=%s)", user_id, sku_id
+            )
+        else:
+            profile = recent[0]
+            changed = profile.unlock_ach("store_first_purchase")
+            if is_premium and not was_premium:
+                changed = profile.unlock_ach("store_supporter") or changed
+            if changed:
+                await profile.save()
     except Exception:
         logging.exception("store achievement unlock failed for user=%s sku=%s", user_id, sku_id)
 
@@ -4009,6 +4043,12 @@ def _jobs_apply_commit_heat(profile: Profile, heat_cost: int, now: int) -> bool:
     iff the player got pinched this commit."""
     prior = int(getattr(profile, "heat", 0) or 0)
     new_heat = prior + max(0, int(heat_cost or 0))
+    # Check the uncapped sum, not the stored value: the pinch branch below
+    # clamps heat back down to JOBS_PINCH_RESET (30), so reading profile.heat
+    # afterwards would say the record is still clean on the one commit that
+    # most obviously isn't.
+    if new_heat > JOBS_CLEAN_RECORD_MAX_HEAT:
+        profile.clean_record_broken = True
     if new_heat >= JOBS_PINCH_THRESHOLD:
         profile.heat = JOBS_PINCH_RESET
         profile.perks_suspended_until = now + JOBS_PINCH_LOCKOUT
@@ -4880,7 +4920,7 @@ async def grant_catch_streak_xp(user: Profile) -> list[discord.Embed]:
 
 
 # this is some common code which is run whether someone gets an achievement
-async def achemb(message, ach_id, send_type, author_string=None):
+async def achemb(message, ach_id, send_type, author_string=None, profile=None):
     if not author_string:
         try:
             author_string = message.author
@@ -4891,7 +4931,21 @@ async def achemb(message, ach_id, send_type, author_string=None):
     if not message.guild:
         return
 
-    profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=author)
+    # `profile` lets a caller hand us the instance it is already holding.
+    # Pass it whenever you've called unlock_ach() on your own copy and haven't
+    # saved yet: otherwise we fetch a SECOND instance of the same row, and
+    # since catpg.save() writes whole dirty fields, whichever of the two saves
+    # last overwrites the other's unlocked_aches and one ach silently vanishes.
+    # Note the trade-off — passing your instance means we save it here, so any
+    # other dirty fields on it get flushed early.
+    if profile is None or (
+        int(profile.user_id) != int(author) or int(profile.guild_id) != int(message.guild.id)
+    ):
+        # No instance offered, or it belongs to someone else — achemb is
+        # routinely called with an author_string for a second party (trade,
+        # gift), and writing the ach onto the caller's own row there would be
+        # worse than the extra fetch.
+        profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=author)
 
     # Use the JSONB-aware helpers. unlock_ach also keeps the legacy boolean
     # column in sync for old code paths that read profile.<ach_id> directly.
@@ -5280,8 +5334,12 @@ def _wipe_jobs_state(user):
     jobs_failed, jobs_near_missed, cats_lost_to_jobs, job_coins_won,
     biggest_score_value, big_score_wins, big_score_perk_unlocked,
     perks_received, tutorial_errand_complete, jobs_send_screen_seen) are
-    preserved. In-flight JobInstance rows are left alone — with
-    catnip_level=0 the /jobs board early-returns, so they expire naturally."""
+    preserved. clean_record_broken is preserved too, deliberately: it pairs
+    with jobs_completed, so clearing it here would launder a dirty record
+    while keeping the job count that makes it worth laundering.
+
+    In-flight JobInstance rows are left alone — with catnip_level=0 the /jobs
+    board early-returns, so they expire naturally."""
     user.heat = 0
     user.heat_last_decay = 0
     user.respect = 50
@@ -9319,10 +9377,14 @@ async def on_message(message: discord.Message):
                 if caught_type:
                     _hoard_n = user[f"cat_{caught_type}"]
                     for _hthresh, _haid in (
-                        (100, "same_type_100"), (250, "same_type_250"), (286, "x86_286"),
+                        (100, "same_type_100"), (200, "same_type_200"),
+                        (250, "same_type_250"), (286, "x86_286"),
                         (386, "x86_386"), (486, "x86_486"), (500, "same_type_500"),
                         (1000, "same_type_1000"), (2000, "same_type_2000"),
-                        (5000, "same_type_5000"), (100000, "same_type_100000"),
+                        (4000, "same_type_4000"), (5000, "same_type_5000"),
+                        (10000, "same_type_10000"), (15000, "same_type_15000"),
+                        (20000, "same_type_20000"), (30000, "same_type_30000"),
+                        (50000, "same_type_50000"), (100000, "same_type_100000"),
                     ):
                         if _hoard_n >= _hthresh:
                             await achemb(message, _haid, "send")
@@ -19694,6 +19756,17 @@ async def catslots(
     view = View(timeout=VIEW_TIMEOUT)
     view.add_item(bet_btn)
 
+    # Carry the last bet across invocations, not just across spins on one
+    # result screen. on_spin_again already re-reads the dict, re-checks the
+    # lock and re-checks affordability, so it drops straight in here.
+    last_bet = catslots_last_bet.get(lock_key)
+    if last_bet:
+        repeat_btn = Button(
+            label=f"Repeat ({last_bet[0]}×{last_bet[1]:,})", style=ButtonStyle.gray
+        )
+        repeat_btn.callback = on_spin_again
+        view.add_item(repeat_btn)
+
     await message.response.send_message(embed=stats_embed(profile), view=view)
 
 
@@ -19768,6 +19841,10 @@ async def roulette(
                 f"your max bet is {max(user.coins, 100):,}", ephemeral=True
             )
             return
+
+        # Remember it only once it's known-affordable, so the lobby's Repeat
+        # button never offers a bet that already bounced.
+        roulette_last_bet[message.user.id + message.guild.id] = (bet_value, bet_amount)
 
         # mapping of colors to numbers by indexes
         colors = [
@@ -19976,6 +20053,28 @@ async def roulette(
 
         await interaction.response.send_modal(RouletteModel())
 
+    async def repeat_select(interaction: discord.Interaction):
+        """Lobby-side one-click replay of the bet from a PREVIOUS /roulette.
+
+        The result screen's "re-spin" repeats the bet it's attached to via
+        closure; this one reads the dict, so it survives across invocations.
+        Re-read at click time rather than closing over the value baked into
+        the label — the player may have spun elsewhere since."""
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        last = roulette_last_bet.get(message.user.id + message.guild.id)
+        if not last:
+            # Only reachable if the bot restarted between render and click.
+            await interaction.response.send_message(
+                "no previous bet on record — hit spin to place one.", ephemeral=True
+            )
+            return
+        # _do_roulette_spin defers, re-reads the balance and re-runs the
+        # affordability check, so a now-broke player gets the ephemeral
+        # "your max bet is ..." nudge instead of a bad spin.
+        await _do_roulette_spin(interaction, last[0], last[1])
+
     # Slash-param fast path. The user must supply exactly one of color/number
     # plus a bet amount. Both/neither falls through to the lobby (with an
     # ephemeral error when both are supplied — that's user intent we should
@@ -20007,6 +20106,15 @@ async def roulette(
     b = Button(label="spin", style=ButtonStyle.blurple)
     b.callback = modal_select
     view.add_item(b)
+
+    last_bet = roulette_last_bet.get(message.user.id + message.guild.id)
+    if last_bet:
+        rb = Button(
+            label=f"Repeat ({last_bet[1]:,} on {last_bet[0].capitalize()})",
+            style=ButtonStyle.gray,
+        )
+        rb.callback = repeat_select
+        view.add_item(rb)
 
     await message.response.send_message(embed=embed, view=view)
 
@@ -22819,21 +22927,38 @@ async def on_error(*args, **kwargs):
 async def on_interaction(ctx):
     if ctx.command:
         logging.debug("Command %s was used", ctx.command.name)
-        # Data-driven command-use triggers (engine fires aches with
-        # trigger.event == "command" and matching command name).
-        if ctx.guild is not None and ctx.user is not None:
-            try:
-                cmd_profile = await Profile.get_or_create(guild_id=ctx.guild.id, user_id=ctx.user.id)
-                await ach_engine.evaluate(
-                    "command",
-                    cmd_profile,
-                    {"command": ctx.command.qualified_name},
-                    message=ctx,
-                    achemb=achemb,
-                    send_type="followup",
-                )
-            except Exception:
-                logging.exception("ach_engine command event failed")
+
+
+# Data-driven command-use triggers (engine fires aches with
+# trigger.event == "command" and matching command name).
+#
+# This deliberately hangs off app_command_completion rather than
+# on_interaction. discord.py dispatches on_interaction the moment the
+# interaction lands, in a task that races the command callback — so the
+# ach unlocked before the command had done anything, and achemb's
+# "followup" send fired against an interaction nobody had responded to
+# yet, 404ing into the bare-channel-send fallback. Achievements showed up
+# detached from the command that earned them.
+#
+# app_command_completion fires after the callback returned, which buys us
+# three things for free: the interaction is guaranteed acked (so followup
+# works), autocomplete interactions never reach here (the tree returns
+# before dispatching it), and commands that raised are skipped.
+async def on_app_command_completion(ctx, command):
+    if ctx.guild is None or ctx.user is None:
+        return
+    try:
+        cmd_profile = await Profile.get_or_create(guild_id=ctx.guild.id, user_id=ctx.user.id)
+        await ach_engine.evaluate(
+            "command",
+            cmd_profile,
+            {"command": command.qualified_name},
+            message=ctx,
+            achemb=achemb,
+            send_type="followup",
+        )
+    except Exception:
+        logging.exception("ach_engine command event failed")
 
 
 async def setup(bot2):
@@ -22855,6 +22980,7 @@ async def setup(bot2):
     bot2.on_connect = on_connect
     bot2.on_error = on_error
     bot2.on_interaction = on_interaction
+    bot2.on_app_command_completion = on_app_command_completion
     bot2.on_entitlement_create = on_entitlement_create
     bot2.on_entitlement_update = on_entitlement_update
     bot2.on_entitlement_delete = on_entitlement_delete

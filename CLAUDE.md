@@ -120,7 +120,7 @@ Three more sync subagents follow the same pattern as `webui-sync`: a `PostToolUs
 
 - **`changelog-sync`** — owns `CHANGELOG.md`'s `[Unreleased]` section. Adds `> _draft_` entries for user-facing changes; humans de-draft on review. Hook: `.claude/hooks/changelog-sync-on-edit.sh`. Queue: `docs/.changelog-pending`. Slash command: `/sync-changelog`.
 - **`design-docs-sync`** — owns `docs/design/`. Updates evergreen design docs to reflect mechanics changes. Hook: `.claude/hooks/design-docs-sync-on-edit.sh`. Queue: `docs/design/.sync-pending`. Slash command: `/sync-design-docs`.
-- **`readme-sync`** — owns three specific sections of `README.md` (the "What's different on this fork" bullet list, the env-vars table, and the migrations table). Conservative — skips edits when the change doesn't affect those sections. Hook: `.claude/hooks/readme-sync-on-edit.sh`. Queue: `docs/.readme-pending`. Slash command: `/sync-readme`.
+- **`readme-sync`** — owns two specific sections of `README.md`: the "What's different from upstream" bullet list and the env-vars table. Conservative — skips edits when the change doesn't affect those sections. There is **no migrations table** in the README (it was deliberately retired), so adding a `migrations/NNN_*.py` is never on its own a reason for this agent to edit anything. Hook: `.claude/hooks/readme-sync-on-edit.sh`. Queue: `docs/.readme-pending`. Slash command: `/sync-readme`.
 
 All four hooks (the three above plus `webui-sync`) are registered in `.claude/settings.json` under `PostToolUse`. A single `Stop` hook (`sync-reminders-stop.sh`) surfaces any non-empty queues so the next turn knows which agents to invoke.
 

@@ -2943,9 +2943,18 @@ async def _jobs_apply_outcome(profile: Profile, job, outcome_dict: dict, rng: ra
         profile.unlock_ach("stone_cold")
 
     # Discreet — 20 completed jobs with the flag never tripped.
+    #
+    # Read through _jobs_col, NOT getattr-with-default: catpg's __getattr__
+    # raises KeyError, which getattr does not catch, so the default never
+    # applies and a pre-migration-039 profile takes down the whole commit.
+    #
+    # A missing column means "can't tell yet", not "clean" — defaulting to
+    # clean would mass-award this to every 20-job player the moment the code
+    # ships, before the migration exists to mark anyone dirty. So only an
+    # explicit False awards.
     if (outcome == "success"
-            and int(getattr(profile, "jobs_completed", 0) or 0) >= JOBS_CLEAN_RECORD_JOBS
-            and not bool(getattr(profile, "clean_record_broken", False))):
+            and _jobs_col(profile, "clean_record_broken", None) is False
+            and int(getattr(profile, "jobs_completed", 0) or 0) >= JOBS_CLEAN_RECORD_JOBS):
         profile.unlock_ach("clean_record")
 
     # Complication-driven aches.
@@ -4938,9 +4947,15 @@ async def achemb(message, ach_id, send_type, author_string=None, profile=None):
     # last overwrites the other's unlocked_aches and one ach silently vanishes.
     # Note the trade-off — passing your instance means we save it here, so any
     # other dirty fields on it get flushed early.
-    if profile is None or (
-        int(profile.user_id) != int(author) or int(profile.guild_id) != int(message.guild.id)
-    ):
+    def _profile_matches(p):
+        # catpg raises KeyError for a column the instance didn't SELECT, so a
+        # partial-field fetch must fall back to a full one rather than explode.
+        try:
+            return int(p.user_id) == int(author) and int(p.guild_id) == int(message.guild.id)
+        except KeyError:
+            return False
+
+    if profile is None or not _profile_matches(profile):
         # No instance offered, or it belongs to someone else — achemb is
         # routinely called with an author_string for a second party (trade,
         # gift), and writing the ach onto the caller's own row there would be

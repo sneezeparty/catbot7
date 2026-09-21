@@ -192,6 +192,15 @@ JSONB_FIELDS = [
     "quests_variety_types",     # distinct cattype indices caught since the last daily reset (variety5 challenge quest); migration 036
 ]
 
+# profile.cat_milestone_base (migration 040) is a per-rarity snapshot dict
+# ({"Fine": 3000, "eGirl": 5, ...}) backing the non-retroactive "Powers of
+# Two" achievement ladder (main.award_pow2_milestones). It is deliberately
+# kept OUT of JSONB_FIELDS: that loop's `None -> []` coercion would flatten
+# the "never baselined" NULL sentinel into an indistinguishable empty list,
+# and the pill-list block only prints dict *keys*, dropping the counts. It
+# gets its own read-only section in db_profile_detail.html instead, so NULL
+# renders as an explicit "not yet baselined" rather than as empty/zero.
+
 
 async def index(request):
     pool = state.get_pool()
@@ -275,6 +284,20 @@ async def detail(request):
                 row_dict[jf] = []
         elif raw is None:
             row_dict[jf] = []
+
+    # cat_milestone_base: dict, not a list, and NULL is a real sentinel
+    # ("this profile has never been baselined") rather than missing data —
+    # parse it but do NOT coerce None to {}/[] here; the template branches on
+    # `is none` explicitly so the sentinel stays visible instead of reading
+    # as an empty/zero snapshot.
+    milestone_base = row_dict.get("cat_milestone_base")
+    if isinstance(milestone_base, str):
+        try:
+            milestone_base = _json.loads(milestone_base)
+        except Exception:
+            milestone_base = {}
+    row_dict["cat_milestone_base"] = milestone_base
+
     await names.refresh_guild_name_cache()
     unames = await names.resolve_users(state.get_bot(), [user_id])
     return aiohttp_jinja2.render_template(
@@ -288,6 +311,7 @@ async def detail(request):
             "str_fields": STR_FIELDS,
             "bool_fields": BOOL_FIELDS,
             "jsonb_fields": JSONB_FIELDS,
+            "milestone_base": milestone_base,
             "unames": unames,
         },
     )

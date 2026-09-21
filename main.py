@@ -5133,6 +5133,105 @@ async def achemb(message, ach_id, send_type, author_string=None, profile=None):
             await result.delete(delay=30)
 
 
+# ---------------------------------------------------------------------------
+# Powers-of-two hoard milestones (pow2_*)
+#
+# Sibling ladder to the same_type_* achievements in on_message, with one
+# deliberate difference: these are NEVER retroactive. profile.cat_milestone_base
+# freezes every cat_* counter as it stood the moment the feature arrived
+# (migration 040, or lazily on the profile's first evaluation for rows the
+# migration missed). A rung only unlocks when a rarity climbs PAST its own
+# frozen number. So the veteran sitting on 3,000 Fine skips 8 through 2048 and
+# earns 4096 the honest way, while a fresh profile walks the whole ladder.
+#
+# The baseline is per-rarity and immutable, which is what makes that work: the
+# same player's 5 eGirl can still cross 8, because eGirl froze at 5 even though
+# Fine froze at 3,000.
+#
+# The check is absolute, not event-based — it compares live counters against
+# the frozen baseline, so it doesn't care whether the cats arrived from a
+# catch, a pack, a trade, a job or /givecat. That makes it idempotent and
+# self-healing: forgetting a call site can only DELAY an unlock to the
+# player's next catch, never lose one. Which is why it's worth calling from
+# the couple of bulk-gain paths below and then not worrying about the rest.
+# ---------------------------------------------------------------------------
+POW2_MILESTONES = [(1 << e, f"pow2_{1 << e}") for e in range(3, 21)]  # 8 .. 1,048,576
+
+# Categories that don't gate `finale`. "Hidden" was always exempt (it's not
+# shown until earned); "Powers of Two" joins it because its rungs can become
+# permanently unobtainable — see the note in finale().
+FINALE_EXEMPT_CATEGORIES = ("Hidden", "Powers of Two")
+
+
+def _pow2_live_counts(profile) -> dict:
+    """Current cat_* counters as {rarity: count}. Skips columns this instance
+    didn't SELECT (catpg raises KeyError for those)."""
+    live = {}
+    for cat_type in cattypes:
+        try:
+            live[cat_type] = int(profile[f"cat_{cat_type}"] or 0)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            continue
+    return live
+
+
+def _pow2_baseline(profile):
+    """The frozen snapshot as a dict, or None if this profile has never been
+    baselined. Raises KeyError if the column doesn't exist (migration unrun) —
+    callers catch it."""
+    base = profile.cat_milestone_base
+    if base is None:
+        return None
+    if isinstance(base, str):
+        try:
+            base = json.loads(base)
+        except (ValueError, TypeError):
+            return {}
+    return base if isinstance(base, dict) else {}
+
+
+async def award_pow2_milestones(message, profile, send_type="send", author_string=None):
+    """Award every pow2_* rung a single rarity has climbed past since the
+    baseline snapshot.
+
+    On a profile that has never been seen before, freezes the baseline and
+    awards nothing — that is the whole non-retroactive guarantee. achemb
+    dedupes, so re-running this on every catch is free after the first unlock.
+    """
+    try:
+        base = _pow2_baseline(profile)
+    except (KeyError, AttributeError):
+        return  # migration 040 unrun — no column to read
+
+    live = _pow2_live_counts(profile)
+    if not live:
+        return
+
+    if base is None:
+        # First sighting. Freeze where they stand; award nothing, ever, for
+        # ground already covered.
+        profile.cat_milestone_base = live
+        await profile.save()
+        return
+
+    # A rung is earned when SOME rarity crossed it: floor < threshold <= count.
+    # Rungs at or below a rarity's own floor stay locked for that rarity
+    # forever, because the counter can never cross them again.
+    crossed = set()
+    for cat_type, count in live.items():
+        floor = int(base.get(cat_type, 0) or 0)
+        if count <= floor:
+            continue
+        for threshold, ach_id in POW2_MILESTONES:
+            if floor < threshold <= count:
+                crossed.add(ach_id)
+
+    # Ascending, so a big pack jump reads as a climb rather than a jumble.
+    for _threshold, ach_id in POW2_MILESTONES:
+        if ach_id in crossed:
+            await achemb(message, ach_id, send_type, author_string, profile=profile)
+
+
 # Pre-migration-028 guards: profile.vote_quest may not yet exist on the row
 # (catpg raises KeyError on attribute access for missing columns). These
 # helpers let the vote-substitute-slot codepaths degrade gracefully — read
@@ -6132,8 +6231,12 @@ async def finale(message, user):
         return
 
     # check ach req
+    # "Powers of Two" is exempt alongside "Hidden", and for a harsher reason:
+    # those rungs are non-retroactive, so a veteran already holding 8+ of every
+    # rarity can never cross 8 again and would be locked out of the finale
+    # forever through no fault of their own. See award_pow2_milestones.
     for k in ach_names:
-        if not user.has_ach(k) and ach_list[k]["category"] != "Hidden":
+        if not user.has_ach(k) and ach_list[k]["category"] not in FINALE_EXEMPT_CATEGORIES:
             return
 
     user.finale_seen = True
@@ -9404,6 +9507,12 @@ async def on_message(message: discord.Message):
                         if _hoard_n >= _hthresh:
                             await achemb(message, _haid, "send")
 
+                # Powers-of-two ladder (pow2_*). Unlike same_type_* above this
+                # is non-retroactive and checks EVERY rarity, not just the one
+                # just caught, so cats that arrived from a pack/trade/gift
+                # since the last catch get picked up here too.
+                await award_pow2_milestones(message, user)
+
                 if time_caught > 0 and time_caught == int(time_caught) and not user.perfection:
                     await achemb(message, "perfection", "send")
 
@@ -12138,6 +12247,7 @@ async def packs(message: discord.Interaction):
         for cat_type, cat_amount in results_percat.items():
             if cat_amount > 0:
                 await mark_discovered(user, cat_type)
+        await award_pow2_milestones(message, user, "followup")
 
         final_header = f"Opened {opened_so_far:,} packs!"
         pack_list = "**" + ", ".join(results_header) + "**"
@@ -12515,6 +12625,7 @@ async def packs(message: discord.Interaction):
             await mark_discovered(user, chosen_type)
         if bonus_type and bonus_amount > 0:
             await mark_discovered(user, bonus_type)
+        await award_pow2_milestones(message, user, "followup")
 
         logging.debug("Opened pack %s", pack)
 
@@ -21878,6 +21989,7 @@ async def achievements(message: discord.Interaction):
             discord.SelectOption(label="Random", emoji="🙃"),
             discord.SelectOption(label="Silly", emoji=get_emoji("sillycat")),
             discord.SelectOption(label="Hard", emoji=get_emoji("demonic_ach")),
+            discord.SelectOption(label="Powers of Two", emoji="💾", description="Hoard 8, 16, 32... of one rarity. Never awarded for cats you already had."),
             discord.SelectOption(label="Hidden", emoji="❓", description="Hidden achievements only show up after you complete them."),
         ]
         select = discord.ui.Select(placeholder=category, options=options)

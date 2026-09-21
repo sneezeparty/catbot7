@@ -74,6 +74,26 @@
     </tbody>
   </table>
 
+  <h2 class="section">Powers of Two baseline <span class="heading-count">read-only</span></h2>
+  <table class="editor-table">
+    <tbody>
+      <tr>
+        <td><span class="name">cat_milestone_base</span></td>
+        <td>
+          {% if milestone_base is none %}
+            <span class="muted">not yet baselined (NULL — frozen on this profile's next catch, migration 040)</span>
+          {% elif milestone_base %}
+            {% for k, v in milestone_base.items()|sort %}
+              <span class="pill">{{ k }}: {{ "{:,}".format(v) if v is number else v }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">(baselined at an empty snapshot)</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
   <details>
     <summary>All columns <span class="heading-count">{{ row|length }}</span></summary>
     <table class="editor-table">

@@ -402,7 +402,8 @@ CREATE TABLE public.profile (
     scratchcards_scratched integer DEFAULT 0 NOT NULL,
     scratchcards_earned integer DEFAULT 0 NOT NULL,
     chaos_clicks integer DEFAULT 0 NOT NULL,
-    cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[24])
+    cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[24]),
+    cat_milestone_base jsonb
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

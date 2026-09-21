@@ -91,3 +91,6 @@
 2026-09-06 05:51  Skipped: migrations/011_cat_auras.py (no diff to summarize — already committed/reflected)
 2026-09-06 05:51  Skipped: migrations/038_cat_auras.py (no diff to summarize — already committed/reflected)
 2026-09-06 05:51  Skipped: migrations/039_clean_record.py (adds profile.clean_record_broken for the Discreet achievement — Migrations section confirmed still absent from README per operator instruction, not re-added; also not gameplay-divergence-worthy on its own, single achievement not a category batch)
+2026-09-21 06:16 Updated: gameplay-divergence: added Achievements row for the new "Powers of Two" ladder (18 aches, pow2_8..pow2_1048576) — non-retroactive via a frozen per-profile baseline (profile.cat_milestone_base) and a change to the existing finale gate's exempt-categories list, which is genuine new architecture rather than bulk content on existing mechanics (re: main.py, config/aches.json, migrations/040_cat_milestone_base.py, schema.sql)
+2026-09-21 06:16 Skipped: env-vars (config.py unchanged this session — no new/removed vars, no behavior change)
+2026-09-21 06:16 Skipped: migrations table (deliberately absent per operator instruction; migrations/040_cat_milestone_base.py is not on its own a reason to add one)

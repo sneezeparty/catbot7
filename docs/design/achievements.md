@@ -12,6 +12,7 @@ Categories (heuristic, not enforced; counts as of writing):
 - **Hard** (~35) — feats that take effort or luck: gambling streaks, max-party Catstore monsoons, prism crafting milestones, catching at an exact timestamp, etc. The "I went out of my way" tier.
 - **Random** (~18) — situational triggers nobody plans for: pineapple-react, getting DMed, being the only catcher in a server, etc.
 - **Silly** (~46) — meme/joke triggers ("nice", "that's rude", "nerd") plus the single-rarity hoard ladder (hold 100/200/250/500/1,000/2,000/4,000/5,000/10,000/15,000/20,000/30,000/50,000/100,000 of one type, hardcoded and keyed on the just-caught type's current inventory — 14 tiers, XP ramping 250→750), the x86-CPU easter eggs (hoard 286/386/486 of one type, interleaved in the same award loop), and the eGirl collection ladder (5/10/25/50/100, `cat_rarity_count` trigger). Personality and hoarding, not progress.
+- **Powers of Two** (18) — the `pow2_8`..`pow2_1048576` hoard ladder: hold past 8, 16, 32, ... 1,048,576 of a single cat rarity. Deliberately non-retroactive — see [Powers-of-two hoard ladder](#powers-of-two-hoard-ladder-pow2_) below.
 - **Hidden** (~27) — Easter eggs and weird message triggers that should feel like secret discoveries.
 
 `Hidden` category aches don't count toward the "have 30 achs" misc-quest threshold (`unlocked > 30` skip in `generate_quest`), and the `/achievements` browser hides their entries until unlocked. Both checks live behind the same `ach_list[k]["category"] == "Hidden"` predicate; renaming the `Hidden` category would silently break them.
@@ -65,9 +66,21 @@ Condition types are pluggable via `@_evaluator("name")` in `ach_engine.py`. Addi
 
 **When to use:** any new ach that can be expressed as "event X with condition Y". Always prefer the trigger engine for new aches.
 
+## Powers-of-two hoard ladder (`pow2_*`)
+
+Eighteen achievements (`pow2_8` .. `pow2_1048576`) awarded when a single cat rarity's count climbs past 8, 16, 32, ... up to 1,048,576. Unlocked via `award_pow2_milestones()` — a hardcoded call site (see [Hardcoded sites](#hardcoded-sites)), not the trigger engine — called from the catch path in `on_message` and from both `/packs` open paths.
+
+**Design intent:**
+- Explicitly **not retroactive**: cats a player already owned when the feature shipped never award a rung.
+- The baseline is per-rarity and immutable: `profile.cat_milestone_base` (jsonb, nullable, no `DEFAULT`; added and backfilled by `migrations/040_cat_milestone_base.py`) freezes every `cat_<rarity>` counter at rollout, e.g. `{"Fine": 3000, "eGirl": 5}`. A rung unlocks when `floor < threshold <= live_count` for some rarity — so a 3,000-Fine veteran skips 8..2048 and still earns 4096 honestly, while their 5 eGirl can independently cross 8.
+- `NULL` is a deliberate sentinel meaning "never baselined": `award_pow2_milestones` freezes on sight and awards nothing the first time it sees a profile. The column has no `DEFAULT` on purpose — a default of `'{}'` would read every unmigrated veteran as starting from zero cats and dump the whole ladder on them at once.
+- The check is absolute (live counters vs. frozen baseline), not event-based, so it's path-independent and self-healing: it doesn't matter whether the cats arrived via catch, pack, trade, gift, job, or `/givecat`, and a missed call site can only delay an unlock to the player's next catch — never lose one.
+- `Powers of Two` is exempt from `finale()`'s "own every achievement" gate, alongside `Hidden` (`FINALE_EXEMPT_CATEGORIES` in `main.py`): a veteran already holding 8+ of every rarity can never cross 8 again, and would otherwise be locked out of the finale permanently.
+- Deliberate sibling to the retroactive single-rarity hoard (`same_type_*`) ladder described above: the two coexist on purpose — one rewards hoards already built, the other only rewards hoards built from the feature's launch onward.
+
 ## XP rewards
 
-Aches with an `xp` field in `aches.json` grant that many battlepass XP on unlock, via `grant_achievement_xp()` in `main.py`. Range is typically 50–500.
+Aches with an `xp` field in `aches.json` grant that many battlepass XP on unlock, via `grant_achievement_xp()` in `main.py`. Range is typically 100–750 (the Powers of Two ladder tops out at the existing 750 ceiling rather than introducing a new one).
 
 **Design intent:** XP-bearing aches are the "you've discovered something meaningful" tier. Trivial discovery aches (saying "cat" for the first time) shouldn't bear XP — they're discovery rewards, not progression rewards.
 

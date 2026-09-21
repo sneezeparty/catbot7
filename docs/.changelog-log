@@ -142,3 +142,4 @@
 2026-09-06 05:52 Skipped: bot.py (no diff to summarize -- edited then reverted)
 2026-09-06 05:52 Skipped: msg2img.py (no diff to summarize -- edited then reverted)
 2026-09-06 05:57 Added: "Seven more single-rarity hoard achievements (Seeing Double, Assembly Line, Xerox Fever, Echo Chamber, Groupthink, Diminishing Returns, Please Diversify) fill gaps in the same_type_* family" (re: config/aches.json, main.py)
+2026-09-21 06:14 Added: "18 new achievements — Powers of Two ladder (pow2_8..pow2_1048576), non-retroactive via profile.cat_milestone_base baseline; new category exempt from finale alongside Hidden" (re: config/aches.json, main.py, schema.sql)

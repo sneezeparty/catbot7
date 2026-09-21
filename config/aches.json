@@ -1450,5 +1450,131 @@
         "is_hidden": true,
         "category": "Hidden",
         "xp": 400
+    },
+    "pow2_8": {
+        "title": "Byte-Sized",
+        "description": "hold 8 of a single cat type. one whole byte of cat.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 100
+    },
+    "pow2_16": {
+        "title": "Word Up",
+        "description": "hold 16 of one rarity. a full 16-bit word.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 125
+    },
+    "pow2_32": {
+        "title": "Double Word",
+        "description": "hold 32 of a single type. twice the word, same cat.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 150
+    },
+    "pow2_64": {
+        "title": "Quad Word",
+        "description": "hold 64 of one rarity. sixty-four bits of pure hoard.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 175
+    },
+    "pow2_128": {
+        "title": "Signed Overflow",
+        "description": "hold 128 of a single type. one more and the byte goes negative.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 200
+    },
+    "pow2_256": {
+        "title": "Kill Screen",
+        "description": "hold 256 of one rarity. pac-man would like a word.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 225
+    },
+    "pow2_512": {
+        "title": "Almost a Kilo",
+        "description": "hold 512 of a single type. so close you can taste it.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 250
+    },
+    "pow2_1024": {
+        "title": "One Kilocat",
+        "description": "hold 1,024 of one rarity. a real kilo, not a marketing one.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 300
+    },
+    "pow2_2048": {
+        "title": "2048",
+        "description": "hold 2,048 of a single type. no swiping required.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 350
+    },
+    "pow2_4096": {
+        "title": "Cinema Grade",
+        "description": "hold 4,096 of one rarity. that's 4K, technically.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 400
+    },
+    "pow2_8192": {
+        "title": "Bank Switch",
+        "description": "hold 8,192 of a single type. one entire ROM bank of cat.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 450
+    },
+    "pow2_16384": {
+        "title": "Model A",
+        "description": "hold 16,384 of one rarity. the BBC Micro shipped with less.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 500
+    },
+    "pow2_32768": {
+        "title": "Short Circuit",
+        "description": "hold 32,768 of a single type. one more and the short goes negative.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 550
+    },
+    "pow2_65536": {
+        "title": "Address Space",
+        "description": "hold 65,536 of one rarity. the whole 16-bit address space, in cats.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 600
+    },
+    "pow2_131072": {
+        "title": "Macintosh 128K",
+        "description": "hold 131,072 of a single type. the original Mac had this much RAM. total.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 650
+    },
+    "pow2_262144": {
+        "title": "Overqualified",
+        "description": "hold 262,144 of one rarity. now you're overkill for a 1984 spreadsheet.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 700
+    },
+    "pow2_524288": {
+        "title": "Half a Meg",
+        "description": "hold 524,288 of a single type. one more doubling and it's a megacat.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 725
+    },
+    "pow2_1048576": {
+        "title": "One Megacat",
+        "description": "hold 1,048,576 of one rarity. a literal megabyte of cat. please go outside.",
+        "is_hidden": false,
+        "category": "Powers of Two",
+        "xp": 750
     }
 }

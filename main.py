@@ -12103,7 +12103,9 @@ async def scratch(message: discord.Interaction):
                 await do_funny(interaction)
                 return
             spot = int(interaction.data["custom_id"])
-            if len(move_spaces) < 10:
+            # a double-tap lands twice before the re-render disables the button;
+            # a duplicate would leave >15 unrevealed spots and overrun opts
+            if spot not in move_spaces and len(move_spaces) < 10:
                 move_spaces.append(spot)
             await refresh_board(interaction)
 

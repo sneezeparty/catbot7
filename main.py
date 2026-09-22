@@ -6309,6 +6309,36 @@ async def gift_autocomplete(interaction: discord.Interaction, current: str) -> l
     return choices[:25]
 
 
+def _trade_offer_options(profile, rain_minutes: int, owned_prisms: list[str]) -> tuple[list[discord.SelectOption], int]:
+    """Build the inventory dropdown for the /trade "Offer..." modal.
+
+    Mirrors /gift's autocomplete: only things the offering player actually
+    holds, cats first in rarity order, then Rain, packs, and their prisms.
+    Labels carry the held quantity ("Fine (x991)"). Values are kind-prefixed
+    ("cat:Fine", "rain:rains", "pack:Wooden", "prism:Alpha Two") so
+    TradeModal.on_submit can dispatch without re-parsing free text.
+
+    Discord caps a Select at 25 options, so the list is truncated; the
+    second return value is the untruncated count so the modal can tell the
+    player to type the rest into the free-text field.
+    """
+    options: list[discord.SelectOption] = []
+    for cat in cattypes:
+        held = profile[f"cat_{cat}"]
+        if held > 0:
+            options.append(discord.SelectOption(label=f"{cat} (x{held:,})", value=f"cat:{cat}"))
+    if rain_minutes > 0:
+        options.append(discord.SelectOption(label=f"Rain ({rain_minutes:,} minutes)", value="rain:rains"))
+    for pack in pack_data:
+        pname = pack["name"]
+        held = profile[f"pack_{pname.lower()}"]
+        if held > 0:
+            options.append(discord.SelectOption(label=f"{pname} pack (x{held:,})", value=f"pack:{pname}"))
+    for prism in owned_prisms:
+        options.append(discord.SelectOption(label=f"Prism {prism}", value=f"prism:{prism}"))
+    return options[:25], len(options)
+
+
 # function to autocomplete achievement choice for /giveachievement, which also allows more than 25 options
 async def ach_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
     return [
@@ -18453,8 +18483,17 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
         currentuser = 1 if interaction.user == person1 else 2
 
-        # all we really do is spawn the modal
-        modal = TradeModal(currentuser)
+        # Build the inventory dropdown from a fresh read so the counts match
+        # what the player holds right now, then spawn the modal. Three awaits
+        # before send_modal - comfortably inside the 3s response window.
+        profile = user1 if currentuser == 1 else user2
+        await profile.refresh_from_db()
+        actual_user = await User.get_or_create(user_id=interaction.user.id)
+        owned_prisms = await Prism.collect_limit(
+            ["name"], "guild_id = $1 AND user_id = $2 ORDER BY name", interaction.guild.id, interaction.user.id
+        )
+        options, total_options = _trade_offer_options(profile, actual_user.rain_minutes, [p.name for p in owned_prisms])
+        modal = TradeModal(currentuser, options, total_options)
         await interaction.response.send_modal(modal)
 
     # this is ran like everywhere when you do anything
@@ -18551,16 +18590,35 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
     # lets go add cats modal thats fun
     class TradeModal(Modal):
-        def __init__(self, currentuser):
+        def __init__(self, currentuser, options, total_options):
             super().__init__(
                 title="Add to the trade",
                 timeout=VIEW_TIMEOUT,
             )
             self.currentuser = currentuser
 
+            # Dropdown of what the player actually holds, same style as
+            # /gift's autocomplete. Optional, because the free-text field
+            # below still has to cover anything past Discord's 25-option
+            # cap (and negative amounts to pull things back out of the
+            # offer work through either field). Skipped entirely when the
+            # player holds nothing tradeable - a Select needs >= 1 option.
+            self.pick = None
+            if options:
+                desc = None
+                if total_options > len(options):
+                    desc = f"Showing {len(options)} of {total_options} - type anything else below."
+                self.pick = discord.ui.Select(
+                    placeholder="Pick a cat, pack, prism, or Rain",
+                    options=options,
+                    required=False,
+                )
+                self.add_item(discord.ui.Label(text="Pick from your inventory", description=desc, component=self.pick))
+
             self.cattype = TextInput(
-                label='Cat or Pack Type, Prism Name or "Rain"',
+                label='Or type a name (cat, pack, prism, "Rain")',
                 placeholder="Fine / Wooden / Alpha / Rain",
+                required=False,
             )
             self.add_item(self.cattype)
 
@@ -18582,8 +18640,36 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 await interaction.response.send_message("invalid amount", ephemeral=True)
                 return
 
+            # Resolve WHAT is being offered into (kind, name). A dropdown pick
+            # arrives kind-prefixed from _trade_offer_options and skips the
+            # text parsing entirely; typed input goes through the same
+            # prism -> pack -> rain -> cat detection order as before.
+            picked = self.pick.values[0] if (self.pick is not None and self.pick.values) else None
+            typed = self.cattype.value.strip()
+            if picked and typed:
+                await interaction.response.send_message("pick from the dropdown OR type a name, not both", ephemeral=True)
+                return
+            if not picked and not typed:
+                await interaction.response.send_message("pick something from the dropdown or type a name", ephemeral=True)
+                return
+
+            if picked:
+                kind, name = picked.split(":", 1)
+            elif (pname := " ".join(i.capitalize() for i in typed.split())) in prism_names:
+                kind, name = "prism", pname
+            elif typed.capitalize() in [i["name"] for i in pack_data]:
+                kind, name = "pack", typed.capitalize()
+            elif "rain" in typed.lower():
+                kind, name = "rain", "rains"
+            elif (cname := cattype_lc_dict.get(typed.lower())) is not None:
+                kind, name = "cat", cname
+            else:
+                await interaction.response.send_message("add a valid cat/pack/prism name 💀💀💀", ephemeral=True)
+                return
+
             # handle prisms
-            if (pname := " ".join(i.capitalize() for i in self.cattype.value.split())) in prism_names:
+            if kind == "prism":
+                pname = name
                 try:
                     prism = await Prism.get_or_none(guild_id=interaction.guild.id, name=pname)
                     if not prism:
@@ -18607,8 +18693,8 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 return
 
             # handle packs
-            if self.cattype.value.capitalize() in [i["name"] for i in pack_data]:
-                pname = self.cattype.value.capitalize()
+            if kind == "pack":
+                pname = name
                 if self.currentuser == 1:
                     if user1.battlepass < 3 and not user1.bp_history.strip().replace("0,0,0;", ""):
                         await interaction.response.send_message("you need to reach atleast cattlepass level 3 to trade packs.", ephemeral=True)
@@ -18640,7 +18726,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 return
 
             # handle rains
-            if "rain" in self.cattype.value.lower():
+            if kind == "rain":
                 user = await User.get_or_create(user_id=interaction.user.id)
                 try:
                     if user.rain_minutes < int(value) or int(value) < 1:
@@ -18664,15 +18750,8 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 await update_trade_embed(interaction)
                 return
 
-            lc_input = self.cattype.value.lower()
-
-            # loop through the cat types and find the correct one using lowercased user input.
-            cname = cattype_lc_dict.get(lc_input, None)
-
-            # if no cat type was found, the user input was invalid. as cname is still `None`
-            if cname is None:
-                await interaction.response.send_message("add a valid cat/pack/prism name 💀💀💀", ephemeral=True)
-                return
+            # handle cats
+            cname = name
 
             try:
                 if self.currentuser == 1:

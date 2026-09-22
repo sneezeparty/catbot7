@@ -155,3 +155,4 @@
 2026-09-21 06:17  achievements.md updated XP rewards range "50–500" -> "100–750" (aches.json's actual bounds were already 100-750 pre-existing; Powers of Two tops out at the existing 750 ceiling rather than raising it) (re: config/aches.json)
 2026-09-21 06:17  economy.md, battlepass.md, catnip.md, jobs.md, README.md  no change — none reference cat_<rarity> counters, profile.cat_milestone_base, or achievement-finale gating; Powers of Two is purely an achievements.md concern (re: main.py, config/aches.json, schema.sql)
 2026-09-21 06:17  (all docs)      smoke test passed — all docs/design/*.md fence counts balanced after edits (re: full pending set)
+2026-09-21 23:42  economy.md      added minimal note on /trade offer-modal inventory dropdown (UX-only, no valuation/mechanic change) (re: main.py)

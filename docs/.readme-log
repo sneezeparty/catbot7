@@ -94,3 +94,4 @@
 2026-09-21 06:16 Updated: gameplay-divergence: added Achievements row for the new "Powers of Two" ladder (18 aches, pow2_8..pow2_1048576) — non-retroactive via a frozen per-profile baseline (profile.cat_milestone_base) and a change to the existing finale gate's exempt-categories list, which is genuine new architecture rather than bulk content on existing mechanics (re: main.py, config/aches.json, migrations/040_cat_milestone_base.py, schema.sql)
 2026-09-21 06:16 Skipped: env-vars (config.py unchanged this session — no new/removed vars, no behavior change)
 2026-09-21 06:16 Skipped: migrations table (deliberately absent per operator instruction; migrations/040_cat_milestone_base.py is not on its own a reason to add one)
+2026-09-21 23:42 Skipped: main.py (/trade Offer modal gained an inventory dropdown alongside the existing free-text field - a UX convenience on an existing command, not a new gameplay divergence; no env vars changed)

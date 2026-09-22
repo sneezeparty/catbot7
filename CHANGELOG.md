@@ -43,6 +43,8 @@ The [`changelog-sync`](.claude/agents/changelog-sync.md) subagent updates the `[
 - **Daily "Vote on Top.gg" battlepass quest now lands ~75% of daily rerolls** (was ~50%). The remaining ~25% still substitutes a random misc quest into the vote slot.
 - **`/roulette` job perks rebalanced.** **Loaded Wheel** now only nudges red/black spins — it no longer affects green or single-number bets — and its proc chance is lower across all three tiers (1% / 1.5% / 2%, down from 2% / 3% / 5%). **House Mercy** no longer refunds coins on a loss; it now pays a small, capped battlepass-XP consolation instead (3 / 4 / 5 losing spins per activation, worth 15 / 20 / 25 XP each by tier). **Free Spin** is unchanged.
   > _draft_
+- **`/trade`'s "Offer..." modal gained an inventory dropdown**, same style as `/gift`'s autocomplete (e.g. "Fine (x991)", "Rain (12 minutes)", "Wooden pack (x3)", "Prism Alpha"), built from the offering player's live inventory. The free-text name field is now optional and stays as a fallback for anything past Discord's 25-option cap (labeled "Showing N of M" when truncated) and for negative amounts. Validation, the pack-trading level gate, and value math are unchanged.
+  > _draft_
 
 ### Fixed
 - **Casino daily quest title now names `/cookie` instead of the nonexistent `/cookieclicker`.** The "Play 3 different casino games" quest listed `/cookieclicker` as one of the five qualifying commands, but that slash command doesn't exist - the cookie game is `/cookie`. Display-only fix in `config/battlepass.json`; quest progress was already tracking cookie clicks correctly under the internal `cookieclicker` key.

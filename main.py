@@ -6312,30 +6312,58 @@ async def gift_autocomplete(interaction: discord.Interaction, current: str) -> l
 def _trade_offer_options(profile, rain_minutes: int, owned_prisms: list[str]) -> tuple[list[discord.SelectOption], int]:
     """Build the inventory dropdown for the /trade "Offer..." modal.
 
-    Mirrors /gift's autocomplete: only things the offering player actually
-    holds, cats first in rarity order, then Rain, packs, and their prisms.
-    Labels carry the held quantity ("Fine (x991)"). Values are kind-prefixed
-    ("cat:Fine", "rain:rains", "pack:Wooden", "prism:Alpha Two") so
-    TradeModal.on_submit can dispatch without re-parsing free text.
+    Only things the offering player actually holds, labelled with the held
+    quantity ("Fine (x991)") and wearing the same emoji the trade embed uses,
+    so the picker and the embed it feeds speak one vocabulary. Values are
+    kind-prefixed ("cat:Fine", "rain:rains", "pack:Wooden", "prism:Alpha Two")
+    so TradeModal.on_submit can dispatch without re-parsing free text.
 
-    Discord caps a Select at 25 options, so the list is truncated; the
-    second return value is the untruncated count so the modal can tell the
-    player to type the rest into the free-text field.
+    Discord caps a Select at 25 options, so the list is truncated; the second
+    return value is the untruncated count so the modal can tell the player to
+    type the rest into the free-text field.
+
+    Order is deliberately the INVERSE of /gift's autocomplete — prisms, then
+    packs, Rain, and cats last. /gift filters its 25 by what you've typed, so
+    the cap almost never bites there; a Select can't filter, so the cap always
+    bites from the bottom. Cats lose that race on purpose: there are 24
+    rarities, and a veteran holding all of them would otherwise fill every
+    slot and never see a pack or a prism — the two things whose names are
+    hardest to type into the fallback field. "Fine" is easy to type; "Alpha
+    Two" is not.
+
+    Counters are read defensively: a rarity or pack column that predates a
+    migration raises KeyError out of catpg, and one missing column shouldn't
+    cost the player their whole picker.
     """
+    def _held(column: str) -> int:
+        try:
+            return int(profile[column] or 0)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return 0
+
+    try:
+        auras = profile.cat_auras
+    except (KeyError, AttributeError):
+        auras = None  # get_aura_emoji falls back to the plain emoji
+
     options: list[discord.SelectOption] = []
-    for cat in cattypes:
-        held = profile[f"cat_{cat}"]
-        if held > 0:
-            options.append(discord.SelectOption(label=f"{cat} (x{held:,})", value=f"cat:{cat}"))
-    if rain_minutes > 0:
-        options.append(discord.SelectOption(label=f"Rain ({rain_minutes:,} minutes)", value="rain:rains"))
+    for prism in owned_prisms:
+        options.append(discord.SelectOption(label=f"Prism {prism}", value=f"prism:{prism}", emoji=get_emoji("prism")))
     for pack in pack_data:
         pname = pack["name"]
-        held = profile[f"pack_{pname.lower()}"]
+        held = _held(f"pack_{pname.lower()}")
         if held > 0:
-            options.append(discord.SelectOption(label=f"{pname} pack (x{held:,})", value=f"pack:{pname}"))
-    for prism in owned_prisms:
-        options.append(discord.SelectOption(label=f"Prism {prism}", value=f"prism:{prism}"))
+            options.append(
+                discord.SelectOption(label=f"{pname} pack (x{held:,})", value=f"pack:{pname}", emoji=get_emoji(pname.lower() + "pack"))
+            )
+    if rain_minutes > 0:
+        options.append(discord.SelectOption(label=f"Rain ({rain_minutes:,} minutes)", value="rain:rains", emoji="☔"))
+    for cat in cattypes:
+        held = _held(f"cat_{cat}")
+        if held > 0:
+            options.append(
+                discord.SelectOption(label=f"{cat} (x{held:,})", value=f"cat:{cat}", emoji=get_aura_emoji(cat, auras))
+            )
     return options[:25], len(options)
 
 
@@ -18485,14 +18513,25 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
         # Build the inventory dropdown from a fresh read so the counts match
         # what the player holds right now, then spawn the modal. Three awaits
-        # before send_modal - comfortably inside the 3s response window.
+        # before send_modal — comfortably inside the 3s response window.
+        #
+        # Wrapped because this button used to be unmissable: it had no awaits
+        # at all before responding, so it could not fail. Now a hiccup in any
+        # of the three would leave the interaction unanswered and the player
+        # staring at "interaction failed" with no modal and no explanation.
+        # An empty option list just means TradeModal skips the Select, which
+        # degrades exactly to the text-only modal this replaced.
         profile = user1 if currentuser == 1 else user2
-        await profile.refresh_from_db()
-        actual_user = await User.get_or_create(user_id=interaction.user.id)
-        owned_prisms = await Prism.collect_limit(
-            ["name"], "guild_id = $1 AND user_id = $2 ORDER BY name", interaction.guild.id, interaction.user.id
-        )
-        options, total_options = _trade_offer_options(profile, actual_user.rain_minutes, [p.name for p in owned_prisms])
+        options, total_options = [], 0
+        try:
+            await profile.refresh_from_db()
+            actual_user = await User.get_or_create(user_id=interaction.user.id)
+            owned_prisms = await Prism.collect_limit(
+                ["name"], "guild_id = $1 AND user_id = $2 ORDER BY name", interaction.guild.id, interaction.user.id
+            )
+            options, total_options = _trade_offer_options(profile, actual_user.rain_minutes, [p.name for p in owned_prisms])
+        except Exception:
+            logging.exception("trade: inventory dropdown build failed, falling back to the text-only modal")
         modal = TradeModal(currentuser, options, total_options)
         await interaction.response.send_modal(modal)
 
@@ -18602,12 +18641,12 @@ async def trade(message: discord.Interaction, person_id: discord.User):
             # below still has to cover anything past Discord's 25-option
             # cap (and negative amounts to pull things back out of the
             # offer work through either field). Skipped entirely when the
-            # player holds nothing tradeable - a Select needs >= 1 option.
+            # player holds nothing tradeable — a Select needs >= 1 option.
             self.pick = None
             if options:
                 desc = None
                 if total_options > len(options):
-                    desc = f"Showing {len(options)} of {total_options} - type anything else below."
+                    desc = f"Showing {len(options)} of {total_options} — type anything else below."
                 self.pick = discord.ui.Select(
                     placeholder="Pick a cat, pack, prism, or Rain",
                     options=options,
@@ -18615,15 +18654,18 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 )
                 self.add_item(discord.ui.Label(text="Pick from your inventory", description=desc, component=self.pick))
 
-            self.cattype = TextInput(
-                label='Or type a name (cat, pack, prism, "Rain")',
-                placeholder="Fine / Wooden / Alpha / Rain",
-                required=False,
-            )
-            self.add_item(self.cattype)
+            # Both inputs go inside a Label rather than bare. Discord deprecated
+            # Text Input inside an Action Row in modals ("going forward all Text
+            # Inputs should be placed inside a Label component"), and discord.py
+            # wraps a bare TextInput in exactly that deprecated Action Row — so
+            # once the Select above brought a Label into this modal, leaving
+            # these two bare would have mixed a current component with two
+            # deprecated ones. The eGirl bonus minigame modal is the same shape.
+            self.cattype = TextInput(placeholder="Fine / Wooden / Alpha / Rain", required=False)
+            self.add_item(discord.ui.Label(text='Or type a name (cat, pack, prism, "Rain")', component=self.cattype))
 
-            self.amount = TextInput(label="Amount to offer", placeholder="1", required=False)
-            self.add_item(self.amount)
+            self.amount = TextInput(placeholder="1", required=False)
+            self.add_item(discord.ui.Label(text="Amount to offer", component=self.amount))
 
         # this is ran when user submits
         async def on_submit(self, interaction: discord.Interaction):

@@ -3630,7 +3630,7 @@
       },
       "casino": {
         "emoji": "\ud83c\udfb0",
-        "title": "Play 3 different casino games (/slots, /catslots, /roulette, /pig, /cookieclicker)",
+        "title": "Play 3 different casino games (/slots, /catslots, /roulette, /pig, /cookie)",
         "xp_min": 180,
         "xp_max": 240,
         "progress": 3

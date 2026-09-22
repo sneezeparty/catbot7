@@ -17288,14 +17288,62 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
             logging.exception("ach_engine prism event failed")
 
     order_map = {name: index for index, name in enumerate(prism_names)}
-    prisms = all_prisms if not person else user_prisms
-    prisms.sort(key=lambda p: order_map.get(p.name, float("inf")))
 
-    for prism in prisms:
-        prism_texts.append(f"{icon} **{prism.name}** {f'Owner: <@{prism.user_id}>' if not person else ''}\n<@{prism.creator}> crafted <t:{prism.time}:D>")
+    # Two shapes on purpose, because the two calls ask different questions.
+    # Unfiltered, /prism is "who owns prisms here?" — so it groups by owner and
+    # a server's worth of NATO callsigns collapses into a handful of scannable
+    # rows. Filtered to one person it's "what exactly do they have?" — so that
+    # stays a flat list, and it's where the craft date lives now that the
+    # grouped view has no room for it.
+    #
+    # Both show catches_boosted, which the row has carried since the column
+    # existed and which nothing outside /profile's aggregate has ever shown.
+    GROUPED_PER_PAGE = 10  # owners per page
+    FLAT_PER_PAGE = 20  # prisms per page
 
-    if len(prisms) == 0:
+    def _boosts(p) -> int:
+        try:
+            return int(p.catches_boosted or 0)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return 0
+
+    if person:
+        entries = sorted(user_prisms, key=lambda p: order_map.get(p.name, float("inf")))
+        for entry in entries:
+            # creator != owner means it changed hands. Every prism in the wild
+            # is still owner-crafted, so this is the rare case, not the rule —
+            # which is why it's a suffix now instead of its own line.
+            traded = f" · from <@{entry.creator}>" if entry.creator != entry.user_id else ""
+            prism_texts.append(f"{icon} **{entry.name}** · {_boosts(entry):,} boosts · crafted <t:{entry.time}:D>{traded}")
+        per_page = FLAT_PER_PAGE
+        block_sep = "\n"
+    else:
+        groups: dict[int, list] = {}
+        for entry in all_prisms:
+            groups.setdefault(entry.user_id, []).append(entry)
+        # Most prisms first. That's what "who has the most" means to a player;
+        # total boosts only breaks ties, since it mostly measures prism age.
+        ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), -sum(_boosts(p) for p in kv[1])))
+        for owner_id, owned in ranked:
+            owned.sort(key=lambda p: -_boosts(p))
+            mine = "  ← you" if owner_id == message.user.id else ""
+            chips = [f"{p.name} ({_boosts(p):,})" + ("*" if p.creator != p.user_id else "") for p in owned[:6]]
+            more = f" +{len(owned) - 6} more" if len(owned) > 6 else ""
+            prism_texts.append(
+                f"<@{owner_id}> — {len(owned)} prism{'' if len(owned) == 1 else 's'} · "
+                f"{sum(_boosts(p) for p in owned):,} boosts{mine}\n   {' · '.join(chips)}{more}"
+            )
+        per_page = GROUPED_PER_PAGE
+        block_sep = "\n\n"
+
+    if not prism_texts:
         prism_texts.append("No prisms found!")
+
+    # Last page that actually has content. The old expression was
+    # (len + 1) // 26, which overshoots whenever the count is a multiple of the
+    # page size (or one short of it) and handed you a blank page at 25, 26, 51,
+    # 52 ... — about one count in thirteen.
+    max_page = max(0, (len(prism_texts) - 1) // per_page)
 
     async def confirm_craft(interaction: discord.Interaction):
         await interaction.response.defer()
@@ -17438,17 +17486,42 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         await interaction.response.edit_message(embed=embed, view=view)
 
     def gen_page():
-        target = "" if not person else f"{person_id.name}'s"
+        # Filtered, the headline number is theirs out of the server's; unfiltered
+        # it's just the server's. "player1's Cat Prisms · 39 in this server" read
+        # like player1 owned all 39.
+        if person:
+            title = f"{icon} {person_id.name}'s Cat Prisms · {user_count} of {total_count}"
+        else:
+            title = f"{icon} Cat Prisms · {total_count} in this server"
 
-        embed = discord.Embed(
-            title=f"{icon} {target} Cat Prisms",
-            color=Colors.brown,
-            description="Prisms are a tradeable power-up which occasionally bumps cat rarity up by one. Each prism crafted gives the entire server an increased chance to get upgraded, plus additional chance for prism owner.\n\n",
-        ).set_footer(
-            text=f"{total_count} Total Prisms | Server boost: {round(global_boost * 100, 3)}%\n{person_id.name}'s prisms | Owned: {user_count} | Personal boost: {user_boost}%"
-        )
+        embed = discord.Embed(title=title, color=Colors.brown)
 
-        embed.description += "\n".join(prism_texts[page_number * 26 : (page_number + 1) * 26])
+        # The full explainer only on the first page. It's for someone who has
+        # never seen a prism, and they land on page 0; repeating it on every
+        # page just spent 250 characters of description budget per flip.
+        description = ""
+        if page_number == 0:
+            description = (
+                "Prisms are a tradeable power-up which occasionally bumps cat rarity up by one. "
+                "Each prism crafted gives the entire server an increased chance to get upgraded, "
+                "plus additional chance for prism owner.\n\n"
+            )
+        description += block_sep.join(prism_texts[page_number * per_page : (page_number + 1) * per_page])
+        embed.description = description
+
+        if person:
+            footer = (
+                f"{person_id.name}: {user_count} owned · {user_boost}% personal boost\n"
+                f"Server: {total_count} prisms · {round(global_boost * 100, 3)}% boost for everyone"
+            )
+        else:
+            footer = (
+                f"Server boost {round(global_boost * 100, 3)}% · your boost {user_boost}% · {user_count} of {total_count} yours\n"
+                "(n) = catches that prism has boosted · * = traded to them"
+            )
+        if max_page > 0:
+            footer += f" · page {page_number + 1}/{max_page + 1}"
+        embed.set_footer(text=footer)
 
         view = View(timeout=VIEW_TIMEOUT)
 
@@ -17460,7 +17533,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         prev_button.callback = prev_page
         view.add_item(prev_button)
 
-        next_button = Button(label="->", disabled=bool(page_number == (len(prism_texts) + 1) // 26))
+        next_button = Button(label="->", disabled=bool(page_number >= max_page))
         next_button.callback = next_page
         view.add_item(next_button)
 

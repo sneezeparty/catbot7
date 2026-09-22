@@ -240,7 +240,7 @@ The `mm_order_quantity` key remains in the file for back-compat but is unused by
 
 - `/trade` is a two-party negotiation, used to move cats/packs between players.
 - `/gift` is unilateral, with a 20% tax on cat gifts ≥ 5 cats. Gifting to the bot itself is a *sacrifice* (no recipient).
-- The `/trade` "Offer..." modal's inventory picker (dropdown of held prisms/packs/Rain/cats, capped at 25 options, free-text field as fallback) is an input-UX convenience only — it does not change what can be offered, how it's valued, or the prism/pack/rain/cat detection order. The order is the inverse of `/gift`'s autocomplete on purpose: `/gift` narrows its 25 by what the player types, a Select cannot, and with 24 rarities a cats-first list starves packs and prisms — the entries whose names are hardest to type into the fallback.
+- `/trade`'s "Offer..." modal and `/gift` share one inventory picker (`_inventory_offer_options`): a dropdown of what the player holds, capped at Discord's 25 options, with a free-text field as fallback. `/gift` passes no prisms, because it has never accepted them. It is an input-UX convenience only — it does not change what can be offered, how it's valued, or the prism/pack/rain/cat detection order. Options are ordered prisms, packs, Rain, cats: a Select cannot narrow itself by what the player types, so the cap always bites from the bottom, and with 24 rarities a cats-first list starves packs and prisms — the entries whose names are hardest to type into the fallback.
 
 **Design intent:** the gift tax is the friction that prevents alt-account farming. If alt-farming becomes a problem, raise the tax, don't add account verification (this is Discord — verification is a UX disaster).
 

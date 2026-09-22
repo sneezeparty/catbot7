@@ -6292,25 +6292,9 @@ async def cats_in_server(guild_id):
 
 
 # function to autocomplete cat_type choices for /gift, which shows only cats user has and how many of them they have
-async def gift_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
-    user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
-    actual_user = await User.get_or_create(user_id=interaction.user.id)
-    choices = []
-    for choice in cattypes:
-        if current.lower() in choice.lower() and user[f"cat_{choice}"] > 0:
-            choices.append(discord.app_commands.Choice(name=f"{choice} (x{user[f'cat_{choice}']})", value=choice))
-    if current.lower() in "rain" and actual_user.rain_minutes > 0:
-        choices.append(discord.app_commands.Choice(name=f"Rain ({actual_user.rain_minutes} minutes)", value="rain"))
-    for choice in pack_data:
-        if user[f"pack_{choice['name'].lower()}"] > 0:
-            pack_name = choice["name"]
-            pack_amount = user[f"pack_{pack_name.lower()}"]
-            choices.append(discord.app_commands.Choice(name=f"{pack_name} pack (x{pack_amount})", value=pack_name.lower()))
-    return choices[:25]
-
-
-def _trade_offer_options(profile, rain_minutes: int, owned_prisms: list[str]) -> tuple[list[discord.SelectOption], int]:
-    """Build the inventory dropdown for the /trade "Offer..." modal.
+def _inventory_offer_options(profile, rain_minutes: int, owned_prisms: list[str]) -> tuple[list[discord.SelectOption], int]:
+    """Build the inventory dropdown shared by /trade's "Offer..." modal and
+    /gift's modal. Pass owned_prisms=[] for /gift, which doesn't take prisms.
 
     Only things the offering player actually holds, labelled with the held
     quantity ("Fine (x991)") and wearing the same emoji the trade embed uses,
@@ -18071,20 +18055,22 @@ async def fortune(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(description="donate (give) cats now")
-@discord.app_commands.rename(gift_type="type")
-@discord.app_commands.describe(
-    person="Whom to gift?",
-    gift_type="im gonna airstrike your house from orbit",
-    amount="And how much?",
-)
-@discord.app_commands.autocomplete(gift_type=gift_autocomplete)
-async def gift(
+async def _do_gift(
     message: discord.Interaction,
     person: discord.User,
     gift_type: str,
     amount: Optional[int],
 ):
+    """The entire /gift transfer: validation, the pack gate, the 20% tax
+    prompt, achievements and quests.
+
+    Split out of the slash command unchanged so GiftModal can reuse it. Every
+    response below goes through `message`, so the caller must hand over an
+    interaction it has NOT responded to yet — the modal submit, these days.
+    `gift_type` is still the loose user-facing string ("Fine", "wooden",
+    "rain"); the dropdown resolves its own value back to that form rather
+    than teaching this function a second vocabulary.
+    """
     if amount is None:
         # default the amount to 1
         amount = 1
@@ -18249,6 +18235,103 @@ async def gift(
             await ch.send(f"{message.user.id} gave {amount}m to {person_id}")
         except Exception:
             pass
+
+
+@bot.tree.command(description="donate (give) cats now")
+async def gift(message: discord.Interaction):
+    # /gift used to take its three arguments inline with an autocompleted
+    # type. It now opens the same picker /trade's "Offer..." button does, so
+    # the two ways of moving cats between people look like one feature. The
+    # recipient moved into the modal with everything else, which is why this
+    # command no longer takes any arguments at all.
+    #
+    # The trade-off is real and deliberate: autocomplete narrowed its 25
+    # entries by what you typed, and a Select can't, so the cap bites here the
+    # way it bites in /trade. _inventory_offer_options orders around that, and
+    # the free-text field still reaches anything the dropdown had to drop.
+    class GiftModal(Modal):
+        def __init__(self, options, total_options):
+            super().__init__(title="Gift something", timeout=VIEW_TIMEOUT)
+
+            self.who = discord.ui.UserSelect(placeholder="Who gets it?")
+            self.add_item(discord.ui.Label(text="Who are you gifting?", component=self.who))
+
+            # Same shape as TradeModal's picker, minus prisms — /gift has
+            # never accepted them (_do_gift's type detection has no prism
+            # branch), so passing owned_prisms=[] keeps the two in step
+            # without teaching this modal a rule the transfer doesn't know.
+            self.pick = None
+            if options:
+                desc = None
+                if total_options > len(options):
+                    desc = f"Showing {len(options)} of {total_options} — type anything else below."
+                self.pick = discord.ui.Select(
+                    placeholder="Pick a cat, pack, or Rain",
+                    options=options,
+                    required=False,
+                )
+                self.add_item(discord.ui.Label(text="Pick from your inventory", description=desc, component=self.pick))
+
+            self.gift_type = TextInput(placeholder="Fine / Wooden / Rain", required=False)
+            self.add_item(discord.ui.Label(text='Or type a name (cat, pack, "Rain")', component=self.gift_type))
+
+            self.amount = TextInput(placeholder="1", required=False)
+            self.add_item(discord.ui.Label(text="Amount", component=self.amount))
+
+        async def on_submit(self, interaction: discord.Interaction):
+            if not self.who.values:
+                await interaction.response.send_message("pick who you're gifting to", ephemeral=True)
+                return
+            person = self.who.values[0]
+
+            picked = self.pick.values[0] if (self.pick is not None and self.pick.values) else None
+            typed = self.gift_type.value.strip()
+            if picked and typed:
+                await interaction.response.send_message("pick from the dropdown OR type a name, not both", ephemeral=True)
+                return
+            if not picked and not typed:
+                await interaction.response.send_message("pick something from the dropdown or type a name", ephemeral=True)
+                return
+
+            if picked:
+                kind, name = picked.split(":", 1)
+                # The rain option's value is "rain:rains" because that's the
+                # key /trade banks rains under. _do_gift wants the literal
+                # word "rain", so don't pass "rains" through — it matches
+                # neither the rain branch nor any cat or pack name, and the
+                # gift would die on "bro what".
+                gift_type = "rain" if kind == "rain" else name
+            else:
+                gift_type = typed
+
+            raw = self.amount.value.strip()
+            if not raw:
+                amount = 1
+            else:
+                try:
+                    amount = int(raw)
+                except ValueError:
+                    await interaction.response.send_message("invalid amount", ephemeral=True)
+                    return
+
+            await _do_gift(interaction, person, gift_type, amount)
+
+    # Straight to the modal — a slash command can open one as its own first
+    # response, so there's no button in between. /trade needs one because its
+    # panel sticks around and offers several actions; a gift is one shot.
+    #
+    # Same guard as /trade's Offer button: send_modal must BE the first
+    # response, so a hiccup in either read must not take the menu down with
+    # it. No options just means the modal comes up text-only, which is what
+    # this command was before the picker existed.
+    options, total_options = [], 0
+    try:
+        profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+        actual_user = await User.get_or_create(user_id=message.user.id)
+        options, total_options = _inventory_offer_options(profile, actual_user.rain_minutes, [])
+    except Exception:
+        logging.exception("gift: inventory dropdown build failed, falling back to the text-only modal")
+    await message.response.send_modal(GiftModal(options, total_options))
 
 
 @bot.tree.command(description="Trade stuff!")
@@ -18529,7 +18612,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
             owned_prisms = await Prism.collect_limit(
                 ["name"], "guild_id = $1 AND user_id = $2 ORDER BY name", interaction.guild.id, interaction.user.id
             )
-            options, total_options = _trade_offer_options(profile, actual_user.rain_minutes, [p.name for p in owned_prisms])
+            options, total_options = _inventory_offer_options(profile, actual_user.rain_minutes, [p.name for p in owned_prisms])
         except Exception:
             logging.exception("trade: inventory dropdown build failed, falling back to the text-only modal")
         modal = TradeModal(currentuser, options, total_options)
@@ -18683,7 +18766,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 return
 
             # Resolve WHAT is being offered into (kind, name). A dropdown pick
-            # arrives kind-prefixed from _trade_offer_options and skips the
+            # arrives kind-prefixed from _inventory_offer_options and skips the
             # text parsing entirely; typed input goes through the same
             # prism -> pack -> rain -> cat detection order as before.
             picked = self.pick.values[0] if (self.pick is not None and self.pick.values) else None

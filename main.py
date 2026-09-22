@@ -17269,7 +17269,6 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
     user_count = len(user_prisms)
     global_boost = PRISM_BOOST_GLOBAL_COEF * math.log(2 * total_count + 1)
     user_boost = round((global_boost + PRISM_BOOST_USER_COEF * math.log(2 * user_count + 1)) * 100, 3)
-    prism_texts = []
 
     if person_id == message.user and user_count != 0:
         await achemb(message, "prism", "followup")
@@ -17298,8 +17297,11 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
     #
     # Both show catches_boosted, which the row has carried since the column
     # existed and which nothing outside /profile's aggregate has ever shown.
-    GROUPED_PER_PAGE = 10  # owners per page
-    FLAT_PER_PAGE = 20  # prisms per page
+    # Pages are packed by character budget, not by a fixed row count. Every
+    # prism is listed now — no "+N more" — so a single owner can be any length
+    # up to the 520-name cap, and a fixed rows-per-page would either waste most
+    # of the embed or blow past Discord's 4096-character description limit.
+    PAGE_BUDGET = 3400  # leaves room for the first-page explainer
 
     def _boosts(p) -> int:
         try:
@@ -17307,16 +17309,19 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         except (KeyError, AttributeError, TypeError, ValueError):
             return 0
 
+    def _prism_line(p, indent: str) -> str:
+        # creator != owner means it changed hands. Every prism in the wild is
+        # still owner-crafted, so this is the rare case, not the rule.
+        traded = f" · from <@{p.creator}>" if p.creator != p.user_id else ""
+        n = _boosts(p)
+        return f"{indent}{p.name} · {n:,} boost{'' if n == 1 else 's'} · <t:{p.time}:d>{traded}"
+
+    # sections: (header or None, [lines]). A section is one owner in the
+    # grouped view, or the whole flat list when filtered to one person.
+    sections: list[tuple[str | None, list[str]]] = []
     if person:
         entries = sorted(user_prisms, key=lambda p: order_map.get(p.name, float("inf")))
-        for entry in entries:
-            # creator != owner means it changed hands. Every prism in the wild
-            # is still owner-crafted, so this is the rare case, not the rule —
-            # which is why it's a suffix now instead of its own line.
-            traded = f" · from <@{entry.creator}>" if entry.creator != entry.user_id else ""
-            prism_texts.append(f"{icon} **{entry.name}** · {_boosts(entry):,} boosts · crafted <t:{entry.time}:D>{traded}")
-        per_page = FLAT_PER_PAGE
-        block_sep = "\n"
+        sections.append((None, [_prism_line(p, f"{icon} ") for p in entries]))
     else:
         groups: dict[int, list] = {}
         for entry in all_prisms:
@@ -17327,23 +17332,61 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         for owner_id, owned in ranked:
             owned.sort(key=lambda p: -_boosts(p))
             mine = "  ← you" if owner_id == message.user.id else ""
-            chips = [f"{p.name} ({_boosts(p):,})" + ("*" if p.creator != p.user_id else "") for p in owned[:6]]
-            more = f" +{len(owned) - 6} more" if len(owned) > 6 else ""
-            prism_texts.append(
+            header = (
                 f"<@{owner_id}> — {len(owned)} prism{'' if len(owned) == 1 else 's'} · "
-                f"{sum(_boosts(p) for p in owned):,} boosts{mine}\n   {' · '.join(chips)}{more}"
+                f"{sum(_boosts(p) for p in owned):,} boosts{mine}"
             )
-        per_page = GROUPED_PER_PAGE
-        block_sep = "\n\n"
+            sections.append((header, [_prism_line(p, "  ") for p in owned]))
 
-    if not prism_texts:
-        prism_texts.append("No prisms found!")
+    def _pack_pages() -> list[str]:
+        """Greedily fill pages up to PAGE_BUDGET, keeping a section together
+        when it fits and splitting it across pages when it can't. A split
+        section repeats its header so a continued page still says whose it is.
+        Always consumes at least one line per pass, so it terminates even if a
+        single line somehow exceeds the whole budget."""
+        pages: list[str] = []
+        current: list[str] = []
+        used = 0
+        for header, lines in sections:
+            index = 0
+            while True:
+                head = header if index == 0 else (header + " *(cont.)*" if header else None)
+                chunk = [head] if head else []
+                size = len(head) + 1 if head else 0
+                while index < len(lines) and used + size + len(lines[index]) + 1 <= PAGE_BUDGET:
+                    size += len(lines[index]) + 1
+                    chunk.append(lines[index])
+                    index += 1
+                took_a_line = len(chunk) > (1 if head else 0)
+                if not took_a_line and index < len(lines):
+                    if current:
+                        # Nothing fit on the page as it stands — flush and retry
+                        # this same section against an empty page.
+                        pages.append("\n\n".join(current))
+                        current, used = [], 0
+                        continue
+                    # Empty page and still nothing fits: force one line through
+                    # rather than spin forever.
+                    size += len(lines[index]) + 1
+                    chunk.append(lines[index])
+                    index += 1
+                if chunk:
+                    current.append("\n".join(chunk))
+                    used += size + 2
+                if index >= len(lines):
+                    break
+                pages.append("\n\n".join(current))
+                current, used = [], 0
+        if current:
+            pages.append("\n\n".join(current))
+        return pages or ["No prisms found!"]
 
+    pages = _pack_pages()
     # Last page that actually has content. The old expression was
     # (len + 1) // 26, which overshoots whenever the count is a multiple of the
     # page size (or one short of it) and handed you a blank page at 25, 26, 51,
     # 52 ... — about one count in thirteen.
-    max_page = max(0, (len(prism_texts) - 1) // per_page)
+    max_page = len(pages) - 1
 
     async def confirm_craft(interaction: discord.Interaction):
         await interaction.response.defer()
@@ -17506,7 +17549,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
                 "Each prism crafted gives the entire server an increased chance to get upgraded, "
                 "plus additional chance for prism owner.\n\n"
             )
-        description += block_sep.join(prism_texts[page_number * per_page : (page_number + 1) * per_page])
+        description += pages[page_number]
         embed.description = description
 
         if person:
@@ -17515,10 +17558,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
                 f"Server: {total_count} prisms · {round(global_boost * 100, 3)}% boost for everyone"
             )
         else:
-            footer = (
-                f"Server boost {round(global_boost * 100, 3)}% · your boost {user_boost}% · {user_count} of {total_count} yours\n"
-                "(n) = catches that prism has boosted · * = traded to them"
-            )
+            footer = f"Server boost {round(global_boost * 100, 3)}% · your boost {user_boost}% · {user_count} of {total_count} yours"
         if max_page > 0:
             footer += f" · page {page_number + 1}/{max_page + 1}"
         embed.set_footer(text=footer)

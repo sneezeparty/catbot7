@@ -95,3 +95,6 @@
 2026-09-21 06:16 Skipped: env-vars (config.py unchanged this session — no new/removed vars, no behavior change)
 2026-09-21 06:16 Skipped: migrations table (deliberately absent per operator instruction; migrations/040_cat_milestone_base.py is not on its own a reason to add one)
 2026-09-21 23:42 Skipped: main.py (/trade Offer modal gained an inventory dropdown alongside the existing free-text field - a UX convenience on an existing command, not a new gameplay divergence; no env vars changed)
+2026-09-22 15:27 Skipped: main.py (/scratch duplicate-tap crash fix — bug fix, not gameplay divergence)
+2026-09-22 15:27 Skipped: main.py (/packs gained a per-type quantity picker (Open 1/5/10/25/all/custom) plus a bulk-open double-tap guard — UX convenience on an existing command, not a new mechanic; no env vars changed)
+2026-09-22 15:27 Skipped: main.py (/trade guard against offer edits after the trade executes — race-condition fix, not a gameplay divergence)

@@ -19043,6 +19043,13 @@ async def trade(message: discord.Interaction, person_id: discord.User):
         # this is ran when user submits
         async def on_submit(self, interaction: discord.Interaction):
             nonlocal person1, person2, person1accept, person2accept, person1gives, person2gives
+            # blackhole = trade already executing/finished/cancelled. a modal
+            # opened earlier can still submit while acceptb is mid-exchange
+            # (it awaits db reads), which would change the offer after both
+            # accepted, or blow up the gives loops with a dict size change
+            if blackhole:
+                await interaction.response.send_message("this trade is already over", ephemeral=True)
+                return
             value = self.amount.value if self.amount.value else 1
             await user1.refresh_from_db()
             await user2.refresh_from_db()

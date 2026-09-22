@@ -145,3 +145,6 @@
 2026-09-21 06:14 Added: "18 new achievements — Powers of Two ladder (pow2_8..pow2_1048576), non-retroactive via profile.cat_milestone_base baseline; new category exempt from finale alongside Hidden" (re: config/aches.json, main.py, schema.sql)
 2026-09-21 23:42 Changed: "/trade Offer modal gained an inventory dropdown (same style as /gift autocomplete), free-text name field now optional/fallback for >25 options or negative amounts" (re: main.py)
 2026-09-22 16:15 Fixed: "/trade accept checkmarks no longer go stale when an offer changes" (re: main.py)
+2026-09-22 15:27 Fixed: "/scratch double-tapped spot no longer recorded twice, fixing IndexError crash on final reveal" (re: main.py)
+2026-09-22 15:27 Added: "/packs quantity picker on pack-type click (Open 1/5/10/25/All/Custom), plus double-tap guard on bulk opens" (re: main.py)
+2026-09-22 15:27 Fixed: "/trade Offer modal submitted after trade already over is now rejected" (re: main.py)

@@ -18474,6 +18474,10 @@ async def trade(message: discord.Interaction, person_id: discord.User):
     person1accept = False
     person2accept = False
 
+    # who last moved items after somebody had already hit accept. drives the
+    # "accepts reset" line in gen_embed; None means there's nothing to announce
+    accept_reset_by = None
+
     person1value = 0
     person2value = 0
 
@@ -18512,10 +18516,13 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
     # this is the accept button code
     async def acceptb(interaction):
-        nonlocal person1, person2, person1accept, person2accept, person1gives, person2gives, person1value, person2value, user1, user2, blackhole
+        nonlocal person1, person2, person1accept, person2accept, person1gives, person2gives, person1value, person2value, user1, user2, blackhole, accept_reset_by
         if interaction.user != person1 and interaction.user != person2:
             await do_funny(interaction)
             return
+
+        # they've seen the reset, stop nagging about it
+        accept_reset_by = None
 
         # clicking accept again would make you un-accept
         if interaction.user == person1:
@@ -18774,10 +18781,14 @@ async def trade(message: discord.Interaction, person_id: discord.User):
 
         person1name = person1.name.replace("_", "\\_")
         person2name = person2.name.replace("_", "\\_")
+        description = "no way"
+        if accept_reset_by:
+            editorname = (person1 if accept_reset_by == 1 else person2).name.replace("_", "\\_")
+            description += f"\n\n🔄 {editorname} changed the offer, so accepts were reset."
         coolembed = discord.Embed(
             color=Colors.brown,
             title=f"{person1name} and {person2name} trade",
-            description="no way",
+            description=description,
         )
 
         # a single field for one person
@@ -18828,6 +18839,16 @@ async def trade(message: discord.Interaction, person_id: discord.User):
         field(person2accept, person2gives, person2, 2)
 
         return coolembed, view
+
+    # a green checkmark only ever means "i accept THIS offer". the moment either
+    # side's items move, both checkmarks go back to blank. no-op when nobody had
+    # accepted yet, so ordinary haggling doesn't spam the banner
+    def clear_accepts(editor):
+        nonlocal person1accept, person2accept, accept_reset_by
+        if person1accept or person2accept:
+            accept_reset_by = editor
+            person1accept = False
+            person2accept = False
 
     # this is wrapper around gen_embed() to edit the mesage automatically
     async def update_trade_embed(interaction):
@@ -18886,9 +18907,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
             await user2.refresh_from_db()
 
             try:
-                if int(value) < 0:
-                    person1accept = False
-                    person2accept = False
+                int(value)
             except Exception:
                 await interaction.response.send_message("invalid amount", ephemeral=True)
                 return
@@ -18941,6 +18960,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                     person1gives[pname] = 1
                 else:
                     person2gives[pname] = 1
+                clear_accepts(self.currentuser)
                 await interaction.response.defer()
                 await update_trade_embed(interaction)
                 return
@@ -18974,6 +18994,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                     else:
                         await interaction.response.send_message("skibidi toilet", ephemeral=True)
                         return
+                clear_accepts(self.currentuser)
                 await interaction.response.defer()
                 await update_trade_embed(interaction)
                 return
@@ -18999,6 +19020,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                         person2gives["rains"] += int(value)
                     except Exception:
                         person2gives["rains"] = int(value)
+                clear_accepts(self.currentuser)
                 await interaction.response.defer()
                 await update_trade_embed(interaction)
                 return
@@ -19046,6 +19068,7 @@ async def trade(message: discord.Interaction, person_id: discord.User):
                 except Exception:
                     person2gives[cname] = int(value)
 
+            clear_accepts(self.currentuser)
             await interaction.response.defer()
             await update_trade_embed(interaction)
 

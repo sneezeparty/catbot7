@@ -206,15 +206,15 @@ Phase 2 Whiskers's Favor (Whiskers ≥+100 rep → next pack-open upgrades one t
 
 Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops constantly. Both can be active at the same time.
 
-### Pack-side perk behavior: single-open and Open All are identical
+### Pack-side perk behavior: single-open and multi-open are identical
 
-The three pack-side job perks apply identically whether the player opens one pack at a time or uses the "Open All" batch path:
+The three pack-side job perks apply identically whether the player opens one pack at a time or uses any multi-open batch path — `/packs`' "Open All" (every held type) and, as of the per-type quantity picker, "Open 5/10/25/Custom" of a single pack type. Both route through the same `process_pack_opening()` batch loop, so the charge semantics below are shared, not reimplemented:
 
 - **`pack_bonus_cat` ("Padded Crate", timed):** active for the perk's full duration window, so it naturally fires on every pack opened during the batch — one extra random cat per open.
-- **`pack_tier_upgrade` ("Crate Polish", 1 charge):** spends its single charge on the **first eligible pack** in the batch (any pack whose tier hasn't already hit the cap). Remaining packs in the same Open All run are unaffected.
+- **`pack_tier_upgrade` ("Crate Polish", 1 charge):** spends its single charge on the **first eligible pack** in the batch (any pack whose tier hasn't already hit the cap). Remaining packs in the same batch are unaffected.
 - **`pack_floor` ("No Fines", 1 charge):** spends its single charge on the **first Fine result** encountered in the batch. If no pack in the batch rolls Fine, the charge is not consumed.
 
-This means an Open All batch with `pack_tier_upgrade` active gets at most one tier-bumped open, and a batch with `pack_floor` active gets at most one Fine-to-Nice lift. The charge semantics are the same as they would be if the player had opened one pack and then immediately opened a second.
+This means a multi-open batch with `pack_tier_upgrade` active gets at most one tier-bumped open, and a batch with `pack_floor` active gets at most one Fine-to-Nice lift, whether that batch is an Open All run or a per-type Open N. The charge semantics are the same as they would be if the player had opened one pack and then immediately opened a second.
 
 ### Roulette perks: house-favorable invariant
 

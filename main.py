@@ -599,6 +599,10 @@ catslots_force_bonus_users: dict[int, int] = {}
 # Powers the lobby's "Repeat" button so a fresh /roulette can replay the
 # previous bet without retyping it into the modal. Resets on bot restart.
 roulette_last_bet: dict[int, tuple[str, int]] = {}
+# (guild_id, user_id) pairs with a bulk /packs open in flight. The bulk path is
+# refresh -> mutate -> save with no row lock, so a double-tapped "Open 10" /
+# "Open all" would otherwise run twice off the same snapshot and pay out twice.
+packs_bulk_opening: set[tuple[int, int]] = set()
 
 # ???
 rigged_users = []
@@ -12170,11 +12174,13 @@ async def scratch(message: discord.Interaction):
 
 @bot.tree.command(description="View and open packs")
 async def packs(message: discord.Interaction):
-    async def process_pack_opening(limit=None):
+    async def process_pack_opening(limit=None, only_pack=None):
+        # only_pack: restrict the batch to one pack type (the per-pack "Open N"
+        # picker). None = every type, lowest tier first (Open All).
         await user.refresh_from_db()
 
         pack_names = [pack["name"] for pack in pack_data]
-        total_pack_count = sum(user[f"pack_{pack_id.lower()}"] for pack_id in pack_names)
+        total_pack_count = sum(user[f"pack_{pack_id.lower()}"] for pack_id in pack_names if only_pack is None or pack_id == only_pack)
 
         if total_pack_count < 1:
             return None
@@ -12216,6 +12222,9 @@ async def packs(message: discord.Interaction):
         for level, pack in enumerate(pack_names):
             if opened_so_far >= real_to_open:
                 break
+            # skip rather than pre-filter: `level` must stay the pack_data tier index
+            if only_pack is not None and pack != only_pack:
+                continue
             logging.debug("Opened pack %s", pack)
             pack_id = f"pack_{pack.lower()}"
             this_packs_count = user[pack_id]
@@ -12410,7 +12419,7 @@ async def packs(message: discord.Interaction):
                 style=ButtonStyle.blurple if not pack["special"] else ButtonStyle.green,
                 custom_id=pack["name"],
             )
-            button.callback = open_pack
+            button.callback = pack_picker
             view.add_item(button)
             if pack["special"]:
                 has_special = True
@@ -12599,13 +12608,13 @@ async def packs(message: discord.Interaction):
             return chosen_type, cat_amount, upgrades, reward_texts, coin_amount
         return chosen_type, cat_amount, upgrades, build_string, coin_amount
 
-    async def open_pack(interaction: discord.Interaction):
+    async def open_pack(interaction: discord.Interaction, pack=None):
         if interaction.user != message.user:
             await do_funny(interaction)
             return
 
         await interaction.response.defer()
-        pack = interaction.data["custom_id"]
+        pack = pack or interaction.data["custom_id"]
         await user.refresh_from_db()
         if user[f"pack_{pack.lower()}"] < 1:
             return
@@ -12711,8 +12720,136 @@ async def packs(message: discord.Interaction):
         view, _ = gen_view(user)
         await interaction.edit_original_response(view=view)
 
+    class PackAmountModal(Modal):
+        def __init__(self, pack, have):
+            super().__init__(title=f"Open {pack} packs", timeout=VIEW_TIMEOUT)
+            self.pack = pack
+            self.input = TextInput(
+                min_length=1,
+                max_length=7,
+                label=f"How many? (1-{have:,})",
+                style=discord.TextStyle.short,
+                required=True,
+                placeholder=str(min(have, 10)),
+            )
+            self.add_item(self.input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            try:
+                amount = int(self.input.value.replace(",", "").strip())
+            except ValueError:
+                await interaction.response.send_message("number pls", ephemeral=True)
+                return
+            if amount < 1:
+                await interaction.response.send_message("number pls", ephemeral=True)
+                return
+            if amount == 1:
+                await open_pack(interaction, self.pack)
+            else:
+                await open_many(interaction, self.pack, amount)
+
+    async def pack_picker(interaction: discord.Interaction):
+        # Clicking a pack type lands here: pick how many of THAT type to open.
+        # 1 keeps the single-pack reveal animation; more goes through the bulk
+        # summary. Holding just one skips the picker — nothing to choose.
+        if interaction.user != message.user:
+            await do_funny(interaction)
+            return
+        pack = interaction.data["custom_id"]
+        await user.refresh_from_db()
+        have = user[f"pack_{pack.lower()}"]
+        if have < 1:
+            await interaction.response.defer()
+            return
+        if have == 1:
+            await open_pack(interaction, pack)
+            return
+
+        async def open_one(i: discord.Interaction):
+            if i.user != message.user:
+                await do_funny(i)
+                return
+            await open_pack(i, pack)
+
+        def open_n(n):
+            async def cb(i: discord.Interaction):
+                if i.user != message.user:
+                    await do_funny(i)
+                    return
+                await open_many(i, pack, n)
+
+            return cb
+
+        async def custom(i: discord.Interaction):
+            if i.user != message.user:
+                await do_funny(i)
+                return
+            await user.refresh_from_db()
+            await i.response.send_modal(PackAmountModal(pack, user[f"pack_{pack.lower()}"]))
+
+        async def back(i: discord.Interaction):
+            if i.user != message.user:
+                await do_funny(i)
+                return
+            await user.refresh_from_db()
+            main_view, has_special = gen_view(user)
+            await i.response.edit_message(embed=gen_main_embed(has_special), view=main_view)
+
+        emoji = get_emoji(pack.lower() + "pack")
+        view = View(timeout=VIEW_TIMEOUT)
+        btn = Button(emoji=emoji, label="Open 1", style=ButtonStyle.blurple)
+        btn.callback = open_one
+        view.add_item(btn)
+        for n in (5, 10, 25):
+            if n < have:
+                btn = Button(emoji=emoji, label=f"Open {n}", style=ButtonStyle.blurple)
+                btn.callback = open_n(n)
+                view.add_item(btn)
+        btn = Button(emoji=emoji, label=f"Open all {have:,}", style=ButtonStyle.green)
+        btn.callback = open_n(have)
+        view.add_item(btn)
+        btn = Button(label="Custom...", style=ButtonStyle.gray, row=1)
+        btn.callback = custom
+        view.add_item(btn)
+        btn = Button(label="Back", emoji="⬅️", style=ButtonStyle.gray, row=1)
+        btn.callback = back
+        view.add_item(btn)
+
+        embed = discord.Embed(
+            title=f"{emoji} {pack} Packs",
+            description=f"You have **{have:,}** {pack} pack{'s' if have != 1 else ''}. How many do you want to open?",
+            color=Colors.brown,
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def open_many(interaction: discord.Interaction, pack, amount):
+        # Bulk-open `amount` of one pack type (capped at what's held), then drop
+        # back to the main /packs screen with the summary embed. Edits via this
+        # interaction rather than `message`, whose token dies after 15 min.
+        await interaction.response.defer()
+        key = (message.guild.id, message.user.id)
+        if key in packs_bulk_opening:
+            return
+        packs_bulk_opening.add(key)
+        try:
+            embed = await process_pack_opening(amount, only_pack=pack)
+        finally:
+            packs_bulk_opening.discard(key)
+        view, _ = gen_view(user)
+        if not embed:
+            await interaction.edit_original_response(view=view)
+            return
+        await interaction.edit_original_response(embed=embed, view=view)
+
     async def open_all_packs(interaction: discord.Interaction):
-        embed = await process_pack_opening(10000)
+        key = (message.guild.id, message.user.id)
+        if key in packs_bulk_opening:
+            return
+        packs_bulk_opening.add(key)
+        try:
+            embed = await process_pack_opening(10000)
+        finally:
+            packs_bulk_opening.discard(key)
         if not embed:
             return
 
@@ -12733,14 +12870,16 @@ async def packs(message: discord.Interaction):
             except discord.HTTPException:
                 logging.exception("open_all_packs: could not deliver result embed (channel=%s)", getattr(interaction.channel, "id", None))
 
+    def gen_main_embed(has_special):
+        description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier."
+        if has_special:
+            description += "\n\n**Special Packs** are packs highlighted in green. Their upgrade chance is 70% instead of 30% and they start below Wooden."
+        description += "\n\nClick the buttons below to start opening packs!"
+        return discord.Embed(title=f"{get_emoji('goldpack')} Packs", description=description, color=Colors.brown)
+
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
     view, has_special = gen_view(user)
-    description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier."
-    if has_special:
-        description += "\n\n**Special Packs** are packs highlighted in green. Their upgrade chance is 70% instead of 30% and they start below Wooden."
-    description += "\n\nClick the buttons below to start opening packs!"
-    embed = discord.Embed(title=f"{get_emoji('goldpack')} Packs", description=description, color=Colors.brown)
-    await message.response.send_message(embed=embed, view=view)
+    await message.response.send_message(embed=gen_main_embed(has_special), view=view)
 
 
 @bot.tree.command(description="why would anyone think a cattlepass would be a good idea (bp)")

@@ -17297,11 +17297,15 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
     #
     # Both show catches_boosted, which the row has carried since the column
     # existed and which nothing outside /profile's aggregate has ever shown.
-    # Pages are packed by character budget, not by a fixed row count. Every
-    # prism is listed now — no "+N more" — so a single owner can be any length
-    # up to the 520-name cap, and a fixed rows-per-page would either waste most
-    # of the embed or blow past Discord's 4096-character description limit.
-    PAGE_BUDGET = 3400  # leaves room for the first-page explainer
+    # Two columns. Discord packs up to three inline fields per row, so a
+    # zero-width spacer after every second one forces the pair to wrap: three
+    # columns of prism names is too narrow to read, two is not. On mobile
+    # Discord stacks inline fields anyway, so this is a desktop win that costs
+    # phones nothing.
+    COLS = 2
+    FIELD_VALUE_BUDGET = 1000  # Discord's hard cap is 1024
+    FIELDS_PER_PAGE = 16  # + 8 spacers = 24, inside the 25-field limit
+    PAGE_CHAR_BUDGET = 4800  # leaves room for title + explainer + footer under 6000
 
     def _boosts(p) -> int:
         try:
@@ -17309,19 +17313,39 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         except (KeyError, AttributeError, TypeError, ValueError):
             return 0
 
-    def _prism_line(p, indent: str) -> str:
-        # creator != owner means it changed hands. Every prism in the wild is
-        # still owner-crafted, so this is the rare case, not the rule.
+    def _prism_line(p) -> str:
+        # Tight on purpose — a half-width column wraps early. The footer
+        # carries the "name · boosts · crafted" legend so this can stay terse.
         traded = f" · from <@{p.creator}>" if p.creator != p.user_id else ""
-        n = _boosts(p)
-        return f"{indent}{p.name} · {n:,} boost{'' if n == 1 else 's'} · <t:{p.time}:d>{traded}"
+        return f"{p.name} · {_boosts(p):,} · <t:{p.time}:d>{traded}"
 
-    # sections: (header or None, [lines]). A section is one owner in the
-    # grouped view, or the whole flat list when filtered to one person.
-    sections: list[tuple[str | None, list[str]]] = []
+    def _chunk(lines: list[str], budget: int) -> list[list[str]]:
+        """Split lines into groups that each fit inside a field value."""
+        out: list[list[str]] = []
+        current: list[str] = []
+        size = 0
+        for line in lines:
+            if current and size + len(line) + 1 > budget:
+                out.append(current)
+                current, size = [], 0
+            current.append(line)
+            size += len(line) + 1
+        if current:
+            out.append(current)
+        return out or [[]]
+
+    # fields: (name, value) pairs, laid out two per row further down.
+    fields: list[tuple[str, str]] = []
     if person:
         entries = sorted(user_prisms, key=lambda p: order_map.get(p.name, float("inf")))
-        sections.append((None, [_prism_line(p, f"{icon} ") for p in entries]))
+        lines = [_prism_line(p) for p in entries]
+        # Balance the two columns rather than filling the first one up, so a
+        # 7-prism list reads 4/3 instead of 6/1.
+        per_col = max(1, -(-len(lines) // COLS))
+        columns = [lines[i : i + per_col] for i in range(0, len(lines), per_col)] or [[]]
+        for index, column in enumerate(columns):
+            for part in _chunk(column, FIELD_VALUE_BUDGET):
+                fields.append(("Prisms" if index == 0 and not fields else "\u200b", "\n".join(part) or "\u200b"))
     else:
         groups: dict[int, list] = {}
         for entry in all_prisms:
@@ -17331,57 +17355,38 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), -sum(_boosts(p) for p in kv[1])))
         for owner_id, owned in ranked:
             owned.sort(key=lambda p: -_boosts(p))
-            mine = "  ← you" if owner_id == message.user.id else ""
-            header = (
-                f"<@{owner_id}> — {len(owned)} prism{'' if len(owned) == 1 else 's'} · "
-                f"{sum(_boosts(p) for p in owned):,} boosts{mine}"
-            )
-            sections.append((header, [_prism_line(p, "  ") for p in owned]))
+            mine = " ← you" if owner_id == message.user.id else ""
+            # The owner goes in the VALUE, not the name: Discord renders
+            # markdown and mentions in field values only, so a mention in the
+            # name would show up as a raw <@012345678901234567>.
+            head = f"{len(owned)} prism{'' if len(owned) == 1 else 's'} · {sum(_boosts(p) for p in owned):,} boosts{mine}"
+            parts = _chunk([_prism_line(p) for p in owned], FIELD_VALUE_BUDGET - 32)
+            for index, part in enumerate(parts):
+                name = head if index == 0 else f"{head} (cont.)"
+                fields.append((name, f"<@{owner_id}>\n" + "\n".join(part)))
 
-    def _pack_pages() -> list[str]:
-        """Greedily fill pages up to PAGE_BUDGET, keeping a section together
-        when it fits and splitting it across pages when it can't. A split
-        section repeats its header so a continued page still says whose it is.
-        Always consumes at least one line per pass, so it terminates even if a
-        single line somehow exceeds the whole budget."""
-        pages: list[str] = []
-        current: list[str] = []
-        used = 0
-        for header, lines in sections:
-            index = 0
-            while True:
-                head = header if index == 0 else (header + " *(cont.)*" if header else None)
-                chunk = [head] if head else []
-                size = len(head) + 1 if head else 0
-                while index < len(lines) and used + size + len(lines[index]) + 1 <= PAGE_BUDGET:
-                    size += len(lines[index]) + 1
-                    chunk.append(lines[index])
-                    index += 1
-                took_a_line = len(chunk) > (1 if head else 0)
-                if not took_a_line and index < len(lines):
-                    if current:
-                        # Nothing fit on the page as it stands — flush and retry
-                        # this same section against an empty page.
-                        pages.append("\n\n".join(current))
-                        current, used = [], 0
-                        continue
-                    # Empty page and still nothing fits: force one line through
-                    # rather than spin forever.
-                    size += len(lines[index]) + 1
-                    chunk.append(lines[index])
-                    index += 1
-                if chunk:
-                    current.append("\n".join(chunk))
-                    used += size + 2
-                if index >= len(lines):
-                    break
-                pages.append("\n\n".join(current))
-                current, used = [], 0
-        if current:
-            pages.append("\n\n".join(current))
-        return pages or ["No prisms found!"]
+    if not fields:
+        fields.append(("Prisms", "No prisms found!"))
 
-    pages = _pack_pages()
+    # Pages respect BOTH of Discord's caps: at most 25 components per embed,
+    # and at most 6000 characters across title + description + fields + footer.
+    # Field count alone isn't enough — sixteen near-full fields is 16k
+    # characters and a 400 from the API. A single field tops out at 1280
+    # (256 name + 1024 value), well under the page budget, so this always
+    # makes progress.
+    pages: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]] = []
+    used = 0
+    for name, value in fields:
+        cost = len(name) + len(value)
+        if current and (len(current) >= FIELDS_PER_PAGE or used + cost > PAGE_CHAR_BUDGET):
+            pages.append(current)
+            current, used = [], 0
+        current.append((name, value))
+        used += cost
+    if current:
+        pages.append(current)
+    pages = pages or [[]]
     # Last page that actually has content. The old expression was
     # (len + 1) // 26, which overshoots whenever the count is a multiple of the
     # page size (or one short of it) and handed you a blank page at 25, 26, 51,
@@ -17549,16 +17554,26 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
                 "Each prism crafted gives the entire server an increased chance to get upgraded, "
                 "plus additional chance for prism owner.\n\n"
             )
-        description += pages[page_number]
         embed.description = description
+
+        # Two real fields, then a zero-width spacer to break the row — without
+        # it Discord fits three across and the columns get too narrow to read.
+        for position, (name, value) in enumerate(pages[page_number]):
+            embed.add_field(name=name, value=value, inline=True)
+            if position % COLS == COLS - 1:
+                embed.add_field(name="\u200b", value="\u200b", inline=True)
 
         if person:
             footer = (
-                f"{person_id.name}: {user_count} owned · {user_boost}% personal boost\n"
-                f"Server: {total_count} prisms · {round(global_boost * 100, 3)}% boost for everyone"
+                f"{person_id.name}: {user_count} owned · {user_boost}% personal boost · "
+                f"server {total_count} prisms / {round(global_boost * 100, 3)}%\n"
+                "each line: name · catches boosted · crafted"
             )
         else:
-            footer = f"Server boost {round(global_boost * 100, 3)}% · your boost {user_boost}% · {user_count} of {total_count} yours"
+            footer = (
+                f"Server boost {round(global_boost * 100, 3)}% · your boost {user_boost}% · {user_count} of {total_count} yours\n"
+                "each line: name · catches boosted · crafted"
+            )
         if max_page > 0:
             footer += f" · page {page_number + 1}/{max_page + 1}"
         embed.set_footer(text=footer)

@@ -9970,7 +9970,7 @@ async def help(message):
             value=(
                 "`/achievements` tracks unlocks across catching, casino, jobs, and easter eggs. "
                 "`/battlepass` runs monthly seasons with five quest slots per cycle. "
-                "`/perks` shows your active catnip and job-perk effects. "
+                "`/perks` shows your active catnip perks and `/favors` your mafia favors from /jobs. "
                 "Passive XP drips on first daily catch, every 10-catch streak, and every catnip level-up."
             ),
             inline=False,
@@ -16730,7 +16730,7 @@ async def jobs(message: discord.Interaction):
             items.append(f"🎁 **{npc_name}** delivers on the promise — **{perk_name}** is now active.")
             if perk_desc:
                 items.append(f"-# {perk_desc}")
-            items.append("-# Check **/perks** to see what's active.")
+            items.append("-# Check **/favors** to see what's active.")
         elif outcome != "success" and offered_id:
             perk_cat = PERKS_CATALOG.get(offered_id, {})
             perk_name = perk_cat.get("name", offered_id.replace("_", " ").title())
@@ -17233,7 +17233,7 @@ async def jobs(message: discord.Interaction):
                 # "Have a job perk active" quest — passive condition, so fire
                 # whenever a successful commit leaves the player holding any
                 # stored perk (covers a fresh drop AND a pre-existing perk
-                # from an earlier job). The /perks command also fires this
+                # from an earlier job). The /favors command also fires this
                 # for the case where the player never does another job.
                 if _perks_active_ids(profile):
                     try:
@@ -17337,21 +17337,65 @@ async def rep(message: discord.Interaction):
     await message.response.send_message(view=view, ephemeral=True)
 
 
-@bot.tree.command(description="view your active mafia favors (job perks)")
+async def _catnip_perks_view(interaction: discord.Interaction) -> LayoutView:
+    """Read-only view of a player's rolled catnip perks. Shared by /perks and
+    the "View Perks" button on /catnip so the two can never drift.
+
+    Lives at module level (not nested in /catnip) precisely so the slash
+    command can reach it — it captures nothing from that closure."""
+    global_user = await User.get_or_create(user_id=interaction.user.id)
+    user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
+    await user.refresh_from_db()
+    perks = catnip_list["perks"]
+    rarities = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
+    rarity_colors = [get_emoji("common"), get_emoji("uncommon"), get_emoji("rare"), get_emoji("epic"), get_emoji("legendary")]
+    user_perks = user.perks
+    full_desc = ""
+
+    for perk in user_perks:
+        perk_rarity = int(perk.split("_")[0])
+        perk_data = perks[int(perk.split("_")[1]) - 1]
+        effect = perk_data["values"][int(perk.split("_")[0])]
+        desc = (
+            perk_data.get("desc", "")
+            .replace("percent", f"{effect:,}")
+            .replace("triple_none", f"{effect / 2:g}")
+            .replace("daily_catch_streak", f"{global_user.daily_catch_streak:,}")
+        )
+        full_desc += f"{rarity_colors[perk_rarity]} {perk_data.get('name', '')} ({rarities[perk_rarity]})\n{desc}\n\n"
+
+    if not user_perks:
+        full_desc = "You have no perks! Run /catnip to roll some."
+    if int(getattr(user, "perks_suspended_until", 0) or 0) > int(time.time()):
+        full_desc = f"🚓 The Cat Police have your perks. They come back <t:{int(user.perks_suspended_until)}:R>.\n\n" + full_desc
+    full_desc += "\n-# Looking for mafia favors from /jobs? Those live in **/favors**."
+    myview = LayoutView(timeout=VIEW_TIMEOUT)
+    myview.add_item(Container("# Your Catnip Perks", full_desc))
+    return myview
+
+
+@bot.tree.command(description="view your active catnip perks")
 async def perks(message: discord.Interaction):
+    """Catnip perks — the ones rolled per catnip level. Mafia favors earned
+    from /jobs are a separate system and live under /favors."""
+    await message.response.send_message(view=await _catnip_perks_view(message), ephemeral=True)
+
+
+@bot.tree.command(description="view your active mafia favors (job perks)")
+async def favors(message: discord.Interaction):
     """Player-facing view of active job perks: timed buffs + charge-based
     consumables dropped from successful /jobs. Ephemeral. Container accent
     is brown to match /catstore. Empty state nudges toward /jobs."""
     profile = await Profile.get_or_create(user_id=message.user.id, guild_id=message.guild.id)
     active = _perks_active_for_display(profile)
 
-    async def on_perks_help(interaction: discord.Interaction):
-        # Phase 6 adds a dedicated "Perks" help page; until then fall back to
-        # the help index landing page so the button still works.
-        await _jobs_send_help(interaction, profile, start_page=_jobs_help_index_by_title(profile, "perks"))
+    async def on_favors_help(interaction: discord.Interaction):
+        # Phase 6 adds a dedicated "Mafia Favors" help page; until then fall
+        # back to the help index landing page so the button still works.
+        await _jobs_send_help(interaction, profile, start_page=_jobs_help_index_by_title(profile, "mafia favors"))
 
-    help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="perks_help")
-    help_btn.callback = on_perks_help
+    help_btn = Button(label="💡 Help", style=ButtonStyle.gray, custom_id="favors_help")
+    help_btn.callback = on_favors_help
 
     view = LayoutView(timeout=VIEW_TIMEOUT)
     items: list = ["## 🎁 Mafia Favors"]
@@ -17377,6 +17421,7 @@ async def perks(message: discord.Interaction):
             )
         items.append(ActionRow(help_btn))
 
+    items.append("-# Looking for catnip perks? Those live in **/perks**.")
     container = Container(*items)
     try:
         container.accent_color = Colors.brown
@@ -17385,7 +17430,7 @@ async def perks(message: discord.Interaction):
     view.add_item(container)
     await message.response.send_message(view=view, ephemeral=True)
     # BP quest: "have a job perk active". Idempotent — progress() handles
-    # the per-period cooldown so subsequent /perks checks don't re-progress.
+    # the per-period cooldown so subsequent /favors checks don't re-progress.
     if active:
         try:
             await progress(message, profile, "perk_user")
@@ -21919,35 +21964,8 @@ You can stop. That's okay. Seriously.
         await edit_main(interaction, myview)
 
     async def view_perks(interaction):
-        global_user = await User.get_or_create(user_id=interaction.user.id)
-        user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
-        await user.refresh_from_db()
-        perks = catnip_list["perks"]
-        rarities = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
-        rarity_colors = [get_emoji("common"), get_emoji("uncommon"), get_emoji("rare"), get_emoji("epic"), get_emoji("legendary")]
-        user_perks = user.perks
-        full_desc = ""
-
-        for perk in user_perks:
-            perk_rarity = int(perk.split("_")[0])
-            perk_data = perks[int(perk.split("_")[1]) - 1]
-            effect = perk_data["values"][int(perk.split("_")[0])]
-            desc = (
-                perk_data.get("desc", "")
-                .replace("percent", f"{effect:,}")
-                .replace("triple_none", f"{effect / 2:g}")
-                .replace("daily_catch_streak", f"{global_user.daily_catch_streak:,}")
-            )
-            full_desc += f"{rarity_colors[perk_rarity]} {perk_data.get('name', '')} ({rarities[perk_rarity]})\n{desc}\n\n"
-
-        if not user_perks:
-            full_desc = "You have no perks!"
-        if int(getattr(user, "perks_suspended_until", 0) or 0) > int(time.time()):
-            full_desc = f"🚓 The Cat Police have your perks. They come back <t:{int(user.perks_suspended_until)}:R>.\n\n" + full_desc
-        myview = LayoutView(timeout=VIEW_TIMEOUT)
-        perk_embed = Container("# Your Perks", full_desc)
-        myview.add_item(perk_embed)
-        await interaction.response.send_message(view=myview, ephemeral=True)
+        # Same screen as /perks — one implementation, two doors.
+        await interaction.response.send_message(view=await _catnip_perks_view(interaction), ephemeral=True)
 
     async def perk_screen(interaction, level=0, reroll=False):
         if not interaction.response.is_done():

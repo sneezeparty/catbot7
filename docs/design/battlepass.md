@@ -129,7 +129,7 @@ Added in May 2026. Originally added when the vote quest was inactive on this sel
 | `store_buy` | ~240–300 XP | buy any cat from `/catstore` |
 | `store_sell` | ~220–280 XP | sell any cat to `/catstore` |
 | `store_spree` | ~320–400 XP | spend ≥ 2,500 coins on a single `/catstore` purchase |
-| `perk_user` | ~220–280 XP | have a job perk active at the moment a successful `/jobs` commit lands (fires from the commit block in `main.py` when `_perks_active_ids(profile)` is non-empty); also fires from `/perks` for players who hold a perk but don't commit another job; implicitly gated on having received at least one job perk drop |
+| `perk_user` | ~220–280 XP | have a job perk active at the moment a successful `/jobs` commit lands (fires from the commit block in `main.py` when `_perks_active_ids(profile)` is non-empty); also fires from `/favors` for players who hold a perk but don't commit another job; implicitly gated on having received at least one job perk drop |
 
 **Design intent:** the extra slot is the *novel-mechanic* slot — quests here probe parts of the bot that catch/misc don't cover (catnip, social, casino variety, jobs, the Cat Store). The `sacrifice` quest is intentionally opaque: users see "reward depends on the cat" and don't see the per-cat table. This creates a small thrill of "which cat is worth sacrificing" without turning into a spreadsheet exercise.
 

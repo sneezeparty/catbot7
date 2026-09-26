@@ -16757,10 +16757,10 @@ async def jobs(message: discord.Interaction):
         await _attach_view(interaction, view, use_followup=False)
 
     async def show_result(interaction: discord.Interaction):
-        logging.info("jobs: show_result entry job_id=%s", mode.get("job_id"))
+        logging.debug("jobs: show_result entry job_id=%s", mode.get("job_id"))
         await profile.refresh_from_db()
         job = await JobInstance.get_or_none(id=mode["job_id"])
-        logging.info("jobs: show_result fetched job=%s outcome=%s state=%s",
+        logging.debug("jobs: show_result fetched job=%s outcome=%s state=%s",
                      getattr(job, "id", None) if job else None,
                      getattr(job, "outcome", None) if job else None,
                      getattr(job, "state", None) if job else None)
@@ -16914,9 +16914,9 @@ async def jobs(message: discord.Interaction):
         except Exception:
             pass
         view.add_item(container)
-        logging.info("jobs: show_result about to send view (items=%d)", len(items))
+        logging.debug("jobs: show_result about to send view (items=%d)", len(items))
         await _attach_view(interaction, view, use_followup=False)
-        logging.info("jobs: show_result view sent")
+        logging.debug("jobs: show_result view sent")
 
     # ----- callback factories -----
 
@@ -17155,7 +17155,7 @@ async def jobs(message: discord.Interaction):
         if interaction.user.id != message.user.id:
             await do_funny(interaction)
             return
-        logging.info("jobs: send_commit fired (user=%s job=%s send=%s)",
+        logging.debug("jobs: send_commit fired (user=%s job=%s send=%s)",
                      message.user.id, mode.get("job_id"), dict(send_state))
         if not send_state:
             await interaction.response.send_message("Add at least one cat first.", ephemeral=True)
@@ -17347,11 +17347,11 @@ async def jobs(message: discord.Interaction):
 
                 job.state = "resolved"
                 job.resolved_at = int(time.time())
-                logging.info("jobs: pre-save outcome=%s job_id=%s", outcome_dict["outcome"], job.id)
+                logging.debug("jobs: pre-save outcome=%s job_id=%s", outcome_dict["outcome"], job.id)
                 await job.save()
-                logging.info("jobs: job.save() ok")
+                logging.debug("jobs: job.save() ok")
                 await fresh.save()
-                logging.info("jobs: fresh.save() ok")
+                logging.debug("jobs: fresh.save() ok")
                 # NOTE: don't refresh the outer `profile` reference here.
                 # catpg's refresh_from_db calls _get() with no connection, which
                 # auto-applies FOR UPDATE and tries to relock the profile row —
@@ -17366,7 +17366,35 @@ async def jobs(message: discord.Interaction):
                 logging.exception("jobs: show_send after commit-failure also failed")
             return
 
-        logging.info("jobs: transaction committed cleanly")
+        logging.debug("jobs: transaction committed cleanly")
+
+        # one terminal line per finished job, same shape as the [catch] line
+        try:
+            _done = await JobInstance.get_or_none(id=mode["job_id"])
+            if _done:
+                _outcome = {"success": "success", "near_miss": "near miss", "total_failure": "wiped"}.get(_done.outcome, str(_done.outcome))
+                _tier = JOBS_TIERS.get(str(_done.tier), {}).get("name", "")
+                _bits = []
+                if _done.outcome == "success":
+                    _rw = _jobs_coerce_dict(_done.reward_snapshot)
+                    if int(_rw.get("coins", 0) or 0):
+                        _bits.append(f"{int(_rw['coins']):,} coins")
+                    _bits += [f"{c}x {t}" for t, c in (_rw.get("cats") or {}).items()]
+                    if _rw.get("pack"):
+                        _bits.append(f"{str(_rw['pack']).title()} pack")
+                _lost = sum(int(c or 0) for c in _jobs_coerce_dict(_done.cats_destroyed).values())
+                if _lost:
+                    _bits.append(f"lost {_lost} cat{'s' if _lost != 1 else ''}")
+                if _jobs_coerce_dict(_done.rep_changes).get("pinched"):
+                    _bits.append("pinched")
+                logging.info(
+                    "[job] %s | %s did a T%s %s job for %s: %s%s",
+                    interaction.guild.name, interaction.user.name, _done.tier, _tier,
+                    _jobs_npc_display(_done.offered_by), _outcome,
+                    f" ({', '.join(_bits)})" if _bits else "",
+                )
+        except Exception:
+            pass
 
         # "Sarah Connor" — you lost a Terminator cat on this job. It'll be back.
         # Done AFTER the transaction: achemb locks the profile row itself, which
@@ -17405,11 +17433,11 @@ async def jobs(message: discord.Interaction):
         except Exception:
             logging.exception("jobs: post-commit BP progress wrapper failed")
 
-        logging.info("jobs: about to call show_result")
+        logging.debug("jobs: about to call show_result")
         mode["screen"] = "result"
         try:
             await show_result(interaction)
-            logging.info("jobs: show_result returned")
+            logging.debug("jobs: show_result returned")
         except Exception:
             logging.exception("jobs: show_result failed")
 

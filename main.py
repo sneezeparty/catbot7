@@ -1654,7 +1654,7 @@ async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, 
 
         icon = pinata_emoji()
         head = "Your pack was a piñata!" if bursts == 1 else f"{bursts:,} of your packs were piñatas!"
-        lines = [f"{icon} **{head} ¡Qué alegría!**"]
+        lines = [f"{icon} **{head} ¡De pelos!**"]
         if got_owner:
             lines.append(f"You got {_pinata_loot_text(owner_loot, opener.cat_auras)}")
         shown = sorted(landed.items(), key=lambda kv: -sum(kv[1]["cats"].values()))
@@ -18307,7 +18307,7 @@ async def _pinata_craft_confirm(interaction: discord.Interaction, origin: discor
     total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", interaction.guild.id) or 0)
     logging.info("[pinata] %s | %s crafted piñata #%d (server now has %d)", interaction.guild.name, interaction.user.name, crafted + 1, total)
     announce = discord.Embed(
-        title=f"{pinata_emoji()} A new piñata! ¡Qué alegría!",
+        title=f"{pinata_emoji()} A new piñata! ¡De pelos!",
         description=(
             f"{interaction.user.mention} crafted a piñata! This server now has **{total}** piñata{'s' if total != 1 else ''}. "
             "Every pack opened here has a better chance to burst and spill cats to everyone. (🪙 "

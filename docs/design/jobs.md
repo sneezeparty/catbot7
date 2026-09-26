@@ -185,6 +185,8 @@ T2 is the baseline. T3 is ~1.5–2× baseline. T4 is ~3× baseline. T5 (Big Scor
 
 Missing tier entries fall back to T2 automatically (see `_perks_tier_entry`), so adding a single T2 entry to a new perk is enough to make it grantable at any tier.
 
+**A second grant path bypasses the drop dice entirely.** As of the battlepass Mystery `buff` family (`config/tuning.json → mystery_outcomes.buffs`; `resolve_mystery()` in main.py), opening a Mystery box can call `_perks_grant()` directly with `tier=3` and `duration_override=86400` (24h) — handing out `double_cat` (50% of the buff slice), `pack_drop_boost` (17%), `catch_xp_boost` (17%), or `rarity_bump` (16%) for a full day, regardless of the job-drop dice above or the perk's normal tier-3 duration. This is currently the only place a T3 perk's duration is stretched to T5-capstone length. See [battlepass.md → What a Mystery resolves to](battlepass.md#what-a-mystery-resolves-to).
+
 ### Stacking + lifetime
 
 - **Refresh-or-extend, never stack.** Granting the same perk again resets its timer / refills its charges. Two consecutive Double Cat drops give you one fresh 2h window, not 4h.

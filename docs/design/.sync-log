@@ -172,3 +172,7 @@
 2026-09-26 07:27  achievements.md no change (numbers still match) (re: main.py, config/jobs.json)
 2026-09-26 07:27  jobs.md         no change; SP table lives only in config/jobs_help.json (game content), not this doc (re: config/jobs.json, config/jobs_help.json)
 2026-09-26 07:27  README.md       no change (re: main.py, database.py, schema.sql)
+2026-09-26 08:51  battlepass.md   updated Mystery outcome weights/families (pack 72%->52%, +cats/coins_and_cats/buff), STALE-flagged stale EV figure (re: main.py, config/tuning.json, commit 4788e27)
+2026-09-26 08:51  battlepass.md   added Season 6-17 level-30 Scratchcard stacking + refreshed Mystery scratchcard weight 1.5%->4% (re: config/battlepass.json commit e87845d; config/tuning.json commit 4788e27)
+2026-09-26 08:51  economy.md      updated Mystery pack-odds figure (~72%->~52%) and family list, STALE-flagged stale EV/"sub-3%" claim (re: main.py, config/tuning.json, commit 4788e27)
+2026-09-26 08:51  jobs.md         added note: Mystery `buff` family grants a 24h T3 perk via _perks_grant duration_override, a second grant path outside the drop dice (re: main.py, config/tuning.json, commit 4788e27)

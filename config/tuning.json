@@ -144,5 +144,35 @@
   "pack_coin_ratio_wooden": 0.5,
   "pack_coin_ratio_celestial": 0.2,
   "season_starting_coins": 100,
-  "season_final_warning_days": 3
+  "season_final_warning_days": 3,
+  "pinata": {
+    "min_season": 6,
+    "burst_global_coef": 0.02,
+    "burst_owner_coef": 0.03,
+    "burst_cap": 0.2,
+    "recipients_min": 1,
+    "recipients_max": 2,
+    "cats_per_recipient_min": 1,
+    "cats_per_recipient_max": 2,
+    "owner_cats_min": 1,
+    "owner_cats_max": 2,
+    "recv_daily_cap": 10,
+    "owner_daily_cap": 10,
+    "eligible_recent_days": 7,
+    "eligible_min_catches": 50,
+    "pack_drop_chance": 0.02,
+    "pack_drop_tiers": { "Wooden": 50, "Stone": 30, "Bronze": 20 },
+    "celestial_drop_chance": 0.001,
+    "recipe_last_cat": "Mythic",
+    "craft_costs": [
+      { "coins": 2500, "packs": { "Silver": 1 } },
+      { "coins": 5000, "packs": { "Gold": 1 } },
+      { "coins": 10000, "packs": { "Gold": 2 } },
+      { "coins": 20000, "packs": { "Platinum": 1 } },
+      { "coins": 40000, "packs": { "Platinum": 2 } },
+      { "coins": 80000, "packs": { "Diamond": 1 } },
+      { "coins": 160000, "packs": { "Diamond": 2 } },
+      { "coins": 240000, "packs": { "Celestial": 1 } }
+    ]
+  }
 }

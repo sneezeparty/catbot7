@@ -323,6 +323,7 @@ hints = [
     "Cat Bot can go offline! Don't panic if it does",
     "By default, cats spawn 1-10 minutes apart",
     "View the last catch as well as the next one with /last",
+    "Craft prisms with /catcraft",
     "Sitting on /scratch cards? /scratch turns them into cats, coins & more",
     "Psst — you might have unscratched /scratch cards. Go check /scratch",
 ]
@@ -1433,6 +1434,261 @@ def prism_craft_coin_cost(prisms_crafted: int) -> int:
         return first
     cost = base * (growth ** n)
     return min(cap, int(cost))
+
+
+# ---- Piñatas 🪅 -------------------------------------------------------------
+# Crafted in /catcraft, live from Season 6 (`min_season`). A piñata is a
+# server-wide pack-open bonus: every pack opened in a server that has piñatas
+# rolls a burst, same log curve as prisms (G*ln(2*total+1), plus
+# U*ln(2*own+1) when the opener owns some). A burst spills 1-2 cats (spawn
+# odds) to each of 1-2 other ACTIVE players, and gives an owning opener 1-2
+# cats of their own. Small chance any of those people also gets a pack. The
+# opener's own pack is never touched. Daily caps (received / owner bonus) are
+# what stop bulk opens and alt farms from snowballing. Piñatas aren't
+# tradeable, so they're just a count on the profile — no table.
+PINATA = config.tuning.get("pinata", {})
+PINATA_MIN_SEASON = int(PINATA.get("min_season", 6))
+PINATA_G = float(PINATA.get("burst_global_coef", 0.02))
+PINATA_U = float(PINATA.get("burst_owner_coef", 0.03))
+PINATA_CAP = float(PINATA.get("burst_cap", 0.2))
+PINATA_RECIPIENTS = (int(PINATA.get("recipients_min", 1)), int(PINATA.get("recipients_max", 2)))
+PINATA_CATS_EACH = (int(PINATA.get("cats_per_recipient_min", 1)), int(PINATA.get("cats_per_recipient_max", 2)))
+PINATA_OWNER_CATS = (int(PINATA.get("owner_cats_min", 1)), int(PINATA.get("owner_cats_max", 2)))
+PINATA_RECV_CAP = int(PINATA.get("recv_daily_cap", 10))
+PINATA_OWNER_CAP = int(PINATA.get("owner_daily_cap", 10))
+PINATA_RECENT_SECONDS = int(PINATA.get("eligible_recent_days", 7)) * 86400
+PINATA_MIN_CATCHES = int(PINATA.get("eligible_min_catches", 50))
+PINATA_PACK_CHANCE = float(PINATA.get("pack_drop_chance", 0.02))
+PINATA_PACK_TIERS = PINATA.get("pack_drop_tiers", {"Wooden": 50, "Stone": 30, "Bronze": 20})
+PINATA_CELESTIAL_CHANCE = float(PINATA.get("celestial_drop_chance", 0.001))
+PINATA_RECIPE_LAST = PINATA.get("recipe_last_cat", "Mythic")
+PINATA_CRAFT_COSTS = PINATA.get("craft_costs") or [{"coins": 2500, "packs": {"Silver": 1}}]
+
+
+def pinata_emoji() -> str:
+    # the custom 🪅 cat is an app emoji; before it's uploaded, the stock one
+    e = get_emoji("pinata")
+    return "🪅" if e == "🔳" else e
+
+
+def pinata_image_url() -> str:
+    """The full-size piñata art (images/items/pinata.png) for embed
+    thumbnails, served from the repo on GitHub via wsrv.nl like the /jobs
+    portraits."""
+    return "https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/refs/heads/main/images/items/pinata.png"
+
+
+def _pinata_live() -> bool:
+    return _season_announcement_status()[0] >= PINATA_MIN_SEASON
+
+
+def _pinata_day() -> int:
+    return int(time.time() // 86400)
+
+
+def pinata_craft_cost(crafted: int) -> tuple[int, dict[str, int]]:
+    """(coins, {pack name: count}) for a player's next piñata on this server.
+    The table's last row repeats forever."""
+    row = PINATA_CRAFT_COSTS[min(max(0, int(crafted or 0)), len(PINATA_CRAFT_COSTS) - 1)]
+    return int(row.get("coins", 0)), {k: int(v) for k, v in (row.get("packs") or {}).items()}
+
+
+def pinata_recipe_cattypes() -> list[str]:
+    """One of each live rarity from Fine up to PINATA_RECIPE_LAST. Season-gated
+    like the prism recipe, so Hobo joins it on its debut season."""
+    live = _season_eligible_cattypes()
+    stop = cattypes.index(PINATA_RECIPE_LAST) if PINATA_RECIPE_LAST in cattypes else len(cattypes) - 1
+    return [t for t in live if cattypes.index(t) <= stop]
+
+
+def pinata_burst_chance(total: int, own: int) -> float:
+    if total <= 0:
+        return 0.0
+    chance = PINATA_G * math.log(2 * total + 1)
+    if own > 0:
+        chance += PINATA_U * math.log(2 * own + 1)
+    return min(PINATA_CAP, chance)
+
+
+def _pinata_roll_pack() -> str | None:
+    """A pack falling out of a burst, or None. Celestial is its own tiny roll."""
+    if random.random() < PINATA_CELESTIAL_CHANCE:
+        return "Celestial"
+    if random.random() < PINATA_PACK_CHANCE:
+        return random.choices(list(PINATA_PACK_TIERS), weights=list(PINATA_PACK_TIERS.values()))[0]
+    return None
+
+
+def _pinata_roll_opens(opens: int, chance: float, owner_room: int, recipients: dict[int, int]) -> tuple[int, dict, dict]:
+    """Roll `opens` pack opens for bursts. Pure — no DB.
+
+    owner_room: bonus cats the opener can still get today (0 = not an owner or
+    capped). recipients: {user_id: cats they can still receive today}, mutated
+    as it fills. Returns (bursts, owner_loot, others_loot) where loot is
+    {"cats": {type: n}, "packs": {name: n}} and others_loot is keyed by id.
+    A burst that lands nothing on anyone doesn't count."""
+    bursts = 0
+    owner = {"cats": {}, "packs": {}}
+    others: dict[int, dict] = {}
+    for _ in range(opens):
+        if random.random() >= chance:
+            continue
+        landed = False
+        if owner_room > 0:
+            for _ in range(min(owner_room, random.randint(*PINATA_OWNER_CATS))):
+                t = _spawn_weighted_cattype()
+                owner["cats"][t] = owner["cats"].get(t, 0) + 1
+                owner_room -= 1
+            pack = _pinata_roll_pack()
+            if pack:
+                owner["packs"][pack] = owner["packs"].get(pack, 0) + 1
+            landed = True
+        pool_ids = [uid for uid, room in recipients.items() if room > 0]
+        for uid in random.sample(pool_ids, min(len(pool_ids), random.randint(*PINATA_RECIPIENTS))):
+            loot = others.setdefault(uid, {"cats": {}, "packs": {}})
+            for _ in range(min(recipients[uid], random.randint(*PINATA_CATS_EACH))):
+                t = _spawn_weighted_cattype()
+                loot["cats"][t] = loot["cats"].get(t, 0) + 1
+                recipients[uid] -= 1
+            pack = _pinata_roll_pack()
+            if pack:
+                loot["packs"][pack] = loot["packs"].get(pack, 0) + 1
+            landed = True
+        bursts += landed
+    return bursts, owner, others
+
+
+async def _pinata_grant(guild_id: int, user_id: int, loot: dict, *, owner: bool) -> bool:
+    """Credit one person's burst loot in ONE atomic UPDATE: cats (int32-capped),
+    packs, lifetime counters, discoveries, and the daily cap counter — with the
+    cap re-checked in the WHERE, so two bursts racing can't overshoot it. No
+    row lock and no read-modify-write, so it can't collide with the person
+    catching or trading at the same moment. Returns False if the cap filled
+    up in the meantime (loot dropped)."""
+    built = _pinata_grant_sql(loot, owner=owner)
+    if not built:
+        return False
+    sql, cat_names = built
+    status = await pool.execute(sql, int(guild_id), int(user_id), _pinata_day(), cat_names)
+    return status.endswith(" 1")
+
+
+def _pinata_grant_sql(loot: dict, *, owner: bool) -> tuple[str, str] | None:
+    """The UPDATE behind _pinata_grant, params ($1 guild, $2 user, $3 day,
+    $4 JSON list of cat names). Only literals from this module and ints are
+    interpolated."""
+    cats = {t: int(n) for t, n in loot["cats"].items() if n > 0 and t in type_dict}
+    packs = {p: int(n) for p, n in loot["packs"].items() if n > 0 and any(d["name"] == p for d in pack_data)}
+    n_cats = sum(cats.values())
+    if not cats and not packs:
+        return None
+    cap_col, cap = ("pinata_bonus_today", PINATA_OWNER_CAP) if owner else ("pinata_recv_today", PINATA_RECV_CAP)
+    other_col = "pinata_recv_today" if owner else "pinata_bonus_today"
+    sets = [f'"cat_{t}" = LEAST("cat_{t}"::bigint + {int(n)}, 2147483647)' for t, n in cats.items()]
+    sets += [f"pack_{p.lower()} = pack_{p.lower()} + {int(n)}" for p, n in packs.items()]
+    sets += [
+        f"pinata_cats_won = pinata_cats_won + {n_cats}",
+        f"pinata_packs_won = pinata_packs_won + {sum(packs.values())}",
+        f"{cap_col} = (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats}",
+        f"{other_col} = CASE WHEN pinata_day = $3 THEN {other_col} ELSE 0 END",
+        "pinata_day = $3",
+        "discovered_cats = discovered_cats || (SELECT COALESCE(jsonb_agg(x), '[]'::jsonb) "
+        "FROM jsonb_array_elements_text($4::text::jsonb) x WHERE NOT (profile.discovered_cats ? x))",
+    ]
+    sql = (
+        f"UPDATE profile SET {', '.join(sets)} WHERE guild_id = $1 AND user_id = $2 "
+        f"AND (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats} <= {cap}"
+    )
+    return sql, json.dumps(list(cats))
+
+
+def _pinata_loot_text(loot: dict, auras=None) -> str:
+    cats = " ".join(
+        f"{get_aura_emoji(t, auras) if auras is not None else get_emoji(t.lower() + 'cat')} x{loot['cats'][t]}"
+        for t in reversed(cattypes) if loot["cats"].get(t)
+    )
+    packs = " ".join(f"{get_emoji(p.lower() + 'pack')} **{p}** pack" + (f" x{n}" if n > 1 else "") for p, n in loot["packs"].items())
+    return " + ".join(x for x in (cats, packs) if x)
+
+
+async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, opens: int) -> tuple[list[str], str | None, list[int]]:
+    """Roll piñata bursts for `opens` packs `opener` just opened (already saved)
+    and credit everyone. Returns (embed lines for the opener's result screen,
+    ping message or None, user ids that message may ping). Only PACK drops to
+    other people ping; cats never do — those show in the embed, where a
+    mention can't notify anyone. Never raises: a piñata failure must not eat
+    a pack open that already happened."""
+    try:
+        if opens < 1 or not _pinata_live():
+            return [], None, []
+        guild_id, user_id = int(opener.guild_id), int(opener.user_id)
+        total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", guild_id) or 0)
+        if total < 1:
+            return [], None, []
+        own = int(opener.pinatas or 0)
+        today = _pinata_day()
+        owner_room = 0
+        if own > 0:
+            used = int(opener.pinata_bonus_today or 0) if int(opener.pinata_day or 0) == today else 0
+            owner_room = max(0, PINATA_OWNER_CAP - used)
+        rows = await pool.fetch(
+            "SELECT user_id, pinata_day, pinata_recv_today FROM profile WHERE guild_id = $1 AND user_id <> $2 "
+            "AND last_catch > $3 AND total_catches >= $4",
+            guild_id, user_id, time.time() - PINATA_RECENT_SECONDS, PINATA_MIN_CATCHES,
+        )
+        recipients = {
+            int(r["user_id"]): PINATA_RECV_CAP - (int(r["pinata_recv_today"] or 0) if int(r["pinata_day"] or 0) == today else 0)
+            for r in rows
+        }
+        bursts, owner_loot, others = _pinata_roll_opens(opens, pinata_burst_chance(total, own), owner_room, recipients)
+        if not bursts:
+            return [], None, []
+
+        got_owner = await _pinata_grant(guild_id, user_id, owner_loot, owner=True) if (owner_loot["cats"] or owner_loot["packs"]) else False
+        landed = {uid: loot for uid, loot in others.items() if await _pinata_grant(guild_id, uid, loot, owner=False)}
+        given = sum(sum(l["cats"].values()) for l in landed.values())
+        if given:
+            await _bump_sql(user_id, guild_id, "pinata_cats_given", given)
+        if got_owner:
+            await opener.refresh_from_db()
+
+        icon = pinata_emoji()
+        head = "Your pack was a piñata!" if bursts == 1 else f"{bursts:,} of your packs were piñatas!"
+        lines = [f"{icon} **{head} ¡Qué alegría!**"]
+        if got_owner:
+            lines.append(f"You got {_pinata_loot_text(owner_loot, opener.cat_auras)}")
+        shown = sorted(landed.items(), key=lambda kv: -sum(kv[1]["cats"].values()))
+        for uid, loot in shown[:10]:
+            lines.append(f"<@{uid}> got {_pinata_loot_text(loot)}")
+        if len(shown) > 10:
+            lines.append(f"...and {len(shown) - 10} more!")
+
+        pack_winners = [(uid, loot["packs"]) for uid, loot in landed.items() if loot["packs"]]
+        ping = None
+        if pack_winners:
+            ping = "\n".join(
+                f"{icon} <@{uid}>, " + " and ".join(f"{'a' if n == 1 else n} {get_emoji(p.lower() + 'pack')} **{p}** pack{'s' if n > 1 else ''}" for p, n in packs.items())
+                + f" fell out of {interaction.user.mention}'s piñata! Open with /packs."
+                for uid, packs in pack_winners
+            )
+        bits = [f"{getattr(bot.get_user(uid), 'name', uid)} +{sum(l['cats'].values())} cats"
+                + (f" +{','.join(l['packs'])} pack" if l["packs"] else "") for uid, l in landed.items()]
+        if got_owner:
+            bits.insert(0, f"owner +{sum(owner_loot['cats'].values())} cats" + (f" +{','.join(owner_loot['packs'])} pack" if owner_loot["packs"] else ""))
+        logging.info("[pinata] %s | %s's packs burst %dx: %s", interaction.guild.name, interaction.user.name, bursts, ", ".join(bits) or "nothing landed")
+        return lines, ping, [uid for uid, _ in pack_winners]
+    except Exception:
+        logging.exception("pinata_after_opens failed")
+        return [], None, []
+
+
+async def pinata_send_ping(interaction: discord.Interaction, ping: str | None, ids: list[int]) -> None:
+    if not ping:
+        return
+    try:
+        await interaction.followup.send(ping, allowed_mentions=discord.AllowedMentions(users=[discord.Object(i) for i in ids], everyone=False, roles=False))
+    except Exception:
+        logging.exception("pinata ping failed")
 
 
 # Rain purchase (catstore Extras → Rain). The 2026-05-23 retune dropped
@@ -5706,7 +5962,7 @@ async def _maybe_show_season_reset_notice(interaction, user):
                 "(season starting allowance). Your **catnip level**, **packs**, "
                 "and all active **mafia/jobs state** have been wiped — build them "
                 "back up this season.\n\n"
-                "Untouched: your **cats**, **prisms**, **stocks**, **streaks**, "
+                "Untouched: your **cats**, **prisms**, " + ("**piñatas**, " if _pinata_live() else "") + "**stocks**, **streaks**, "
                 "**discovered cats**, and **achievements** stay with you.\n\n"
                 "Welcome to the new month."
             ),
@@ -6811,7 +7067,7 @@ def _build_season_warning_embed(current_season: int) -> discord.Embed:
             "• 🎩 **Catnip / mafia** level, bounties & perks wiped\n"
             "• 🔫 **Jobs** heat, respect, faction rep & job perks reset\n"
             "• 📦 **All packs** cleared (event packs included)\n\n"
-            "**Kept:** your cats, prisms, stocks, discovered cats, achievements, and streaks.\n\n"
+            "**Kept:** your cats, prisms, " + ("piñatas, " if _pinata_live() else "") + "stocks, discovered cats, achievements, and streaks.\n\n"
             "⚠️ Spend your coins and **open your packs** before the reset!"
             + levels_line
         ),
@@ -6863,8 +7119,8 @@ def _build_season_reset_explainer_embed(current_season: int, ends_at: int) -> di
         name="✅ Kept",
         value=(
             "🐈 **Your cats** — every last one of them\n"
-            "🔮 **Prisms** and 📈 **stocks**\n"
-            "☔ **Rain** minutes you haven't spent yet\n"
+            + (f"🔮 **Prisms**, {pinata_emoji()} **piñatas** and 📈 **stocks**\n" if _pinata_live() else "🔮 **Prisms** and 📈 **stocks**\n")
+            + "☔ **Rain** minutes you haven't spent yet\n"
             "🔍 **Discovered cats**, 🏆 **achievements** and 🔥 **streaks**\n"
             "📊 Lifetime stats, medals and your `/catprofile`"
         ),
@@ -6930,6 +7186,8 @@ def _build_season_intro_embed(new_season: int) -> discord.Embed:
     if debuts:
         names = " and ".join(f"{get_emoji(t.lower() + 'cat')} **{t}**" for t in debuts)
         debut_line = f"• 🐾 New cat{'s' if len(debuts) > 1 else ''} in town: {names}! Keep an eye out.\n"
+    if new_season == PINATA_MIN_SEASON:
+        debut_line += f"• {pinata_emoji()} **Piñatas** are here! Craft one in /catcraft — your packs might burst and spill cats to everyone.\n"
     return discord.Embed(
         title=f"🆕 Season {new_season} starts now!",
         color=Colors.brown,
@@ -10126,7 +10384,8 @@ async def help(message):
                 "`/achievements` tracks unlocks across catching, casino, jobs, and easter eggs. "
                 "`/battlepass` runs monthly seasons with five quest slots per cycle. "
                 "`/perks` shows your active catnip and job-perk effects. "
-                "Passive XP drips on first daily catch, every 10-catch streak, and every catnip level-up."
+                + ("`/catcraft` crafts prisms and piñatas. " if _pinata_live() else "`/catcraft` crafts prisms. ")
+                + "Passive XP drips on first daily catch, every 10-catch streak, and every catnip level-up."
             ),
             inline=False,
         )
@@ -11002,6 +11261,13 @@ async def gen_stats(profile, star):
     stats.append(["prism_crafted", get_emoji("prism"), f"Prisms crafted: {prisms_crafted:,}"])
     stats.append(["boosts_done", get_emoji("prism"), f"Boosts by owned prisms: {boosts_done:,}{star}"])
     stats.append(["boosted_catches", get_emoji("prism"), f"Prism-boosted catches: {profile.boosted_catches:,}{star}"])
+    if _pinata_live():
+        try:
+            stats.append(["pinatas_owned", pinata_emoji(), f"Piñatas crafted: {int(profile.pinatas or 0):,}"])
+            stats.append(["pinata_cats_won", pinata_emoji(), f"Piñata cats won: {int(profile.pinata_cats_won or 0):,}"])
+            stats.append(["pinata_cats_given", pinata_emoji(), f"Piñata cats spilled to others: {int(profile.pinata_cats_given or 0):,}"])
+        except KeyError:
+            pass  # migration 042 not run yet
     stats.append(["catnip_activations", get_emoji("catnip"), f"Cats gained from catnip: {profile.catnip_activations:,}"])
     stats.append(["catnip_bought", get_emoji("catnip"), f"Catnip levels reached: {profile.catnip_bought:,}"])
     stats.append(["highest_catnip_level", "⬆️", f"Highest catnip level: {profile.highest_catnip_level:,}"])
@@ -11366,7 +11632,13 @@ async def gen_inventory(message, person_id):
 
     if embedVar.description:
         coins_now = int(person.coins or 0)
-        embedVar.description += f"\n{get_emoji('staring_cat')} Cats: {total:,}, Value: {round(valuenum):,}\n🪙 Coins: {coins_now:,}\n{get_emoji('prism')} Prisms: {prism_list} ({prism_boost}%)\n\n{cat_desc}"
+        pinata_line = ""
+        if _pinata_live():
+            try:
+                pinata_line = f"\n{pinata_emoji()} Piñatas: {int(person.pinatas or 0):,} · Pinata Cats: {int(person.pinata_cats_won or 0):,}"
+            except KeyError:
+                pass  # migration 042 not run yet
+        embedVar.description += f"\n{get_emoji('staring_cat')} Cats: {total:,}, Value: {round(valuenum):,}\n🪙 Coins: {coins_now:,}\n{get_emoji('prism')} Prisms: {prism_list} ({prism_boost}%){pinata_line}\n\n{cat_desc}"
 
     if user.image.startswith("https://cdn.discordapp.com/attachments/"):
         embedVar.set_thumbnail(url=user.image)
@@ -12336,16 +12608,17 @@ async def scratch(message: discord.Interaction):
 
 @bot.tree.command(description="View and open packs")
 async def packs(message: discord.Interaction):
-    async def process_pack_opening(limit=None, only_pack=None):
+    async def process_pack_opening(interaction, limit=None, only_pack=None):
         # only_pack: restrict the batch to one pack type (the per-pack "Open N"
         # picker). None = every type, lowest tier first (Open All).
+        # Returns (embed, piñata ping, ping ids), or (None, None, []) if empty.
         await user.refresh_from_db()
 
         pack_names = [pack["name"] for pack in pack_data]
         total_pack_count = sum(user[f"pack_{pack_id.lower()}"] for pack_id in pack_names if only_pack is None or pack_id == only_pack)
 
         if total_pack_count < 1:
-            return None
+            return None, None, []
 
         real_to_open = total_pack_count
         if limit:
@@ -12464,6 +12737,10 @@ async def packs(message: discord.Interaction):
                 await mark_discovered(user, cat_type)
         await award_pow2_milestones(message, user, "followup")
 
+        # piñata bursts 🪅 for the whole batch, rolled per pack, summarised once
+        pinata_lines, pinata_ping, pinata_ids = await pinata_after_opens(interaction, user, opened_so_far)
+        perk_msgs += pinata_lines
+
         final_header = f"Opened {opened_so_far:,} packs!"
         pack_list = "**" + ", ".join(results_header) + "**"
         final_result = "\n".join(results_detail)
@@ -12494,7 +12771,10 @@ async def packs(message: discord.Interaction):
             # Last resort: even the compact summary + footers overflowed.
             # Drop the detail rather than 400 the whole result screen.
             description = f"{pack_list}{coin_footer}{perk_footer}"[:4096]
-        return discord.Embed(title=final_header, description=description, color=Colors.brown)
+        result = discord.Embed(title=final_header, description=description, color=Colors.brown)
+        if pinata_lines:
+            result.set_thumbnail(url=pinata_image_url())
+        return result, pinata_ping, pinata_ids
 
     async def confirm_open_all(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -12842,6 +13122,10 @@ async def packs(message: discord.Interaction):
             await mark_discovered(user, bonus_type)
         await award_pow2_milestones(message, user, "followup")
 
+        # piñata burst 🪅 — rolled after the open is saved, shown with the perk toasts
+        pinata_lines, pinata_ping, pinata_ids = await pinata_after_opens(interaction, user, 1)
+        perk_msgs += pinata_lines
+
         logging.debug("Opened pack %s", pack)
 
         embed = discord.Embed(title=reward_texts[0], color=Colors.brown)
@@ -12857,6 +13141,8 @@ async def packs(message: discord.Interaction):
             final_text = reward_texts[-1] + "\n\n" + "\n".join(perk_msgs)
             things = final_text.split("\n", 1)
             embed = discord.Embed(title=things[0], description=things[1], color=Colors.brown)
+            if pinata_lines:
+                embed.set_thumbnail(url=pinata_image_url())
             await interaction.edit_original_response(embed=embed)
         # Coin reveal: tick-up animation mirroring the catslots bonus payout
         # (5/15/35/60/85/100% over ~2s). Runs after the perk toasts, before
@@ -12870,17 +13156,21 @@ async def packs(message: discord.Interaction):
             for frac in (0.05, 0.15, 0.35, 0.60, 0.85, 1.0):
                 tick = coin_amount if frac == 1.0 else int(coin_amount * frac)
                 try:
-                    await interaction.edit_original_response(embed=discord.Embed(
+                    frame = discord.Embed(
                         title=anim_title,
                         description=f"{anim_body}\n\n💰 **{tick:,}** coins!",
                         color=Colors.brown,
-                    ))
+                    )
+                    if pinata_lines:
+                        frame.set_thumbnail(url=pinata_image_url())
+                    await interaction.edit_original_response(embed=frame)
                 except Exception:
                     pass
                 await asyncio.sleep(0.3)
         await asyncio.sleep(1)
         view, _ = gen_view(user)
         await interaction.edit_original_response(view=view)
+        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
 
     class PackAmountModal(Modal):
         def __init__(self, pack, have):
@@ -12994,7 +13284,7 @@ async def packs(message: discord.Interaction):
             return
         packs_bulk_opening.add(key)
         try:
-            embed = await process_pack_opening(amount, only_pack=pack)
+            embed, pinata_ping, pinata_ids = await process_pack_opening(interaction, amount, only_pack=pack)
         finally:
             packs_bulk_opening.discard(key)
         view, _ = gen_view(user)
@@ -13002,6 +13292,7 @@ async def packs(message: discord.Interaction):
             await interaction.edit_original_response(view=view)
             return
         await interaction.edit_original_response(embed=embed, view=view)
+        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
 
     async def open_all_packs(interaction: discord.Interaction):
         key = (message.guild.id, message.user.id)
@@ -13009,7 +13300,7 @@ async def packs(message: discord.Interaction):
             return
         packs_bulk_opening.add(key)
         try:
-            embed = await process_pack_opening(10000)
+            embed, pinata_ping, pinata_ids = await process_pack_opening(interaction, 10000)
         finally:
             packs_bulk_opening.discard(key)
         if not embed:
@@ -13031,15 +13322,27 @@ async def packs(message: discord.Interaction):
                 await interaction.followup.send(embed=embed, view=view)
             except discord.HTTPException:
                 logging.exception("open_all_packs: could not deliver result embed (channel=%s)", getattr(interaction.channel, "id", None))
+        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
 
     def gen_main_embed(has_special):
         description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier."
         if has_special:
             description += "\n\n**Special Packs** are packs highlighted in green. Their upgrade chance is 70% instead of 30% and they start below Wooden."
+        if server_pinatas:
+            description += (
+                f"\n\n{pinata_emoji()} This server has **{server_pinatas}** piñata{'s' if server_pinatas != 1 else ''} "
+                "— any pack you open might burst and spill cats to other players! (/catcraft)"
+            )
         description += "\n\nClick the buttons below to start opening packs!"
         return discord.Embed(title=f"{get_emoji('goldpack')} Packs", description=description, color=Colors.brown)
 
     user = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
+    server_pinatas = 0
+    if _pinata_live():
+        try:
+            server_pinatas = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", message.guild.id) or 0)
+        except Exception:
+            pass  # migration 042 not run yet
     view, has_special = gen_view(user)
     await message.response.send_message(embed=gen_main_embed(has_special), view=view)
 
@@ -17583,9 +17886,151 @@ async def perks(message: discord.Interaction):
             logging.exception("perk_user quest progress failed")
 
 
-@bot.tree.command(description="cat prisms are a special power up")
-@discord.app_commands.describe(person="Person to view the prisms of")
-async def prism(message: discord.Interaction, person: Optional[discord.User]):
+async def _prism_craft_confirm(interaction: discord.Interaction, origin: discord.Interaction):
+    icon = get_emoji("prism")
+    await interaction.response.defer()
+    user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
+
+    # check we still can craft. The recipe is one of every rarity that's
+    # live this season, so a new rarity joins it on its debut season.
+    for i in _season_eligible_cattypes():
+        if user["cat_" + i] < 1:
+            await interaction.followup.send("You don't have enough cats. Nice try though.", ephemeral=True)
+            return
+
+    if await Prism.count("guild_id = $1", interaction.guild.id) >= len(prism_names):
+        await interaction.followup.send("This server has reached the prism limit.", ephemeral=True)
+        return
+
+    # Coin tax — re-check at commit time so the player can't sit on a
+    # confirm screen, spend their coins elsewhere, then come back. Skipped
+    # entirely when the prisms_crafted column isn't present (migration 018
+    # unrun) so prism crafting keeps working.
+    tax_on = _prism_tax_enabled(user)
+    crafts_so_far = _safe_prisms_crafted(user)
+    coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
+    if coin_cost > 0 and int(getattr(user, "coins", 0) or 0) < coin_cost:
+        await interaction.followup.send(
+            f"You need 🪙 **{coin_cost:,}** coins to craft your "
+            f"{_ordinal(crafts_so_far + 1)} prism on this server. "
+            f"You have 🪙 **{int(getattr(user, 'coins', 0) or 0):,}**.",
+            ephemeral=True,
+        )
+        return
+
+    # determine the next name
+    for selected_name in prism_names:
+        if not await Prism.get_or_none(guild_id=interaction.guild.id, name=selected_name):
+            break
+
+    if await Prism.get_or_none(guild_id=interaction.guild.id, name=selected_name) or await Prism.count("guild_id = $1", interaction.guild.id) >= len(prism_names):
+        await interaction.followup.send("This server has reached the prism limit.", ephemeral=True)
+        return
+
+    youngest_prism = await Prism.collect("guild_id = $1 ORDER BY time DESC LIMIT 1", interaction.guild.id)
+    if youngest_prism:
+        selected_time = max(round(time.time()), youngest_prism[0].time + 1)
+    else:
+        selected_time = round(time.time())
+
+    # actually take away cats and coins, and bump the crafted counter.
+    # The coin-tax half no-ops when the column isn't present yet.
+    for i in _season_eligible_cattypes():
+        user["cat_" + i] -= 1
+    if tax_on and coin_cost > 0:
+        user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
+        user.prisms_crafted = crafts_so_far + 1
+    await user.save()
+
+    # create the prism
+    await Prism.create(
+        guild_id=interaction.guild.id,
+        user_id=interaction.user.id,
+        creator=interaction.user.id,
+        time=selected_time,
+        name=selected_name,
+    )
+
+    logging.debug("Created prism")
+
+    cost_suffix = f" (🪙 {coin_cost:,} coins spent)" if (tax_on and coin_cost > 0) else ""
+    announce = f"{icon} {interaction.user.mention} has created prism {selected_name}!{cost_suffix}"
+    try:
+        await origin.followup.send(announce)
+    except discord.HTTPException:
+        # /catcraft's token is only good for 15 minutes
+        await interaction.channel.send(announce)
+    await achemb(interaction, "prism", "followup")
+    await achemb(interaction, "collecter", "followup")
+
+
+async def prism_craft_prompt(interaction: discord.Interaction, origin: discord.Interaction):
+    """The prism recipe + confirm screen (ephemeral). `origin` is the /catcraft
+    interaction, whose followup carries the public "created prism" line."""
+    icon = get_emoji("prism")
+    user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
+
+    found_cats = await cats_in_server(interaction.guild.id)
+    missing_cats = []
+    unknowns = 0
+    for i in _season_eligible_cattypes():
+        if user[f"cat_{i}"] > 0:
+            continue
+        if i in found_cats:
+            missing_cats.append(get_emoji(i.lower() + "cat"))
+        else:
+            unknowns += 1
+
+    unknown_suffix = ""
+    if unknowns:
+        unknown_suffix = f" + {unknowns} unknown cat types (see /catalogue)"
+
+    tax_on = _prism_tax_enabled(user)
+    crafts_so_far = _safe_prisms_crafted(user)
+    coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
+    coins_have = int(getattr(user, "coins", 0) or 0)
+    cost_line = (
+        (
+            f"\n**Coin cost (your {_ordinal(crafts_so_far + 1)} prism on this server):** "
+            f"🪙 **{coin_cost:,}** (you have 🪙 {coins_have:,})"
+        ) if (tax_on and coin_cost > 0) else ""
+    )
+
+    if len(missing_cats) == 0:
+        view = View(timeout=VIEW_TIMEOUT)
+        insufficient_coins = (tax_on and coin_cost > 0 and coins_have < coin_cost)
+        confirm_button = Button(
+            label="Not enough coins!" if insufficient_coins else "Craft!",
+            style=ButtonStyle.red if insufficient_coins else ButtonStyle.blurple,
+            emoji=icon,
+            disabled=insufficient_coins,
+        )
+
+        async def _confirm(i: discord.Interaction):
+            await _prism_craft_confirm(i, origin)
+
+        confirm_button.callback = _confirm
+        description = (
+            "The crafting recipe is __ONE of EVERY cat type__."
+            + cost_line
+            + "\nContinue crafting?"
+        )
+    else:
+        view = View(timeout=VIEW_TIMEOUT)
+        confirm_button = Button(label="Not enough cats!", style=ButtonStyle.red, disabled=True)
+        description = (
+            "The crafting recipe is __ONE of EVERY cat type__."
+            + cost_line
+            + "\nYou are missing " + "".join(missing_cats) + unknown_suffix
+        )
+
+    view.add_item(confirm_button)
+    await interaction.response.send_message(description, view=view, ephemeral=True)
+
+
+async def crafted_list(message: discord.Interaction, person: Optional[discord.User] = None, ephemeral: bool = False):
+    """Who owns the server's prisms (and, from Season 6, piñatas). Was the
+    body of /prism; now behind /catcraft's View button."""
     icon = get_emoji("prism")
     page_number = 0
 
@@ -17601,8 +18046,36 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
     global_boost = PRISM_BOOST_GLOBAL_COEF * math.log(2 * total_count + 1)
     user_boost = round((global_boost + PRISM_BOOST_USER_COEF * math.log(2 * user_count + 1)) * 100, 3)
 
+    # piñatas are a count per profile, so the whole section is one query
+    pinata_section = ""
+    if _pinata_live():
+        try:
+            owners = await pool.fetch(
+                "SELECT user_id, pinatas FROM profile WHERE guild_id = $1 AND pinatas > 0 ORDER BY pinatas DESC, user_id",
+                message.guild.id,
+            )
+        except Exception:
+            owners = []  # migration 042 not run yet
+        p_total = sum(int(r["pinatas"]) for r in owners)
+        p_mine = next((int(r["pinatas"]) for r in owners if int(r["user_id"]) == message.user.id), 0)
+        pe = pinata_emoji()
+        if p_total:
+            listing = ", ".join(f"<@{r['user_id']}> {r['pinatas']}" for r in owners[:15])
+            if len(owners) > 15:
+                listing += f", +{len(owners) - 15} more"
+            pinata_section = (
+                f"{pe} **Piñatas · {p_total} in this server** — {listing}\n"
+                f"Burst chance per pack: {round(pinata_burst_chance(p_total, 0) * 100, 2)}% "
+                f"(yours: {round(pinata_burst_chance(p_total, p_mine) * 100, 2)}%)\n\n"
+            )
+        else:
+            pinata_section = f"{pe} **Piñatas** — none in this server yet. Craft one with /catcraft!\n\n"
+
     if person_id == message.user and user_count != 0:
-        await achemb(message, "prism", "followup")
+        try:
+            await achemb(message, "prism", "followup")
+        except discord.HTTPException:
+            pass  # from a button there's nothing to follow up on yet
         # Data-driven prism-event triggers (UI-added aches).
         try:
             prism_profile = await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)
@@ -17724,135 +18197,6 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
     # 52 ... — about one count in thirteen.
     max_page = len(pages) - 1
 
-    async def confirm_craft(interaction: discord.Interaction):
-        await interaction.response.defer()
-        user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
-
-        # check we still can craft. The recipe is one of every rarity that's
-        # live this season, so a new rarity joins it on its debut season.
-        for i in _season_eligible_cattypes():
-            if user["cat_" + i] < 1:
-                await interaction.followup.send("You don't have enough cats. Nice try though.", ephemeral=True)
-                return
-
-        if await Prism.count("guild_id = $1", interaction.guild.id) >= len(prism_names):
-            await interaction.followup.send("This server has reached the prism limit.", ephemeral=True)
-            return
-
-        # Coin tax — re-check at commit time so the player can't sit on a
-        # confirm screen, spend their coins elsewhere, then come back. Skipped
-        # entirely when the prisms_crafted column isn't present (migration 018
-        # unrun) so prism crafting keeps working.
-        tax_on = _prism_tax_enabled(user)
-        crafts_so_far = _safe_prisms_crafted(user)
-        coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
-        if coin_cost > 0 and int(getattr(user, "coins", 0) or 0) < coin_cost:
-            await interaction.followup.send(
-                f"You need 🪙 **{coin_cost:,}** coins to craft your "
-                f"{_ordinal(crafts_so_far + 1)} prism on this server. "
-                f"You have 🪙 **{int(getattr(user, 'coins', 0) or 0):,}**.",
-                ephemeral=True,
-            )
-            return
-
-        # determine the next name
-        for selected_name in prism_names:
-            if not await Prism.get_or_none(guild_id=message.guild.id, name=selected_name):
-                break
-
-        if await Prism.get_or_none(guild_id=message.guild.id, name=selected_name) or await Prism.count("guild_id = $1", message.guild.id) >= len(prism_names):
-            await interaction.followup.send("This server has reached the prism limit.", ephemeral=True)
-            return
-
-        youngest_prism = await Prism.collect("guild_id = $1 ORDER BY time DESC LIMIT 1", message.guild.id)
-        if youngest_prism:
-            selected_time = max(round(time.time()), youngest_prism[0].time + 1)
-        else:
-            selected_time = round(time.time())
-
-        # actually take away cats and coins, and bump the crafted counter.
-        # The coin-tax half no-ops when the column isn't present yet.
-        for i in _season_eligible_cattypes():
-            user["cat_" + i] -= 1
-        if tax_on and coin_cost > 0:
-            user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
-            user.prisms_crafted = crafts_so_far + 1
-        await user.save()
-
-        # create the prism
-        await Prism.create(
-            guild_id=interaction.guild.id,
-            user_id=interaction.user.id,
-            creator=interaction.user.id,
-            time=selected_time,
-            name=selected_name,
-        )
-
-        logging.debug("Created prism")
-
-        cost_suffix = f" (🪙 {coin_cost:,} coins spent)" if (tax_on and coin_cost > 0) else ""
-        await message.followup.send(
-            f"{icon} {interaction.user.mention} has created prism {selected_name}!{cost_suffix}"
-        )
-        await achemb(interaction, "prism", "followup")
-        await achemb(interaction, "collecter", "followup")
-
-    async def craft_prism(interaction: discord.Interaction):
-        user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
-
-        found_cats = await cats_in_server(interaction.guild.id)
-        missing_cats = []
-        unknowns = 0
-        for i in _season_eligible_cattypes():
-            if user[f"cat_{i}"] > 0:
-                continue
-            if i in found_cats:
-                missing_cats.append(get_emoji(i.lower() + "cat"))
-            else:
-                unknowns += 1
-
-        unknown_suffix = ""
-        if unknowns:
-            unknown_suffix = f" + {unknowns} unknown cat types (see /catalogue)"
-
-        tax_on = _prism_tax_enabled(user)
-        crafts_so_far = _safe_prisms_crafted(user)
-        coin_cost = prism_craft_coin_cost(crafts_so_far) if tax_on else 0
-        coins_have = int(getattr(user, "coins", 0) or 0)
-        cost_line = (
-            (
-                f"\n**Coin cost (your {_ordinal(crafts_so_far + 1)} prism on this server):** "
-                f"🪙 **{coin_cost:,}** (you have 🪙 {coins_have:,})"
-            ) if (tax_on and coin_cost > 0) else ""
-        )
-
-        if len(missing_cats) == 0:
-            view = View(timeout=VIEW_TIMEOUT)
-            insufficient_coins = (tax_on and coin_cost > 0 and coins_have < coin_cost)
-            confirm_button = Button(
-                label="Not enough coins!" if insufficient_coins else "Craft!",
-                style=ButtonStyle.red if insufficient_coins else ButtonStyle.blurple,
-                emoji=icon,
-                disabled=insufficient_coins,
-            )
-            confirm_button.callback = confirm_craft
-            description = (
-                "The crafting recipe is __ONE of EVERY cat type__."
-                + cost_line
-                + "\nContinue crafting?"
-            )
-        else:
-            view = View(timeout=VIEW_TIMEOUT)
-            confirm_button = Button(label="Not enough cats!", style=ButtonStyle.red, disabled=True)
-            description = (
-                "The crafting recipe is __ONE of EVERY cat type__."
-                + cost_line
-                + "\nYou are missing " + "".join(missing_cats) + unknown_suffix
-            )
-
-        view.add_item(confirm_button)
-        await interaction.response.send_message(description, view=view, ephemeral=True)
-
     async def prev_page(interaction):
         nonlocal page_number
         page_number -= 1
@@ -17886,6 +18230,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
                 "Each prism crafted gives the entire server an increased chance to get upgraded, "
                 "plus additional chance for prism owner.\n\n"
             )
+            description += pinata_section
         embed.description = description
 
         # Two real fields, then a zero-width spacer to break the row — without
@@ -17912,10 +18257,6 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
 
         view = View(timeout=VIEW_TIMEOUT)
 
-        craft_button = Button(label="Craft!", style=ButtonStyle.blurple, emoji=icon)
-        craft_button.callback = craft_prism
-        view.add_item(craft_button)
-
         prev_button = Button(label="<-", disabled=bool(page_number == 0))
         prev_button.callback = prev_page
         view.add_item(prev_button)
@@ -17927,7 +18268,170 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         return embed, view
 
     embed, view = gen_page()
-    await message.response.send_message(embed=embed, view=view)
+    await message.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
+
+
+def _pinata_recipe_check(user: Profile) -> tuple[int, dict[str, int], list[str], list[str], list[str], int]:
+    """(coin cost, pack cost, missing cat types, missing pack lines,
+    last-of-a-kind cat types, crafts so far) for this player's next piñata."""
+    crafted = int(user.pinatas or 0)
+    coins, packs = pinata_craft_cost(crafted)
+    recipe = pinata_recipe_cattypes()
+    missing = [t for t in recipe if user[f"cat_{t}"] < 1]
+    last_one = [t for t in recipe if user[f"cat_{t}"] == 1]
+    missing_packs = [f"{n - user[f'pack_{p.lower()}']}x {get_emoji(p.lower() + 'pack')} {p}" for p, n in packs.items() if user[f"pack_{p.lower()}"] < n]
+    return coins, packs, missing, missing_packs, last_one, crafted
+
+
+async def _pinata_craft_confirm(interaction: discord.Interaction, origin: discord.Interaction):
+    await interaction.response.defer()
+    if not _pinata_live():
+        return
+    async with transaction() as conn:
+        # lock the row so a trade / pack open / second click can't spend the
+        # same cats, packs or coins out from under the check
+        await conn.execute("SELECT 1 FROM profile WHERE guild_id = $1 AND user_id = $2 FOR UPDATE", interaction.guild.id, interaction.user.id)
+        user = await Profile.get_or_create(connection=conn, guild_id=interaction.guild.id, user_id=interaction.user.id)
+        coins, packs, missing, missing_packs, _, crafted = _pinata_recipe_check(user)
+        have = int(user.coins or 0)
+        if missing or missing_packs or have < coins:
+            await interaction.followup.send("You don't have everything for that piñata anymore. Nice try though.", ephemeral=True)
+            return
+        for t in pinata_recipe_cattypes():
+            user[f"cat_{t}"] -= 1
+        for p, n in packs.items():
+            user[f"pack_{p.lower()}"] -= n
+        user.coins = have - coins
+        user.pinatas = crafted + 1
+        await user.save()
+    total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", interaction.guild.id) or 0)
+    logging.info("[pinata] %s | %s crafted piñata #%d (server now has %d)", interaction.guild.name, interaction.user.name, crafted + 1, total)
+    announce = discord.Embed(
+        title=f"{pinata_emoji()} A new piñata! ¡Qué alegría!",
+        description=(
+            f"{interaction.user.mention} crafted a piñata! This server now has **{total}** piñata{'s' if total != 1 else ''}. "
+            "Every pack opened here has a better chance to burst and spill cats to everyone. (🪙 "
+            f"{coins:,} coins spent)"
+        ),
+        color=Colors.brown,
+    ).set_image(url=pinata_image_url())
+    await interaction.edit_original_response(content=f"{pinata_emoji()} Piñata crafted!", view=None)
+    try:
+        await origin.followup.send(embed=announce)
+    except discord.HTTPException:
+        await interaction.channel.send(embed=announce)
+
+
+async def pinata_craft_prompt(interaction: discord.Interaction, origin: discord.Interaction):
+    """The piñata recipe + confirm screen (ephemeral)."""
+    if not _pinata_live():
+        await interaction.response.send_message(f"Piñatas arrive in Season {PINATA_MIN_SEASON}!", ephemeral=True)
+        return
+    user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
+    coins, packs, missing, missing_packs, last_one, crafted = _pinata_recipe_check(user)
+    have = int(user.coins or 0)
+    recipe = pinata_recipe_cattypes()
+    pe = pinata_emoji()
+    pack_text = ", ".join(f"{n}x {get_emoji(p.lower() + 'pack')} {p}" for p, n in packs.items())
+    lines = [
+        f"{pe} **Your {_ordinal(crafted + 1)} piñata on this server costs:**",
+        f"**Cats:** one each of {recipe[0]} through {recipe[-1]} " + "".join(get_emoji(t.lower() + "cat") for t in recipe),
+        f"**Packs:** {pack_text}",
+        f"**Coins:** 🪙 {coins:,} (you have 🪙 {have:,})",
+    ]
+    problems = []
+    if missing:
+        problems.append("Missing cats: " + "".join(get_emoji(t.lower() + "cat") for t in missing))
+    if missing_packs:
+        problems.append("Missing packs: " + ", ".join(missing_packs))
+    if have < coins:
+        problems.append(f"Missing coins: 🪙 {coins - have:,}")
+    if problems:
+        lines += [""] + problems
+    elif last_one:
+        lines += ["", "⚠️ This uses your **last** " + "".join(get_emoji(t.lower() + "cat") for t in last_one)]
+    view = View(timeout=VIEW_TIMEOUT)
+    button = Button(
+        label="Not enough stuff!" if problems else "Craft!",
+        style=ButtonStyle.red if problems else ButtonStyle.blurple,
+        emoji=pe,
+        disabled=bool(problems),
+    )
+
+    async def _confirm(i: discord.Interaction):
+        await _pinata_craft_confirm(i, origin)
+
+    button.callback = _confirm
+    view.add_item(button)
+    await interaction.response.send_message("\n".join(lines), view=view, ephemeral=True)
+
+
+async def catcraft_menu(message: discord.Interaction, from_prism: bool = False):
+    live = _pinata_live()
+    pe = pinata_emoji()
+    prism_total = await Prism.count("guild_id = $1", message.guild.id)
+    prism_mine = await Prism.count("guild_id = $1 AND user_id = $2", message.guild.id, message.user.id)
+    desc = [
+        f"{get_emoji('prism')} **Prism** — one of every cat type + coins. Every prism gives the whole server "
+        "a chance to bump caught cats up a rarity, with extra chance for its owner. Tradeable.",
+    ]
+    counts = f"This server: **{prism_total}** prism{'s' if prism_total != 1 else ''}"
+    mine = f"You: **{prism_mine}** prism{'s' if prism_mine != 1 else ''}"
+    if live:
+        desc.append(
+            f"{pe} **Piñata** — Fine through {PINATA_RECIPE_LAST} + packs + coins. Whenever anyone here opens a pack, "
+            "it might burst and spill a cat or two to other active players — maybe even a pack! "
+            "Owners burst more often on their own packs, and get cats too."
+        )
+        try:
+            p_total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", message.guild.id) or 0)
+            p_mine = int((await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)).pinatas or 0)
+        except Exception:
+            p_total = p_mine = 0
+        counts += f" · **{p_total}** piñata{'s' if p_total != 1 else ''}"
+        mine += f" · **{p_mine}** piñata{'s' if p_mine != 1 else ''}"
+    embed = discord.Embed(
+        title="🛠️ Cat Crafting",
+        description="\n\n".join(desc) + f"\n\n{counts}\n{mine}",
+        color=Colors.brown,
+    )
+    if live:
+        embed.set_thumbnail(url=pinata_image_url())
+
+    view = View(timeout=VIEW_TIMEOUT)
+
+    async def do_prism(i: discord.Interaction):
+        await prism_craft_prompt(i, message)
+
+    async def do_pinata(i: discord.Interaction):
+        await pinata_craft_prompt(i, message)
+
+    async def do_view(i: discord.Interaction):
+        await crafted_list(i, ephemeral=True)
+
+    b = Button(label="Craft a Prism", emoji=get_emoji("prism"), style=ButtonStyle.blurple)
+    b.callback = do_prism
+    view.add_item(b)
+    if live:
+        b = Button(label="Craft a Piñata", emoji=pe, style=ButtonStyle.blurple)
+        b.callback = do_pinata
+        view.add_item(b)
+    b = Button(label="View Prisms & Piñatas" if live else "View Prisms", emoji="👀", style=ButtonStyle.gray)
+    b.callback = do_view
+    view.add_item(b)
+    note = "📢 **/prism is now /catcraft!** Use **/catcraft** from now on." if from_prism else None
+    await message.response.send_message(content=note, embed=embed, view=view)
+
+
+@bot.tree.command(description="Craft prisms and piñatas, and see who owns them")
+async def catcraft(message: discord.Interaction):
+    await catcraft_menu(message)
+
+
+@bot.tree.command(description="Prisms live in /catcraft now")
+async def prism(message: discord.Interaction):
+    # deprecated alias: same screen as /catcraft, with a note pointing there
+    await catcraft_menu(message, from_prism=True)
 
 
 @bot.tree.command(description="Pong")

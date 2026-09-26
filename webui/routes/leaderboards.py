@@ -35,6 +35,13 @@ BOARDS = [
      "SELECT user_id, COUNT(*)::bigint AS value FROM prism "
      "WHERE user_id <> $1 "
      "GROUP BY user_id ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
+    # Piñatas aren't tradeable (unlike prisms), so profile.pinatas IS the
+    # lifetime-crafted count — no separate table to COUNT(*) from.
+    ("pinatas", "Piñatas crafted", "piñatas",
+     "SELECT user_id, SUM(pinatas)::bigint AS value FROM profile "
+     "WHERE user_id <> $1 "
+     "GROUP BY user_id HAVING SUM(pinatas) > 0 "
+     "ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
     ("battlepass", "Highest battlepass", "level",
      "SELECT user_id, MAX(battlepass)::bigint AS value FROM profile "
      "WHERE user_id <> $1 "

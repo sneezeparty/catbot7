@@ -405,7 +405,14 @@ CREATE TABLE public.profile (
     scratchcards_earned integer DEFAULT 0 NOT NULL,
     chaos_clicks integer DEFAULT 0 NOT NULL,
     cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[26]),
-    cat_milestone_base jsonb
+    cat_milestone_base jsonb,
+    pinatas integer DEFAULT 0 NOT NULL,
+    pinata_cats_won integer DEFAULT 0 NOT NULL,
+    pinata_cats_given integer DEFAULT 0 NOT NULL,
+    pinata_packs_won integer DEFAULT 0 NOT NULL,
+    pinata_day integer DEFAULT 0 NOT NULL,
+    pinata_recv_today integer DEFAULT 0 NOT NULL,
+    pinata_bonus_today integer DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.profile OWNER TO cat_bot;

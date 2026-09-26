@@ -151,3 +151,7 @@
 2026-09-26 07:21  Added: "Hobo and Doll cat rarities (Season 6)" (re: main.py, database.py, schema.sql, config/tuning.json, config/jobs.json, emojis.py, tools/make_auras.py, migrations/041_doll_hobo_cats.py)
 2026-09-26 07:21  Fixed: "/catalogue, leaderboard/jobs dropdowns, cat_value() int cast for 26-rarity overflow" (re: main.py)
 2026-09-26 07:21  Fixed: "/jobs help SP table now lists all rarities" (re: config/jobs_help.json)
+2026-09-26 16:00  Added: "Piñata craftable item (Season 6), pack-open bursts, migration 042_pinatas" (re: main.py, config/tuning.json, schema.sql, migrations/042_pinatas.py)
+2026-09-26 16:00  Added: "/catcraft crafting hub command (Prism + Piñata + View buttons)" (re: main.py)
+2026-09-26 16:00  Changed: "/prism deprecated to a bare /catcraft alias; person filter param removed" (re: main.py)
+2026-09-26 16:00  Internal: "[pinata] INFO log line per burst batch and per craft" (re: main.py)

@@ -176,3 +176,6 @@
 2026-09-26 08:51  battlepass.md   added Season 6-17 level-30 Scratchcard stacking + refreshed Mystery scratchcard weight 1.5%->4% (re: config/battlepass.json commit e87845d; config/tuning.json commit 4788e27)
 2026-09-26 08:51  economy.md      updated Mystery pack-odds figure (~72%->~52%) and family list, STALE-flagged stale EV/"sub-3%" claim (re: main.py, config/tuning.json, commit 4788e27)
 2026-09-26 08:51  jobs.md         added note: Mystery `buff` family grants a 24h T3 perk via _perks_grant duration_override, a second grant path outside the drop dice (re: main.py, config/tuning.json, commit 4788e27)
+2026-09-26 16:01  economy.md      added new "## Piñatas" section (recipe/cost ramp, burst-chance formula + Monte Carlo balance note, daily-cap/eligibility anti-abuse, ping asymmetry, /catcraft replacing /prism) after Prism crafting (re: main.py, config/tuning.json, schema.sql)
+2026-09-26 16:01  economy.md      cross-linked new Piñata burst mechanic from the Packs section intro (re: main.py, config/tuning.json)
+2026-09-26 16:01  (smoke test)    all docs/design/*.md fence counts balanced after edits (re: economy.md)

@@ -68,6 +68,18 @@ INT_FIELDS = [
     "catnip_total_cats",
     "catnip_amount",
     "combo_stack",
+    # Piñatas (migration 042, Season 6) — crafted in /catcraft. Not
+    # tradeable, so `pinatas` is both "owns" and "lifetime crafted".
+    # pinata_day/_recv_today/_bonus_today are the daily-cap bookkeeping
+    # trio (same pattern as quests_day) — surfaced for admin visibility,
+    # not leaderboard material.
+    "pinatas",
+    "pinata_cats_won",
+    "pinata_cats_given",
+    "pinata_packs_won",
+    "pinata_day",
+    "pinata_recv_today",
+    "pinata_bonus_today",
     # Bounties
     "bounty_id_one",
     "bounty_id_two",

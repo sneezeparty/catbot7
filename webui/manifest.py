@@ -124,7 +124,7 @@ SECTIONS: dict[str, dict] = {
         "routes": ["GET /leaderboards"],
         "templates": ["leaderboards.html"],
         "data_sources": [
-            "profile.total_catches, profile.coins, profile.battlepass, profile.jobs_completed, profile.catnip_level, profile.bonus_catches, profile.fish_caught",
+            "profile.total_catches, profile.coins, profile.battlepass, profile.jobs_completed, profile.catnip_level, profile.bonus_catches, profile.fish_caught, profile.pinatas",
             "prism (COUNT per user_id)",
             "leaderboards.py: BOARDS — one SQL per board, each returns (user_id, value)",
         ],
@@ -173,6 +173,9 @@ SECTIONS: dict[str, dict] = {
             "profile.quests_day (integer, +4h-clock day-index the daily quest slots were last rolled over — migration 036; INT_FIELDS)",
             "profile.quests_variety_types (smallint[] of cattype indices caught since the last daily reset, backs the 'variety5' challenge quest — migration 036; JSONB_FIELDS, same treatment as weekly_cattypes)",
             "profile.cat_Hobo, profile.cat_Doll (integer DEFAULT 0 — migration 041, new rarities Hobo/Doll) -> added to INT_FIELDS in rarity order (Hobo after cat_Trash, Doll after cat_Ultimate)",
+            "profile.pinatas, pinata_cats_won, pinata_cats_given, pinata_packs_won, pinata_day, pinata_recv_today, pinata_bonus_today (integer NOT NULL DEFAULT 0 — migration 042, Season 6 /catcraft piñatas) -> added to INT_FIELDS (grouped with catnip/combo counters); pinatas is both 'owns' and 'lifetime crafted' since piñatas aren't tradeable; pinata_day/_recv_today/_bonus_today are daily-cap bookkeeping, admin-visibility only",
+            "main.py /prism is now a deprecated thin alias for the new /catcraft menu (its `person` option was removed; /catcraft has no equivalent param either) — webui's Commands page (commands.py) walks bot.tree.walk_commands() live and has no hardcoded param lists, so both /catcraft and the slimmed-down /prism render correctly with no code change. The old /prism viewer body (per-server prism+piñata listing) is now the helper main.crafted_list — no webui dependency on that name",
+            "leaderboards.py: added a 'pinatas' board (SUM(profile.pinatas), mirrors the existing 'prisms' board's shape but reads profile directly since piñatas have no separate table)",
             "migration 041 also reordered main.cattypes (Shadow moved earlier; Hobo/Doll inserted) and remapped the stored per-position indices inside profile.weekly_cattypes/quests_variety_types + profile.cat_auras (26 slots now, was 24) to match. webui renders weekly_cattypes/quests_variety_types as raw un-mapped index pills (see entries above) with no cattype-name list or length assumption, so no code change was needed there — confirmed by grepping webui/ for 'cattypes' and '24'. profile.cat_auras itself remains unsurfaced in webui (pre-existing, cosmetic-only column, out of scope)",
             "config/battlepass.json quests.challenge pool grew 5->10 (added under2/under5/epic3/bonus_win/variety5) — webui only stores/displays the assigned challenge_quest id + its progress/cooldown/reward ints, never enumerates the pool, so no code change needed (same as the misc/extra pool growing earlier)",
             "profile.clean_record_broken (boolean DEFAULT false — migration 039; sticky flag set by main._jobs_apply_commit_heat the first time heat would exceed 30, backs the 'Discreet' ach; in BOOL_FIELDS under the Jobs group, not leaderboard-worthy — it's a one-shot flag, not a counter)",

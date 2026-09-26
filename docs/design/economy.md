@@ -36,6 +36,8 @@ Pack tiers form their own ladder: Wooden → Stone → Bronze → Silver → Gol
 
 **Design intent:** packs exist to compress the long-tail catching grind. The expected value of a tier-N pack is calibrated so that a player who is many catches behind can "catch up" via packs without trivializing the grind for everyone else.
 
+From **Season 6**, opening *any* pack in a server that holds at least one crafted piñata also rolls a chance to trigger a burst that spills cats (and, rarely, a pack) to other active players — see [Piñatas](#piñatas) below. This is a separate craftable item, not a pack property: it hooks the pack-open event, but it never touches the opener's own pack contents or the pack's own expected value.
+
 The old constraint here was "don't add packs that pay out in non-cat currency." The pack coin variant (below) deliberately superseded it: coins are now an accepted secondary payout **as long as total pack worth stays constant** — the split changes the *form* of the payout, never its size. The surviving rule: a pack's expected value is denominated in cat-value, and any non-cat payout must be an equal-value substitution inside that budget, not a bonus on top.
 
 The battlepass **Mystery** reward extends the same principle across reward *types*: it resolves to a pack ~52% of the time, else rain time / coins / cats / a coins-and-cats bundle / XP / a scratchcard / a 24h `/jobs` perk buff / a one-shot voucher, with the whole table nominally budgeted in pack-value terms (EV ≈ 345 vs the 292 all-pack baseline; the sweetener lives in sub-3% outcomes). Weights and the odds/voucher details live in [battlepass.md → What a Mystery resolves to](battlepass.md#what-a-mystery-resolves-to) and `config/tuning.json → mystery_outcomes`; when adding a new outcome family, price it in pack-value and take its weight out of existing families rather than stacking on top.
@@ -486,3 +488,53 @@ with defaults `first = 1,000`, `base = 5,000`, `growth = 2`, `cap = 320,000` (in
 **Per-profile (not per-user globally, not per-server-shared).** A returning player who opens a fresh server starts at the 5,000-coin first craft regardless of how many prisms they've crafted elsewhere. Conversely, a player on a server where other people have crafted prisms pays their own ramp, not the server's. This matches the codebase's per-server gameplay-state philosophy.
 
 **Achievements unchanged.** `prism` (first craft) and `collecter` (collecting every cat type, the recipe checker) still fire exactly as before. The coin tax is a separate concern from achievement gating.
+
+## Piñatas
+
+Piñatas are prisms' sibling craftable, added in **Season 6** (`config/tuning.json → pinata.min_season`). Where a prism nudges the *rarity* of your own catches, a piñata is a server-wide bonus that fires on **pack opens**: every pack anyone in the server opens rolls a chance to "burst" and spill loot to other players. Like prisms, piñatas are crafted per-profile from `/catcraft` (which now hosts both crafting flows — see [/catcraft replaces /prism](#catcraft-replaces-prism) below). Unlike prisms, piñatas are **not tradeable** — there's no `prism`-style table, just a `pinatas` count plus six lifetime/daily-cap counters (`pinata_cats_won`, `pinata_cats_given`, `pinata_packs_won`, `pinata_day`, `pinata_recv_today`, `pinata_bonus_today`) directly on `profile`.
+
+### Recipe & cost ramp
+
+The cat side of the recipe is "one of each season-eligible rarity from Fine through Mythic" (`pinata_recipe_cattypes()`, stop rarity `recipe_last_cat = "Mythic"`) — the same season-eligibility rule the prism recipe uses (see [Season-gated rarities](#season-gated-rarities)), so Hobo (season-gated to Season 6) joins the piñata recipe the moment piñatas themselves go live.
+
+On top of the cats, each craft costs escalating **packs + coins** from `config/tuning.json → pinata.craft_costs` (8 rows; the 8th repeats forever for craft #9+):
+
+| Craft # | Coins | Packs |
+| ------- | ----- | ----- |
+| 1 | 2,500 | 1× Silver |
+| 2 | 5,000 | 1× Gold |
+| 3 | 10,000 | 2× Gold |
+| 4 | 20,000 | 1× Platinum |
+| 5 | 40,000 | 2× Platinum |
+| 6 | 80,000 | 1× Diamond |
+| 7 | 160,000 | 2× Diamond |
+| 8+ | 240,000 | 1× Celestial |
+
+Valuing the pack side at catstore list price (the Lv4/no-discount column of the [Packs in /catstore](#packs-in-catstore) table — Silver 600, Gold 1,800, Platinum 4,800, Diamond 9,000, Celestial 21,000), the cumulative cost to craft is **~23.5k through the 3rd piñata, ~98k through the 5th, and ~626k through the 8th**. Even at the 8th-craft-and-beyond rate (240k coins + a Celestial, ~261k at list price), a piñata stays cheaper than a prism at its cap — **prisms remain the priciest craftable** at a flat 320,000 coins (see the [prism cost ramp](#prism-crafting-coin-tax) above).
+
+### Burst mechanic
+
+Every pack opened (`pinata_after_opens`, called from both single and multi-pack open paths) rolls independently against:
+
+```
+chance = min(burst_cap, burst_global_coef · ln(2·total_pinatas + 1)
+                       + burst_owner_coef · ln(2·own_pinatas + 1))   # owner term only if own_pinatas > 0
+```
+
+with defaults `burst_global_coef = 0.02`, `burst_owner_coef = 0.03`, `burst_cap = 0.2` (`config/tuning.json → pinata`). This is the same log-curve *shape* the prism rarity-upgrade boost uses (`PRISM_BOOST_GLOBAL_COEF · ln(2·total+1) + PRISM_BOOST_USER_COEF · ln(2·own+1)`) — a server's collective piñata count drives the base rate, and owning your own piñatas adds a personal edge on top, capped so it can never reach certainty. A server with zero piñatas never rolls at all.
+
+A successful burst spills **1–2 cats** (spawn-weighted rarity, same roll as a normal catch) to **1–2 other eligible active players**, and separately gives the *opener* **1–2 cats** of their own if they own at least one piñata and have room left under their own daily cap — the opener's own pack contents are never touched. Each landed recipient (owner included) also has an independent, small chance of a bonus pack: **2%** (`pack_drop_chance`) for a low-tier pack weighted **Wooden 50 / Stone 30 / Bronze 20**, plus a separate, tiny **0.1%** (`celestial_drop_chance`) shot at a Celestial. A burst that lands on nobody (no eligible recipients, or everyone already capped) doesn't count as a burst in the result the opener sees.
+
+**Design intent:** these rates were Monte Carlo'd against the operator's own main server's real shape (15 active players, ~30 pack opens/day, one heavy opener) rather than tuned by feel. At that shape, the piñata bonus adds roughly **1.6% extra pack-value opened** with a single piñata in the server, scaling up to **~6.7%** with 40 — a real but deliberately modest bump on top of normal pack income, not a second economy. One piñata nets a server on the order of **4 Legendary+ cat spills a month**; the daily caps only start binding during 200-pack binge sessions, so a normal play session never feels capped. The pack-drop trickle is intentionally slow: in a 5-piñata server it works out to roughly **1 pack a week** and **a Celestial about every 5–6 months**.
+
+### Anti-abuse
+
+- **Eligibility to receive** requires a catch in that server in the last **7 days** (`eligible_recent_days`) *and* **50+ lifetime catches** there (`eligible_min_catches`) — this is the alt-farm mitigation. A fresh alt with no catch history can't be fed piñata loot.
+- **Daily caps**: **10 cats/day received** per person (`recv_daily_cap`) and **10 cats/day bonus** per piñata owner (`owner_daily_cap`), tracked per-profile via `pinata_day` + `pinata_recv_today`/`pinata_bonus_today`. In the worst realistic abuse shape — one account owns the piñatas and stacks exactly 3 alts as the only other eligible profiles in the server — the alt pool tops out at **3 × 10 = ~30 cats/day**, since each alt's cap binds independently of the others.
+- **Caps are enforced atomically in SQL**, not read-then-write: `_pinata_grant_sql` builds a single `UPDATE ... WHERE (daily-counter-so-far) + n_cats <= cap`, so two bursts racing for the same profile can't jointly overshoot the cap. The same statement takes **no row lock** and never reads before writing, so a piñata grant can't collide with — or get clobbered by — that same person's own catch or trade happening at the same moment.
+- **Spilled cats are not catches.** They land via a direct `cat_<Type>` column bump, bypassing `total_catches`, quest progress, and every catch-triggered achievement path. A piñata haul doesn't inflate catch-based progression, only the dedicated `pinata_*` counters.
+- **Pings are asymmetric on purpose.** Cats landing in someone's inventory only ever show up in the opener's result embed as an `@mention` — Discord doesn't notify on a mention inside an embed, so recipients aren't pinged for cats. Only a **pack** landing on someone else triggers an actual ping message, sent via `interaction.followup.send` with `allowed_mentions` scoped to just those user IDs.
+
+### /catcraft replaces /prism
+
+`/catcraft` is now the single crafting menu for both prisms and piñatas (buttons for "Craft a Prism", "Craft a Piñata" once live, and "View Prisms & Piñatas"). `/prism` still exists but is a deprecated alias — its description reads "Prisms live in /catcraft now" and it renders the exact same `/catcraft` screen, so old muscle memory still works without a second code path to maintain.

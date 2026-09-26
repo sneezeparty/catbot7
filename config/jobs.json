@@ -1504,6 +1504,40 @@
         "this is so giving funeral \ud83d\ude2d",
         "rip babes i never even got to post \ud83d\udc80"
       ]
+    },
+    "Hobo": {
+      "success": [
+        "hot meal tonight boys",
+        "that'll buy a lotta beans",
+        "not bad for a buncha rail riders"
+      ],
+      "near_miss": [
+        "lost a few at the last junction",
+        "some of us missed the train",
+        "half a can's better than none"
+      ],
+      "total_failure": [
+        "back to the boxcar",
+        "nothin but lint in these pockets",
+        "well. there's always the next freight"
+      ]
+    },
+    "Doll": {
+      "success": [
+        "well bless our hearts, we pulled it off! \ud83e\udd20",
+        "didn't even muss my hair, sugar",
+        "honey, that went smoother than my lipstick \ud83d\udc84"
+      ],
+      "near_miss": [
+        "some of the girls didn't make it, bless 'em",
+        "sugar, that was closer than I like",
+        "we'll fix our makeup and try again, darlin"
+      ],
+      "total_failure": [
+        "well butter my biscuit, that was a disaster",
+        "darlin, I've had better days in heels",
+        "mascara's runnin and so are we"
+      ]
     }
   },
   "complication_quips": {
@@ -1520,6 +1554,10 @@
       "Real": [
         "heat. shoulda known.",
         "cops. typical."
+      ],
+      "Hobo": [
+        "the bulls again. always the railroad bulls",
+        "hop the next train, fellas"
       ]
     },
     "rival_crew": {
@@ -1536,6 +1574,10 @@
       ],
       "Mythic": [
         "TWO CREWS DARE THE SAME NIGHT \u2014 ONE LEAVES."
+      ],
+      "Doll": [
+        "oh no she DIDN'T, sugar",
+        "bless their hearts, they're about to learn"
       ]
     },
     "double_cross": {
@@ -1552,6 +1594,10 @@
       ],
       "Real": [
         "short. typical."
+      ],
+      "Hobo": [
+        "never trust a man with two good boots",
+        "shorted again. story of the road"
       ]
     },
     "boss_arrives": {

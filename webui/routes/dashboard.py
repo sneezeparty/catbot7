@@ -10,11 +10,14 @@ from webui import names, state
 
 
 # Rarity columns on profile (preserves quoted-identifier capitalization).
+# Mirrors main.py's type_dict/cattypes key order (rarest-common -> rarest).
+# Was missing Shadow/Terminator even before Hobo/Doll landed (migration 041) —
+# fixed all four in the same pass since they're the same class of gap.
 RARITY_COLUMNS = [
-    "Fine", "Nice", "Good", "Rare", "Wild", "Baby", "Epic", "Sus",
-    "Brave", "Rickroll", "Reverse", "Superior", "Trash", "Legendary",
-    "Mythic", "8bit", "Corrupt", "Professor", "Divine", "Real",
-    "Ultimate", "eGirl",
+    "Fine", "Nice", "Good", "Rare", "Wild", "Baby", "Shadow", "Epic", "Sus",
+    "Brave", "Rickroll", "Reverse", "Superior", "Trash", "Hobo", "Legendary",
+    "Mythic", "8bit", "Corrupt", "Professor", "Divine", "Real", "Terminator",
+    "Ultimate", "Doll", "eGirl",
 ]
 
 # Pack tier columns (case-sensitive on the column name itself).

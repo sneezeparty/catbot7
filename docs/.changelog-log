@@ -148,3 +148,6 @@
 2026-09-22 15:27 Fixed: "/scratch double-tapped spot no longer recorded twice, fixing IndexError crash on final reveal" (re: main.py)
 2026-09-22 15:27 Added: "/packs quantity picker on pack-type click (Open 1/5/10/25/All/Custom), plus double-tap guard on bulk opens" (re: main.py)
 2026-09-22 15:27 Fixed: "/trade Offer modal submitted after trade already over is now rejected" (re: main.py)
+2026-09-26 07:21  Added: "Hobo and Doll cat rarities (Season 6)" (re: main.py, database.py, schema.sql, config/tuning.json, config/jobs.json, emojis.py, tools/make_auras.py, migrations/041_doll_hobo_cats.py)
+2026-09-26 07:21  Fixed: "/catalogue, leaderboard/jobs dropdowns, cat_value() int cast for 26-rarity overflow" (re: main.py)
+2026-09-26 07:21  Fixed: "/jobs help SP table now lists all rarities" (re: config/jobs_help.json)

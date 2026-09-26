@@ -121,6 +121,7 @@ INT_FIELDS = [
     "cat_Reverse",
     "cat_Superior",
     "cat_Trash",
+    "cat_Hobo",
     "cat_Legendary",
     "cat_Mythic",
     "cat_8bit",
@@ -131,6 +132,7 @@ INT_FIELDS = [
     "cat_Shadow",
     "cat_Terminator",
     "cat_Ultimate",
+    "cat_Doll",
     "cat_eGirl",
 ]
 STR_FIELDS = [

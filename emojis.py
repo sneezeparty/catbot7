@@ -34,7 +34,7 @@ Aura variants (<type>cat_y/_c/_p/_a/_r) are what the aura feature renders. If
 some are missing the bot degrades quietly — get_aura_emoji falls back to the
 plain cat — so a partial run is safe to resume.
 
-All 120 aura variants are generated locally by tools/make_auras.py (the halo is
+All 130 aura variants are generated locally by tools/make_auras.py (the halo is
 placed per cat type; see that file). They're committed under images/auras/, and
 because --extra is applied last they win over anything upstream ships under the
 same name.
@@ -46,8 +46,8 @@ need --overwrite or the bot goes on serving the old art:
     python emojis.py --dry-run --extra images/auras --overwrite '_[ycpar]$'
     python emojis.py           --extra images/auras --overwrite '_[ycpar]$'
 
-Add `|^(baby|shadow|terminator)cat$` to that pattern to refresh the three
-fork-only plain cats too.
+Add `|^(baby|shadow|terminator|hobo|doll)cat$` to that pattern to refresh the
+five fork-only plain cats too.
 """
 
 import argparse

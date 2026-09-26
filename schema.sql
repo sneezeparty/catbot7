@@ -128,6 +128,8 @@ CREATE TABLE public.profile (
     "cat_Ultimate" integer DEFAULT 0,
     "cat_eGirl" integer DEFAULT 0,
     "cat_Shadow" integer DEFAULT 0,
+    "cat_Hobo" integer DEFAULT 0,
+    "cat_Doll" integer DEFAULT 0,
     first boolean DEFAULT false,
     second boolean DEFAULT false,
     third boolean DEFAULT false,
@@ -402,7 +404,7 @@ CREATE TABLE public.profile (
     scratchcards_scratched integer DEFAULT 0 NOT NULL,
     scratchcards_earned integer DEFAULT 0 NOT NULL,
     chaos_clicks integer DEFAULT 0 NOT NULL,
-    cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[24]),
+    cat_auras character(1)[] DEFAULT array_fill(' '::character(1), ARRAY[26]),
     cat_milestone_base jsonb
 );
 

@@ -130,6 +130,9 @@ LOCAL_SPRITES = {
     "baby": "images/new cats/babycat.png",
     "shadow": "images/new cats/shadowcat.png",
     "terminator": "images/new cats/terminatorcat.png",
+    # 512x512, drawn on finecat's 32x32 frame and stepped up 16x
+    "hobo": "images/new cats/hobocat.png",
+    "doll": "images/new cats/dollcat.png",
 }
 
 _Y, _X = np.mgrid[0:SIZE, 0:SIZE]
@@ -415,7 +418,7 @@ def main() -> int:
     ap.add_argument("--out", metavar="DIR", help="write the emoji PNGs here")
     ap.add_argument("--sheet", metavar="PNG", help="write a contact sheet here")
     ap.add_argument("--px", type=int, default=48, help="contact sheet cell size (default 48)")
-    ap.add_argument("--types", nargs="+", metavar="T", help="limit to these rarities (default: all 24)")
+    ap.add_argument("--types", nargs="+", metavar="T", help="limit to these rarities (default: all of them)")
     args = ap.parse_args()
 
     cats = args.types or fork_cattypes()

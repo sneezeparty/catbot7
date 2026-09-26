@@ -14,6 +14,7 @@
     "Reverse": 100,
     "Superior": 80,
     "Trash": 50,
+    "Hobo": 45,
     "Legendary": 35,
     "Mythic": 25,
     "8bit": 20,
@@ -23,11 +24,14 @@
     "Real": 5,
     "Terminator": 5,
     "Ultimate": 3,
+    "Doll": 2.5,
     "eGirl": 2
   },
   "rarity_min_season": {
     "Shadow": 2,
-    "Terminator": 2
+    "Terminator": 2,
+    "Hobo": 6,
+    "Doll": 6
   },
   "quest_cooldown_seconds": 43200,
   "fast_catcher_threshold_seconds": 5,
@@ -122,6 +126,7 @@
     "Divine": 4,
     "Real": 5,
     "Ultimate": 6,
+    "Doll": 6.5,
     "eGirl": 7
   },
   "prism_craft_coin_cost": {

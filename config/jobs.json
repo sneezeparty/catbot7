@@ -14,6 +14,7 @@
     "Reverse": 26,
     "Superior": 31,
     "Trash": 37,
+    "Hobo": 40,
     "Legendary": 44,
     "Mythic": 52,
     "8bit": 61,
@@ -23,6 +24,7 @@
     "Real": 115,
     "Terminator": 128,
     "Ultimate": 140,
+    "Doll": 160,
     "eGirl": 180
   },
   "probability": {

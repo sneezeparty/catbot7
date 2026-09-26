@@ -89,6 +89,8 @@ class Profile(catpg.Model):
         "cat_Ultimate",
         "cat_eGirl",
         "cat_Shadow",
+        "cat_Hobo",
+        "cat_Doll",
     ]
 
     def has_ach(self, ach_id: str) -> bool:

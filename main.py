@@ -76,6 +76,7 @@ type_dict = {
     "Reverse": 100,
     "Superior": 80,
     "Trash": 50,
+    "Hobo": 45,
     "Legendary": 35,
     "Mythic": 25,
     "8bit": 20,
@@ -85,6 +86,7 @@ type_dict = {
     "Real": 5,
     "Terminator": 5,
     "Ultimate": 3,
+    "Doll": 2.5,
     "eGirl": 2,
 }
 
@@ -146,6 +148,7 @@ SACRIFICE_XP = {
     "Reverse": 125,
     "Superior": 140,
     "Trash": 155,
+    "Hobo": 162,
     "Legendary": 170,
     "Mythic": 185,
     "8bit": 200,
@@ -155,6 +158,7 @@ SACRIFICE_XP = {
     "Real": 270,
     "Terminator": 278,
     "Ultimate": 285,
+    "Doll": 292,
     "eGirl": 300,
 }
 
@@ -1279,7 +1283,9 @@ def cat_value(cat_type: str) -> int:
     weight = type_dict.get(cat_type)
     if not weight:
         return 0
-    return _TYPE_DICT_VALUE_SUM // weight
+    # int(): Doll's 2.5 weight makes the sum a float, and this lands in int
+    # columns (biggest_score_value) and "{:,}" displays
+    return int(_TYPE_DICT_VALUE_SUM // weight)
 
 
 def _battlepass_level_info(profile):
@@ -2345,11 +2351,13 @@ def _jobs_cat_one_tier_above(reward_cats: dict) -> str | None:
     the existing reward. If no cats in reward, fall back to Rare."""
     if not reward_cats:
         return "Rare"
+    # season-live rarities only, so a stash can't pay out a not-yet-debuted cat
+    ladder = _season_eligible_cattypes()
     rarest = None
     rarest_idx = -1
     for t in reward_cats.keys():
         try:
-            idx = cattypes.index(t)
+            idx = ladder.index(t)
         except ValueError:
             continue
         if idx > rarest_idx:
@@ -2357,8 +2365,8 @@ def _jobs_cat_one_tier_above(reward_cats: dict) -> str | None:
             rarest = t
     if rarest is None:
         return "Rare"
-    next_idx = min(len(cattypes) - 1, rarest_idx + 1)
-    return cattypes[next_idx]
+    next_idx = min(len(ladder) - 1, rarest_idx + 1)
+    return ladder[next_idx]
 
 
 def _jobs_apply_post_roll(event: dict, outcome_dict: dict, reward: dict, recipe_tier: int, send: dict, rng: random.Random) -> tuple[dict, dict, int, bool]:
@@ -3837,7 +3845,7 @@ async def _perks_resolve_immediate_inner(profile: Profile, perk_id: str, *, npc:
     if perk_id == "discovery_shortcut":
         # Add one random rarity that isn't already discovered.
         discovered = set(_coerce_array(profile.discovered_cats))
-        candidates = [t for t in cattypes if t not in discovered]
+        candidates = [t for t in _season_eligible_cattypes() if t not in discovered]
         if not candidates:
             return False
         chosen = random.choice(candidates)
@@ -8097,6 +8105,12 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
         modal.add_item(
             discord.ui.Label(text=f"Type a 6+ letter word containing {answer}", component=TextInput(placeholder="Answer", id=67, min_length=6))
         )
+    elif cattype == "Hobo":
+        cost = random.randint(2, 9)
+        cash = random.randint(cost * 2, cost * 9 + cost - 1)
+        answer = cash // cost
+        modal.add_item(TextDisplay(f"## You panhandled ${cash}. A can of beans costs ${cost}.\nHow many cans can you buy?"))
+        modal.add_item(TextInput(label="Answer", id=67))
     elif cattype == "Legendary":
         shift = random.randint(1, 5)
         out = []
@@ -8120,7 +8134,7 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
         modal.add_item(TextDisplay(f"## How many {to_count}s are in this binary number?\n\n{bin_string}"))
         modal.add_item(TextInput(label="Answer", id=67))
     elif cattype == "Professor":
-        answer = random.choice(cattypes)
+        answer = random.choice(_season_eligible_cattypes())
         show = list(answer)
         random.shuffle(show)
         show = "".join(show).upper()
@@ -8188,6 +8202,12 @@ async def play_minigame(interaction: discord.Interaction, cattype: str):
         answer = "Yes" if is_prime(number) else "No"
         options = [discord.RadioGroupOption(label="Yes", value="Yes"), discord.RadioGroupOption(label="No", value="No")]
         modal.add_item(discord.ui.Label(text=f"Is {number} a prime number?", component=discord.ui.RadioGroup(options=options, id=67)))
+    elif cattype == "Doll":
+        start_h = random.randint(5, 11)
+        end_h = random.randint(1, 9)
+        answer = end_h + 12 - start_h
+        modal.add_item(TextDisplay(f"## Working nine to five... sort of.\nYour shift runs from {start_h} AM to {end_h} PM. How many hours is that?"))
+        modal.add_item(TextInput(label="Answer", id=67))
     elif cattype == "eGirl":
         answer = "meow"
         modal.add_item(
@@ -9098,20 +9118,25 @@ async def on_message(message: discord.Message):
                         asyncio.create_task(_grant_prism_owner_xp(message.guild.id, prism_which_boosted.user_id))
                     logging.debug("Boosted from %s", le_emoji)
                     idx_shift = 0
+                    # climb only rarities that are live this season, so a boost
+                    # can't hand out a cat before its debut (rarity_min_season)
+                    ladder = _season_eligible_cattypes()
+                    if le_emoji not in ladder:
+                        ladder = cattypes
                     try:
                         le_old_emoji = le_emoji
                         if double_boost:
-                            idx_shift = cattypes.index(le_emoji) + 2
+                            idx_shift = ladder.index(le_emoji) + 2
                         else:
-                            idx_shift = cattypes.index(le_emoji) + 1
-                        le_emoji = cattypes[idx_shift]
+                            idx_shift = ladder.index(le_emoji) + 1
+                        le_emoji = ladder[idx_shift]
                         normal_bump = True
                     except IndexError:
                         normal_bump = False
                         if not channel.forcespawned:
-                            if idx_shift == len(cattypes) + 1:
+                            if idx_shift == len(ladder) + 1:
                                 rainboost = RAINBOOST_LONG
-                            elif idx_shift == len(cattypes):
+                            elif idx_shift == len(ladder):
                                 rainboost = RAINBOOST_SHORT
                             logging.debug("Boosted to rain: %d", rainboost)
                             channel.cat_rains += math.ceil(rainboost / 2.75)
@@ -9210,6 +9235,8 @@ async def on_message(message: discord.Message):
                     "Professor": "{username} caught {emoji} {type} cat!\nThou now hast {count} cats of that type!\nThis fellow was caught 'i {time}!",
                     "8bit": "{username} c0ught {emoji} {type} cat!!!!1!\nY0u n0w h0ve {count} cats 0f dat type!!!\nth1s fe11a was c0ught 1n {time}!!!!",
                     "Reverse": "!!!!{time} in cought was fella this\n!!!type dat of cats {count} have now You\n!1!!!!cat {type} {emoji} cought {username}",
+                    "Doll": "{username} cought {emoji} {type} cat, bless ur heart!!!!1!\nYou now have {count} cats of dat type, darlin!!!\nthis fella took {time} to do her hair!!!!",
+                    "Hobo": "{username} cought {emoji} {type} cat!!!!1!\nYou now have {count} cats of dat type!!! spare a can of beans?\nthis fella rode the rails for {time}!!!!",
                 }
 
                 if channel.cought:
@@ -10794,7 +10821,14 @@ async def last(message: discord.Interaction):
 @bot.tree.command(description="View all the juicy numbers and info behind cat types")
 async def catalogue(message: discord.Interaction):
     embed = discord.Embed(title=f"{get_emoji('staring_cat')} The Catalogue", color=Colors.brown)
-    for cat_type in cattypes:
+    embeds = [embed]
+    shown = _season_eligible_cattypes()
+    for n, cat_type in enumerate(shown):
+        # Discord caps an embed at 25 fields and there are 26 rarities, so
+        # the second half spills into a follow-on embed
+        if len(shown) > 25 and n == (len(shown) + 1) // 2:
+            embed = discord.Embed(color=Colors.brown)
+            embeds.append(embed)
         in_server = await Profile.sum(f"cat_{cat_type}", f'guild_id = $1 AND "cat_{cat_type}" > 0', message.guild.id)
         title = f"{get_emoji(cat_type.lower() + 'cat')} {cat_type}"
         if in_server == 0 or not in_server:
@@ -10808,7 +10842,7 @@ async def catalogue(message: discord.Interaction):
             value=f"{round(sum(type_dict.values()) / type_dict[cat_type], 2)} value\n{in_server:,} in this server",
         )
 
-    await message.response.send_message(embed=embed)
+    await message.response.send_message(embeds=embeds)
 
 
 async def gen_stats(profile, star):
@@ -16519,7 +16553,8 @@ async def jobs(message: discord.Interaction):
             items.append("You have no cats to send.")
         else:
             # Focus select — owned rarities only, common → rare (cattypes order).
-            # 24 rarities exist, so the 25-option cap never truncates.
+            # 26 rarities exist, so owning every one overflows Discord's
+            # 25-option cap; that trims Fine (lowest SP) further down.
             focus_opts = []
             for t in cattypes:
                 owned = owned_counts[t]
@@ -16530,6 +16565,8 @@ async def jobs(message: discord.Interaction):
                     emoji=get_emoji(t.lower() + "cat") or get_emoji(t.lower()) or None,
                     description=f"own {owned} · +{JOBS_SEND_POWER.get(t, 0)} SP/cat",
                 ))
+            if len(focus_opts) > 25:
+                focus_opts = focus_opts[-25:]
             focus_select = Select(
                 "jobs_focus_dd",
                 placeholder="Focus rarity…",
@@ -17538,8 +17575,9 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         await interaction.response.defer()
         user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
 
-        # check we still can craft
-        for i in cattypes:
+        # check we still can craft. The recipe is one of every rarity that's
+        # live this season, so a new rarity joins it on its debut season.
+        for i in _season_eligible_cattypes():
             if user["cat_" + i] < 1:
                 await interaction.followup.send("You don't have enough cats. Nice try though.", ephemeral=True)
                 return
@@ -17581,7 +17619,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
 
         # actually take away cats and coins, and bump the crafted counter.
         # The coin-tax half no-ops when the column isn't present yet.
-        for i in cattypes:
+        for i in _season_eligible_cattypes():
             user["cat_" + i] -= 1
         if tax_on and coin_cost > 0:
             user.coins = int(getattr(user, "coins", 0) or 0) - coin_cost
@@ -17612,7 +17650,7 @@ async def prism(message: discord.Interaction, person: Optional[discord.User]):
         found_cats = await cats_in_server(interaction.guild.id)
         missing_cats = []
         unknowns = 0
-        for i in cattypes:
+        for i in _season_eligible_cattypes():
             if user[f"cat_{i}"] > 0:
                 continue
             if i in found_cats:
@@ -18174,7 +18212,9 @@ async def fish(message: discord.Interaction):
                 fish_lock.append((interaction.guild.id, interaction.user.id))
             await asyncio.sleep(0.01)
 
-        fishtype = random.choices(cattypes, weights=type_dict.values())[0]
+        # same season-gated pool as real spawns, so no fishing up a cat before its debut
+        _fish_pool = _spawn_eligible_type_dict()
+        fishtype = random.choices(list(_fish_pool.keys()), weights=list(_fish_pool.values()))[0]
         fish_caught = False
 
         async def pull_fish(interaction: discord.Interaction):
@@ -23054,8 +23094,11 @@ async def leaderboards(
         if type == "Cats":
             dd_opts = [Option(label="All", emoji=get_emoji("staring_cat"), value="All")]
 
-            for i in await cats_in_server(message.guild.id):
-                dd_opts.append(Option(label=i, emoji=get_emoji(i.lower() + "cat"), value=i))
+            type_opts = [Option(label=i, emoji=get_emoji(i.lower() + "cat"), value=i) for i in await cats_in_server(message.guild.id)]
+            # 26 rarities + "All" overflows Discord's 25-option cap in a server
+            # that's found them all; drop the commonest (still reachable via
+            # the slash command's type autocomplete)
+            dd_opts += type_opts[-24:]
 
             dropdown = Select(
                 "cat_type_dd",

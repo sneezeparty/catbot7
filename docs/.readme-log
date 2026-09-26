@@ -98,3 +98,6 @@
 2026-09-22 15:27 Skipped: main.py (/scratch duplicate-tap crash fix — bug fix, not gameplay divergence)
 2026-09-22 15:27 Skipped: main.py (/packs gained a per-type quantity picker (Open 1/5/10/25/all/custom) plus a bulk-open double-tap guard — UX convenience on an existing command, not a new mechanic; no env vars changed)
 2026-09-22 15:27 Skipped: main.py (/trade guard against offer edits after the trade executes — race-condition fix, not a gameplay divergence)
+2026-09-26 07:20 Skipped: gameplay-divergence (Hobo/Doll rarities added — no existing bullet enumerates fork-only rarities like Baby/Shadow/Terminator, so per the conservative rule there's no bullet to extend and a new one isn't warranted for two rarity-ladder additions) (re: migrations/041_doll_hobo_cats.py, main.py, config/tuning.json, schema.sql, database.py, emojis.py, config/jobs.json, config/jobs_help.json, tools/make_auras.py)
+2026-09-26 07:20 Skipped: env-vars (config.py unchanged — no new/removed vars, no behavior change)
+2026-09-26 07:20 Skipped: migrations table (deliberately absent per operator instruction; migrations/041_doll_hobo_cats.py is not on its own a reason to add one)

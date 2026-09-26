@@ -1549,6 +1549,21 @@ def _jobs_seed_rng(user_id: int, guild_id: int, window_idx: int, salt: str = "")
     return random.Random(int.from_bytes(digest[:8], "big"))
 
 
+# portrait file stems under images/mafia/ that don't match the display name
+_JOBS_NPC_IMAGE_ALIASES = {"lucian_sr": "Lucian"}
+
+
+def _jobs_npc_image_url(key: str) -> str:
+    """Thumbnail URL for a job offerer's portrait (images/mafia/<Name>.png, the
+    same art /catnip uses), served from the repo on GitHub via wsrv.nl. Falls
+    back to the Fine cat if there's no portrait on disk for this NPC."""
+    stem = _JOBS_NPC_IMAGE_ALIASES.get(key) or _jobs_npc_display(key).replace(" ", "")
+    path = f"images/mafia/{stem}.png"
+    if not os.path.exists(path):
+        path = "images/spawn/fine_cat.png"
+    return f"https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/refs/heads/main/{path}"
+
+
 def _jobs_npc_display(key: str) -> str:
     npc = JOBS_NPCS.get(key)
     if npc:
@@ -16441,10 +16456,7 @@ async def jobs(message: discord.Interaction):
                 Section(
                     f"### {_jobs_npc_display(row.offered_by)}  ·  Tier {row.tier} ({tier_name})  ·  {category_label}",
                     section_body,
-                    Thumbnail(
-                        f"https://wsrv.nl/?url=raw.githubusercontent.com/sneezeparty/catbot7/"
-                        f"refs/heads/main/images/spawn/fine_cat.png"
-                    ),
+                    Thumbnail(_jobs_npc_image_url(row.offered_by)),
                 ),
             )
             items.append(ActionRow(accept_btn, decline_btn))

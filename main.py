@@ -6841,11 +6841,19 @@ def _build_season_intro_embed(new_season: int) -> discord.Embed:
     except Exception:
         next_levels = None
     levels_line = f"• 📜 **{next_levels} levels** of packs, rare cats, and rain minutes to climb.\n" if next_levels else ""
+    # rarities debuting this season (rarity_min_season) get announced here —
+    # the intro is their reveal, since they're hidden everywhere until now
+    debuts = [t for t in cattypes if RARITY_MIN_SEASON.get(t, 0) == new_season]
+    debut_line = ""
+    if debuts:
+        names = " and ".join(f"{get_emoji(t.lower() + 'cat')} **{t}**" for t in debuts)
+        debut_line = f"• 🐾 New cat{'s' if len(debuts) > 1 else ''} in town: {names}! Keep an eye out.\n"
     return discord.Embed(
         title=f"🆕 Season {new_season} starts now!",
         color=Colors.brown,
         description=(
             f"The Cattlepass has reset and **Season {new_season}** is live.\n\n"
+            + debut_line
             + levels_line
             + f"• 🪙 You start with **{SEASON_STARTING_COINS:,}** coins — go spend them.\n"
             "• ⏱️ Your `/battlepass` quests have rerolled — check the catch, misc, extra, and challenge slots.\n"

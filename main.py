@@ -4154,12 +4154,34 @@ def _jobs_is_big_score(job_or_reward) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _jobs_send_power_table() -> str:
+    """The SP-per-rarity table for jobs help, built from send_power and limited
+    to rarities live this season, so a not-yet-debuted cat isn't spoiled by
+    name. Four columns, read top-to-bottom, common to rare."""
+    live = [t for t in _season_eligible_cattypes() if t in JOBS_SEND_POWER]
+    rows = math.ceil(len(live) / 4)
+    cols = [live[i * rows:(i + 1) * rows] for i in range(4)]
+    lines = []
+    for r in range(rows):
+        cells = [f"{c[r]:<10} {JOBS_SEND_POWER[c[r]]:<4}" for c in cols if r < len(c)]
+        lines.append("  ".join(cells).rstrip())
+    return "```\n" + "\n".join(lines) + "\n```"
+
+
 def _jobs_help_pages_for(profile: Profile) -> list[dict]:
     """Pages the player is allowed to see, filtered by catnip level. Returns
-    a new list of dicts with each page's title + body, indexed in spec order."""
+    a new list of dicts with each page's title + body, indexed in spec order.
+    `{send_power_table}` in a body is filled in per call (it's season-gated)."""
     level = int(getattr(profile, "catnip_level", 0) or 0)
     pages = config.jobs_help.get("pages", [])
-    return [p for p in pages if level >= int(p.get("min_level_to_see", 0))]
+    out = []
+    for p in pages:
+        if level < int(p.get("min_level_to_see", 0)):
+            continue
+        if "{send_power_table}" in p.get("body", ""):
+            p = {**p, "body": p["body"].replace("{send_power_table}", _jobs_send_power_table())}
+        out.append(p)
+    return out
 
 
 def _jobs_help_index_by_title(profile: Profile, title_substr: str) -> int:
@@ -6278,9 +6300,10 @@ async def finale(message, user):
     )
 
 
-# function to autocomplete cat_type choices for /givecat, and /forcespawn, which also allows more than 25 options
+# function to autocomplete cat_type choices for /givecat, and /forcespawn, which also allows more than 25 options.
+# Season-live rarities only, so an admin can't see or conjure a cat before its debut.
 async def cat_type_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
-    return [discord.app_commands.Choice(name=choice, value=choice) for choice in cattypes if current.lower() in choice.lower()][:25]
+    return [discord.app_commands.Choice(name=choice, value=choice) for choice in _season_eligible_cattypes() if current.lower() in choice.lower()][:25]
 
 
 # function to autocomplete /cat, it only shows the cats you have
@@ -23171,7 +23194,7 @@ async def leaderboards(
 async def givecat(message: discord.Interaction, person_id: discord.User, cat_type: str, amount: Optional[int]):
     if amount is None:
         amount = 1
-    if cat_type not in cattypes:
+    if cat_type not in _season_eligible_cattypes():
         await message.response.send_message("bro what", ephemeral=True)
         return
 
@@ -23261,7 +23284,7 @@ async def fake(message: discord.Interaction):
 @discord.app_commands.describe(cat_type="select a cat type ok")
 @discord.app_commands.autocomplete(cat_type=cat_type_autocomplete)
 async def forcespawn(message: discord.Interaction, cat_type: Optional[str]):
-    if cat_type and cat_type not in cattypes:
+    if cat_type and cat_type not in _season_eligible_cattypes():
         await message.response.send_message("bro what", ephemeral=True)
         return
 

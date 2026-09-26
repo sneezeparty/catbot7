@@ -14,7 +14,7 @@ Cats are weighted by `type_dict` in `main.py`. The weight is *inverse rarity* �
 
 ### Season-gated rarities
 
-`config/tuning.json → rarity_min_season` maps rarity → minimum season number; a rarity listed there doesn't spawn, roll from packs, or appear in catnip pricing until the current season reaches its minimum. Two helpers enforce the gate: `_spawn_eligible_type_dict()` at spawn time (also drops rarities whose spawn image is missing from disk), and `_season_eligible_cattypes()` for pack-open rolls and catnip level pricing. Currently `{"Shadow": 2, "Terminator": 2}` — both already live.
+`config/tuning.json → rarity_min_season` maps rarity → minimum season number; a rarity listed there doesn't spawn, roll from packs, or appear in catnip pricing until the current season reaches its minimum. Two helpers enforce the gate: `_spawn_eligible_type_dict()` at spawn time (also drops rarities whose spawn image is missing from disk), and `_season_eligible_cattypes()` — used for pack-open rolls, catnip level pricing, the prism-crafting recipe, the `discovery_shortcut` catnip perk, the Professor minigame's answer pool, `/catalogue`, the prism/rain boost ladder's rarity climb, and jobs' `found_a_stash` tier-above reward. Currently `{"Shadow": 2, "Terminator": 2, "Hobo": 6, "Doll": 6}` — Shadow and Terminator are already live; Hobo and Doll are gated to Season 6 and not live yet.
 
 **Design intent:** new rarities are *content drops*, and the gate lets a rarity ship in code/config ahead of its season without leaking early. Gating by season (not date) keeps it aligned with the wipe cadence: a rarity always debuts at a season boundary, when everyone's economy restarts together.
 
@@ -240,7 +240,7 @@ The `mm_order_quantity` key remains in the file for back-compat but is unused by
 
 - `/trade` is a two-party negotiation, used to move cats/packs between players.
 - `/gift` is unilateral, with a 20% tax on cat gifts ≥ 5 cats. Gifting to the bot itself is a *sacrifice* (no recipient).
-- `/trade`'s "Offer..." modal and `/gift` share one inventory picker (`_inventory_offer_options`): a dropdown of what the player holds, capped at Discord's 25 options, with a free-text field as fallback. `/gift` passes no prisms, because it has never accepted them. It is an input-UX convenience only — it does not change what can be offered, how it's valued, or the prism/pack/rain/cat detection order. Options are ordered prisms, packs, Rain, cats: a Select cannot narrow itself by what the player types, so the cap always bites from the bottom, and with 24 rarities a cats-first list starves packs and prisms — the entries whose names are hardest to type into the fallback.
+- `/trade`'s "Offer..." modal and `/gift` share one inventory picker (`_inventory_offer_options`): a dropdown of what the player holds, capped at Discord's 25 options, with a free-text field as fallback. `/gift` passes no prisms, because it has never accepted them. It is an input-UX convenience only — it does not change what can be offered, how it's valued, or the prism/pack/rain/cat detection order. Options are ordered prisms, packs, Rain, cats: a Select cannot narrow itself by what the player types, so the cap always bites from the bottom, and with 26 rarities a cats-first list starves packs and prisms — the entries whose names are hardest to type into the fallback.
 
 **Design intent:** the gift tax is the friction that prevents alt-account farming. If alt-farming becomes a problem, raise the tax, don't add account verification (this is Discord — verification is a UX disaster).
 
@@ -287,13 +287,14 @@ The store applies a **`CATSTORE_PRICE_MULTIPLIER`** on top of `cat_value` (curre
 | Divine   | 4×         |
 | Real     | 5×         |
 | Ultimate | 6×         |
+| Doll     | 6.5×       |
 | eGirl    | 7×         |
 
 Actual coin prices are derived live: `face = (sum(type_dict.values()) // weight) × CATSTORE_PRICE_MULTIPLIER × tier_mult(type)`, so every rarity added to `type_dict` shifts all faces slightly. Only the multipliers above encode a decision — see `config/tuning.json → catstore_tier_mult` for the live values and `/catstore` for current prices. (Ballpark for intuition: the eGirl face lands in the tens of thousands of coins — a week-scale purchase — while unmultiplied mid-rarities stay in the hundreds.)
 
 (Sell prices follow automatically because `store_sell_price` is a percentage of face.) The rebalance was driven by the same income/sink imbalance that motivated the pack price increases: at the pre-rebalance prices, eGirl cost ~4,100 coins, so a Tier‑4 player on a normal day could buy 3 of them. Bumping the top five rarities by 1.5× → 7× turns them into multi-day or week-scale purchases.
 
-> **TODO(design):** Terminator (weight 5) ties Real (weight 5) in `cat_value`, so both yield the same base price at the store (866 coins face value). Real has a `catstore_tier_mult` of 5× making it cost ~8,660 coins; Terminator has no entry in `catstore_tier_mult` so it defaults to 1×, costing only ~1,732 coins. Decide whether Terminator should have its own `catstore_tier_mult` entry to differentiate it from Real at the store. The current 1× default may be intentional (Terminator is a trophy-tier rarity but a new addition, so accessibility is reasonable) or an oversight.
+> **TODO(design):** Terminator (weight 5) ties Real (weight 5) in `cat_value`, so both yield the same base price at the store (876 coins face value, drifting slightly with each new rarity added to `type_dict`). Real has a `catstore_tier_mult` of 5× making it cost ~8,760 coins; Terminator has no entry in `catstore_tier_mult` so it defaults to 1×, costing only ~1,752 coins. Decide whether Terminator should have its own `catstore_tier_mult` entry to differentiate it from Real at the store. The current 1× default may be intentional (Terminator is a trophy-tier rarity but a new addition, so accessibility is reasonable) or an oversight.
 
 - **Buy price** = `max(1, ceil(face_value * (1 - discount_pct / 100)))`. When `discount_pct` is negative (lower ranks), this is a surcharge — the buyer pays *more* than face value. Ranges from 120% face at Newbie to 70% face at El Patrón.
 - **Sell price** = `face_value * sell_pct // 100`, where `sell_pct = min(natural, buy_pct - 5)`. The "natural" curve is `50 + level * 5` (Newbie 50%, El Patrón would-be 100%) but it is capped at 5 percentage points below the buy curve to guarantee every round-trip nets at least −5 percentage points. The cap kicks in at Lv7 and squeezes downward from there.
@@ -456,6 +457,8 @@ Explicitly **not** fired: `catstore_collector` (counts cat rarities, not packs �
 ## Prism crafting (coin tax)
 
 Pre-rebalance, prisms cost only cats — one of every rarity — and nothing else. Combined with the cheap top-tier packs and cheap eGirl/Ultimate cats, players who maxed `catnip_level` could turn job income into a prism every two days indefinitely. The coin tax adds a third axis on top of the cat recipe.
+
+The cat side of the recipe is "one of every rarity that's live this season" (`_season_eligible_cattypes()`, see [Season-gated rarities](#season-gated-rarities) above), not literally every entry in `type_dict` — a rarity that hasn't debuted yet (e.g. Hobo/Doll before Season 6) doesn't block crafting.
 
 **Cost formula (`main.py:prism_craft_coin_cost`)**:
 

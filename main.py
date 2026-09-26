@@ -9417,6 +9417,21 @@ async def on_message(message: discord.Message):
                 if silly_amount > 0:
                     await mark_discovered(user, le_emoji)
 
+                # one terminal line per catch, for the operator watching the console
+                try:
+                    _extra = []
+                    if did_boost and le_old_emoji != le_emoji:
+                        _extra.append(f"boosted from {le_old_emoji}")
+                    if channel.cat_rains > 0:
+                        _extra.append("rain")
+                    logging.info(
+                        "[catch] %s | %s caught %dx %s%s",
+                        message.guild.name, message.author.name, silly_amount, le_emoji,
+                        f" ({', '.join(_extra)})" if _extra else "",
+                    )
+                except Exception:
+                    pass
+
                 # Bonus cats 🎁: rarity-scaled roll, once per catch, catcher-only
                 # (solo variant of upstream's june update — no late catching).
                 # BONUS_CAT_CHANCE_COEF = 0 disables these (tuning.json kill switch).

@@ -402,12 +402,21 @@ EXTRA_LEVEL_REWARD = str(config.tuning.get("extra_level_reward", "Mystery"))
 # or an XP outcome could chain levels faster than it costs them.
 MYSTERY_OUTCOMES = config.tuning.get("mystery_outcomes", {})
 MYSTERY_DOUBLE_CHANCE = float(MYSTERY_OUTCOMES.get("double_chance", 0.05))
-MYSTERY_WEIGHTS = MYSTERY_OUTCOMES.get("weights", {"pack": 72, "rain": 9, "coins": 7, "xp": 7.5, "voucher": 3, "scratchcard": 1.5})
+MYSTERY_WEIGHTS = MYSTERY_OUTCOMES.get("weights", {"pack": 52, "coins": 10, "cats": 10, "coins_and_cats": 5, "rain": 7, "xp": 6, "scratchcard": 4, "buff": 4, "voucher": 2})
 MYSTERY_RAIN_TIERS = MYSTERY_OUTCOMES.get("rain_seconds", {"15": 60, "30": 30, "60": 10})
 MYSTERY_COIN_TIERS = MYSTERY_OUTCOMES.get("coins", {"500": 60, "1000": 24, "2000": 11, "2500": 5})
 MYSTERY_XP_TIERS = MYSTERY_OUTCOMES.get("xp", {"250": 60, "500": 30, "1000": 10})
 MYSTERY_VOUCHER_TIERS = MYSTERY_OUTCOMES.get("vouchers", {"double_pack": 60, "bounty_skip": 32, "egirl_bonus": 8})
 MYSTERY_EGIRL_TIER = int(MYSTERY_OUTCOMES.get("egirl_bonus_tier", 3))
+# "cats": N cats, each rolled on the season-gated spawn distribution
+MYSTERY_CATS = MYSTERY_OUTCOMES.get("cats", {"min": 5, "max": 15})
+# "coins_and_cats": a smaller coin pouch plus a smaller handful of cats
+MYSTERY_COINS_AND_CATS = MYSTERY_OUTCOMES.get("coins_and_cats", {"coins": {"500": 60, "750": 25, "1000": 15}, "cats_min": 3, "cats_max": 8})
+# "buff": a /jobs perk granted for a fixed 24h instead of its usual job-drop
+# duration; magnitudes (multipliers, chances) come from buff_tier's tier_table
+MYSTERY_BUFFS = MYSTERY_OUTCOMES.get("buffs", {"double_cat": 50, "pack_drop_boost": 17, "catch_xp_boost": 17, "rarity_bump": 16})
+MYSTERY_BUFF_SECONDS = int(MYSTERY_OUTCOMES.get("buff_duration_seconds", 86400))
+MYSTERY_BUFF_TIER = int(MYSTERY_OUTCOMES.get("buff_tier", 3))
 # Weekly quest 🍀 fixed reward: XP + /scratch cards per completion. Fixed
 # (never perk-scaled or weekend-doubled) — it's the marquee weekly payout.
 WEEKLY_QUEST_XP = int(config.tuning.get("weekly_quest_xp", 2000))
@@ -3602,7 +3611,7 @@ def _perks_fire_grant_aches(profile: Profile, perk_id: str, tier: int, perks_aft
 
 
 def _perks_grant(profile: Profile, perk_id: str, *, npc: str, tier: int,
-                 now: int | None = None) -> dict | None:
+                 now: int | None = None, duration_override: int | None = None) -> dict | None:
     """Apply grant logic for a single perk.
 
     - Reads duration_seconds / charges from PERKS_CATALOG[perk_id].tier_table.
@@ -3623,6 +3632,9 @@ def _perks_grant(profile: Profile, perk_id: str, *, npc: str, tier: int,
 
     now = now if now is not None else int(time.time())
     duration = int(tdata.get("duration_seconds", 0) or 0)
+    if duration_override and duration > 0:
+        # e.g. a battlepass Mystery handing out a 24h version of a timed perk
+        duration = int(duration_override)
     charges  = int(tdata.get("charges", 0) or 0)
     if duration <= 0 and charges <= 0:
         # Catalog entry contributes nothing — skip rather than store a dead row.
@@ -4539,10 +4551,30 @@ def grant_bonus_pack(user: Profile) -> tuple[str, str]:
     return pack_name, desc
 
 
+def _mystery_grant_cats(user: Profile, n: int) -> str:
+    """Give `user` n cats, each rolled on the season-gated spawn distribution
+    (does NOT save — resolve_mystery's callers save). Also records any new
+    discoveries inline, since resolve_mystery can't await mark_discovered.
+    Returns the "icon xN" summary, rarest first."""
+    got: dict[str, int] = {}
+    for _ in range(n):
+        t = _spawn_weighted_cattype()
+        got[t] = got.get(t, 0) + 1
+    discovered = _coerce_array(user.discovered_cats)
+    for t, c in got.items():
+        user[f"cat_{t}"] += c
+        if t not in discovered:
+            discovered = discovered + [t]
+    if discovered != _coerce_array(user.discovered_cats):
+        user.discovered_cats = discovered
+    return " ".join(f"{get_aura_emoji(t, user.cat_auras)} x{got[t]}" for t in reversed(cattypes) if t in got)
+
+
 def resolve_mystery(user: Profile, *, _depth: int = 0) -> tuple[list[str], int]:
     """Resolve one battlepass "Mystery" grant into a concrete outcome:
-    usually a pack, sometimes rain time / coins / a scratchcard / XP / a
-    voucher, and a 5% pre-roll for a Double Mystery (two outcomes).
+    usually a pack, sometimes coins / cats / coins+cats / rain time / XP /
+    a scratchcard / a 24h job-perk buff / a voucher, and a 5% pre-roll for
+    a Double Mystery (two outcomes).
 
     Applies all non-XP effects to `user` in place (does NOT save — callers
     save). Returns (desc_lines, bonus_xp). bonus_xp MUST be folded into the
@@ -4619,6 +4651,41 @@ def resolve_mystery(user: Profile, *, _depth: int = 0) -> tuple[list[str], int]:
             return [f"You got a {mystery} -> 🍀 **a /scratch card!** Reveal it with /scratch!"], 0
         except (KeyError, AttributeError):
             family = "pack"  # pre-migration-034: fall back to a pack
+
+    if family == "cats":
+        try:
+            n = random.randint(int(MYSTERY_CATS.get("min", 5)), int(MYSTERY_CATS.get("max", 15)))
+            return [f"You got a {mystery} -> 🐈 **{n} cats!** {_mystery_grant_cats(user, n)}"], 0
+        except (ValueError, TypeError):
+            family = "pack"  # misconfigured range in tuning.json
+
+    if family == "coins_and_cats":
+        tier = _roll_tier(MYSTERY_COINS_AND_CATS.get("coins") or {})
+        try:
+            n = random.randint(int(MYSTERY_COINS_AND_CATS.get("cats_min", 3)), int(MYSTERY_COINS_AND_CATS.get("cats_max", 8)))
+        except (ValueError, TypeError):
+            n = 0
+        if tier is not None and n > 0:
+            amount = int(tier)
+            user.coins = int(user.coins or 0) + amount
+            _bump(user, "coins_earned", amount)
+            return [f"You got a {mystery} -> 🪙 {amount:,} coins **and** 🐈 {n} cats! {_mystery_grant_cats(user, n)}"], 0
+        family = "pack"
+
+    if family == "buff":
+        perk_id = _roll_tier(MYSTERY_BUFFS)
+        entry = None
+        if perk_id:
+            try:
+                entry = _perks_grant(user, perk_id, npc="mystery", tier=MYSTERY_BUFF_TIER, duration_override=MYSTERY_BUFF_SECONDS)
+            except (KeyError, AttributeError):
+                entry = None  # pre-migration-010: no job_perks column
+        if entry:
+            name = (PERKS_CATALOG.get(perk_id) or {}).get("name", perk_id)
+            desc = (PERKS_CATALOG.get(perk_id) or {}).get("desc", "")
+            hours = MYSTERY_BUFF_SECONDS // 3600
+            return [f"You got a {mystery} -> ⚡ **{name}** for {hours}h! {desc}"], 0
+        family = "pack"
 
     if family == "voucher":
         voucher_id = _roll_tier(MYSTERY_VOUCHER_TIERS)

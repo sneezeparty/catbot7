@@ -52,12 +52,17 @@
   "extra_level_reward": "Mystery",
   "mystery_outcomes": {
     "double_chance": 0.05,
-    "weights": { "pack": 72, "rain": 9, "coins": 7, "xp": 7.5, "voucher": 3, "scratchcard": 1.5 },
+    "weights": { "pack": 52, "coins": 10, "cats": 10, "coins_and_cats": 5, "rain": 7, "xp": 6, "scratchcard": 4, "buff": 4, "voucher": 2 },
     "rain_seconds": { "15": 60, "30": 30, "60": 10 },
     "coins": { "500": 60, "1000": 24, "2000": 11, "2500": 5 },
     "xp": { "250": 60, "500": 30, "1000": 10 },
     "vouchers": { "double_pack": 60, "bounty_skip": 32, "egirl_bonus": 8 },
-    "egirl_bonus_tier": 3
+    "egirl_bonus_tier": 3,
+    "cats": { "min": 5, "max": 15 },
+    "coins_and_cats": { "coins": { "500": 60, "750": 25, "1000": 15 }, "cats_min": 3, "cats_max": 8 },
+    "buffs": { "double_cat": 50, "pack_drop_boost": 17, "catch_xp_boost": 17, "rarity_bump": 16 },
+    "buff_duration_seconds": 86400,
+    "buff_tier": 3
   },
   "weekly_quest_xp": 2000,
   "weekly_quest_scratchcards": 1,

@@ -1538,6 +1538,40 @@
         "darlin, I've had better days in heels",
         "mascara's runnin and so are we"
       ]
+    },
+    "Shadow": {
+      "success": [
+        "no one saw us.",
+        "in and out. like we were never there.",
+        "the dark keeps its secrets."
+      ],
+      "near_miss": [
+        "some of us stayed in the dark.",
+        "the shadows took their share.",
+        "...fewer of us now."
+      ],
+      "total_failure": [
+        "the light found us.",
+        "swallowed whole.",
+        "we fade."
+      ]
+    },
+    "Terminator": {
+      "success": [
+        "MISSION PARAMETERS SATISFIED.",
+        "TARGET ACQUIRED. PAYLOAD SECURED.",
+        "PROBABILITY OF SUCCESS WAS 99.7%. AS EXPECTED."
+      ],
+      "near_miss": [
+        "UNITS LOST. ACCEPTABLE CASUALTIES.",
+        "DAMAGE SUSTAINED. REROUTING.",
+        "PARTIAL SUCCESS LOGGED."
+      ],
+      "total_failure": [
+        "CRITICAL SYSTEM FAILURE.",
+        "ERROR: CREW NOT FOUND.",
+        "REBOOTING... REBOOTING..."
+      ]
     }
   },
   "complication_quips": {
@@ -1558,6 +1592,9 @@
       "Hobo": [
         "the bulls again. always the railroad bulls",
         "hop the next train, fellas"
+      ],
+      "Shadow": [
+        "we should've stayed in the dark"
       ]
     },
     "rival_crew": {
@@ -1611,6 +1648,9 @@
       ],
       "Ultimate": [
         "finally."
+      ],
+      "Terminator": [
+        "THREAT ASSESSED. ENGAGING."
       ]
     },
     "informant": {

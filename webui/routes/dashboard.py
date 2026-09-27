@@ -110,7 +110,7 @@ async def index(request):
     month_start = today_start - 29 * 86400
 
     counts: dict = {}
-    activity: dict = {"today": 0, "week": 0, "month": 0}
+    activity: dict = {"today": 0, "week": 0, "month": 0, "servers_today": 0, "servers_week": 0, "servers_month": 0}
     totals: dict = {"catches": 0, "packs": 0, "prism_boosts": 0}
     rarities: list[tuple[str, int]] = []
     packs: list[tuple[str, int]] = []
@@ -160,13 +160,17 @@ async def index(request):
                 SELECT
                   COUNT(DISTINCT CASE WHEN last_catch >= $1 THEN user_id END) AS today,
                   COUNT(DISTINCT CASE WHEN last_catch >= $2 THEN user_id END) AS week,
-                  COUNT(DISTINCT CASE WHEN last_catch >= $3 THEN user_id END) AS month
+                  COUNT(DISTINCT CASE WHEN last_catch >= $3 THEN user_id END) AS month,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $1 THEN guild_id END) AS servers_today,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $2 THEN guild_id END) AS servers_week,
+                  COUNT(DISTINCT CASE WHEN last_catch >= $3 THEN guild_id END) AS servers_month
                 FROM profile
                 WHERE user_id <> $4
                 """,
                 today_start, week_start, month_start, bot_id,
             )
-            activity = {"today": row["today"] or 0, "week": row["week"] or 0, "month": row["month"] or 0}
+            # a server counts as active if anyone caught a cat there in the window
+            activity = {k: row[k] or 0 for k in ("today", "week", "month", "servers_today", "servers_week", "servers_month")}
 
             row = await conn.fetchrow(
                 """

@@ -76,6 +76,31 @@
       <span class="stat-foot">users tracked</span>
     </article>
   </div>
+  <p class="lede" style="margin-top:var(--sp-4);margin-bottom:var(--sp-4)">
+    Distinct servers where at least one cat was caught in the window.
+  </p>
+  <div class="stat-row">
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Today</span>
+      <span class="stat-value">{{ "{:,}".format(activity.servers_today) }}</span>
+      <span class="stat-foot">active servers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 7 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity.servers_week) }}</span>
+      <span class="stat-foot">active servers</span>
+    </article>
+    <article class="stat-tile">
+      <span class="stat-eyebrow">Past 30 days</span>
+      <span class="stat-value">{{ "{:,}".format(activity.servers_month) }}</span>
+      <span class="stat-foot">active servers</span>
+    </article>
+    <article class="stat-tile accent">
+      <span class="stat-eyebrow">All-time</span>
+      <span class="stat-value">{{ "{:,}".format(counts.get('servers', 0)) }}</span>
+      <span class="stat-foot">servers configured</span>
+    </article>
+  </div>
 
   {# ============================ load ============================ #}
   {% if load %}

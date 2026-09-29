@@ -37,7 +37,7 @@ BOARDS = [
      "GROUP BY user_id ORDER BY value DESC NULLS LAST LIMIT $2 OFFSET $3"),
     # Piñatas aren't tradeable (unlike prisms), so profile.pinatas IS the
     # lifetime-crafted count — no separate table to COUNT(*) from.
-    ("pinatas", "Piñatas crafted", "piñatas",
+    ("pinatas", "Piñata Charms crafted", "Piñata Charms",
      "SELECT user_id, SUM(pinatas)::bigint AS value FROM profile "
      "WHERE user_id <> $1 "
      "GROUP BY user_id HAVING SUM(pinatas) > 0 "

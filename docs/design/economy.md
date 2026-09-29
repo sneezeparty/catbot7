@@ -36,7 +36,7 @@ Pack tiers form their own ladder: Wooden → Stone → Bronze → Silver → Gol
 
 **Design intent:** packs exist to compress the long-tail catching grind. The expected value of a tier-N pack is calibrated so that a player who is many catches behind can "catch up" via packs without trivializing the grind for everyone else.
 
-From **Season 6**, opening *any* pack in a server that holds at least one crafted piñata also rolls a chance to trigger a burst that spills cats (and, rarely, a pack) to other active players — see [Piñatas](#piñatas) below. This is a separate craftable item, not a pack property: it hooks the pack-open event, but it never touches the opener's own pack contents or the pack's own expected value.
+From **Season 6**, opening *any* pack in a server that holds at least one crafted Piñata Charm also rolls a chance to trigger a burst that spills cats (and, rarely, a pack) to other active players — see [Piñata Charms](#piñata-charms) below. This is a separate craftable item, not a pack property: it hooks the pack-open event, but it never touches the opener's own pack contents or the pack's own expected value.
 
 The old constraint here was "don't add packs that pay out in non-cat currency." The pack coin variant (below) deliberately superseded it: coins are now an accepted secondary payout **as long as total pack worth stays constant** — the split changes the *form* of the payout, never its size. The surviving rule: a pack's expected value is denominated in cat-value, and any non-cat payout must be an equal-value substitution inside that budget, not a bonus on top.
 
@@ -489,9 +489,9 @@ with defaults `first = 1,000`, `base = 5,000`, `growth = 2`, `cap = 320,000` (in
 
 **Achievements unchanged.** `prism` (first craft) and `collecter` (collecting every cat type, the recipe checker) still fire exactly as before. The coin tax is a separate concern from achievement gating.
 
-## Piñatas
+## Piñata Charms
 
-Piñatas are prisms' sibling craftable, added in **Season 6** (`config/tuning.json → pinata.min_season`). Where a prism nudges the *rarity* of your own catches, a piñata is a server-wide bonus that fires on **pack opens**: every pack anyone in the server opens rolls a chance to "burst" and spill loot to other players. Like prisms, piñatas are crafted per-profile from `/catcraft` (which now hosts both crafting flows — see [/catcraft replaces /prism](#catcraft-replaces-prism) below). Unlike prisms, piñatas are **not tradeable** — there's no `prism`-style table, just a `pinatas` count plus six lifetime/daily-cap counters (`pinata_cats_won`, `pinata_cats_given`, `pinata_packs_won`, `pinata_day`, `pinata_recv_today`, `pinata_bonus_today`) directly on `profile`.
+The crafted item is the **Piñata Charm** ("piñata" for short below and in the code); a pack it makes burst is "a piñata". Piñata Charms are prisms' sibling craftable, added in **Season 6** (`config/tuning.json → pinata.min_season`). Where a prism nudges the *rarity* of your own catches, a piñata is a server-wide bonus that fires on **pack opens**: every pack anyone in the server opens rolls a chance to "burst" and spill loot to other players. Like prisms, piñatas are crafted per-profile from `/catcraft` (which now hosts both crafting flows — see [/catcraft replaces /prism](#catcraft-replaces-prism) below). Unlike prisms, piñatas are **not tradeable** — there's no `prism`-style table, just a `pinatas` count plus six lifetime/daily-cap counters (`pinata_cats_won`, `pinata_cats_given`, `pinata_packs_won`, `pinata_day`, `pinata_recv_today`, `pinata_bonus_today`) directly on `profile`.
 
 ### Recipe & cost ramp
 
@@ -537,4 +537,4 @@ A successful burst spills **1–2 cats** (spawn-weighted rarity, same roll as a 
 
 ### /catcraft replaces /prism
 
-`/catcraft` is now the single crafting menu for both prisms and piñatas (buttons for "Craft a Prism", "Craft a Piñata" once live, and "View Prisms & Piñatas"). `/prism` still exists but is a deprecated alias — its description reads "Prisms live in /catcraft now" and it renders the exact same `/catcraft` screen, so old muscle memory still works without a second code path to maintain.
+`/catcraft` is now the single crafting menu for both prisms and piñatas (buttons for "Craft a Prism", "Craft a Piñata Charm" once live, and "View Prisms & Piñata Charms"). `/prism` still exists but is a deprecated alias — its description reads "Prisms live in /catcraft now" and it renders the exact same `/catcraft` screen, so old muscle memory still works without a second code path to maintain.

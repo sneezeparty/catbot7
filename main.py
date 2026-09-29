@@ -5962,7 +5962,7 @@ async def _maybe_show_season_reset_notice(interaction, user):
                 "(season starting allowance). Your **catnip level**, **packs**, "
                 "and all active **mafia/jobs state** have been wiped — build them "
                 "back up this season.\n\n"
-                "Untouched: your **cats**, **prisms**, " + ("**piñatas**, " if _pinata_live() else "") + "**stocks**, **streaks**, "
+                "Untouched: your **cats**, **prisms**, " + ("**Piñata Charms**, " if _pinata_live() else "") + "**stocks**, **streaks**, "
                 "**discovered cats**, and **achievements** stay with you.\n\n"
                 "Welcome to the new month."
             ),
@@ -7067,7 +7067,7 @@ def _build_season_warning_embed(current_season: int) -> discord.Embed:
             "• 🎩 **Catnip / mafia** level, bounties & perks wiped\n"
             "• 🔫 **Jobs** heat, respect, faction rep & job perks reset\n"
             "• 📦 **All packs** cleared (event packs included)\n\n"
-            "**Kept:** your cats, prisms, " + ("piñatas, " if _pinata_live() else "") + "stocks, discovered cats, achievements, and streaks.\n\n"
+            "**Kept:** your cats, prisms, " + ("Piñata Charms, " if _pinata_live() else "") + "stocks, discovered cats, achievements, and streaks.\n\n"
             "⚠️ Spend your coins and **open your packs** before the reset!"
             + levels_line
         ),
@@ -7119,7 +7119,7 @@ def _build_season_reset_explainer_embed(current_season: int, ends_at: int) -> di
         name="✅ Kept",
         value=(
             "🐈 **Your cats** — every last one of them\n"
-            + (f"🔮 **Prisms**, {pinata_emoji()} **piñatas** and 📈 **stocks**\n" if _pinata_live() else "🔮 **Prisms** and 📈 **stocks**\n")
+            + (f"🔮 **Prisms**, {pinata_emoji()} **Piñata Charms** and 📈 **stocks**\n" if _pinata_live() else "🔮 **Prisms** and 📈 **stocks**\n")
             + "☔ **Rain** minutes you haven't spent yet\n"
             "🔍 **Discovered cats**, 🏆 **achievements** and 🔥 **streaks**\n"
             "📊 Lifetime stats, medals and your `/catprofile`"
@@ -7187,7 +7187,7 @@ def _build_season_intro_embed(new_season: int) -> discord.Embed:
         names = " and ".join(f"{get_emoji(t.lower() + 'cat')} **{t}**" for t in debuts)
         debut_line = f"• 🐾 New cat{'s' if len(debuts) > 1 else ''} in town: {names}! Keep an eye out.\n"
     if new_season == PINATA_MIN_SEASON:
-        debut_line += f"• {pinata_emoji()} **Piñatas** are here! Craft one in /catcraft — your packs might burst and spill cats to everyone.\n"
+        debut_line += f"• {pinata_emoji()} **Piñata Charms** are here! Craft one in /catcraft — packs opened in your server might burst like piñatas and spill cats to everyone.\n"
     return discord.Embed(
         title=f"🆕 Season {new_season} starts now!",
         color=Colors.brown,
@@ -10384,7 +10384,7 @@ async def help(message):
                 "`/achievements` tracks unlocks across catching, casino, jobs, and easter eggs. "
                 "`/battlepass` runs monthly seasons with five quest slots per cycle. "
                 "`/perks` shows your active catnip and job-perk effects. "
-                + ("`/catcraft` crafts prisms and piñatas. " if _pinata_live() else "`/catcraft` crafts prisms. ")
+                + ("`/catcraft` crafts prisms and Piñata Charms. " if _pinata_live() else "`/catcraft` crafts prisms. ")
                 + "Passive XP drips on first daily catch, every 10-catch streak, and every catnip level-up."
             ),
             inline=False,
@@ -11263,7 +11263,7 @@ async def gen_stats(profile, star):
     stats.append(["boosted_catches", get_emoji("prism"), f"Prism-boosted catches: {profile.boosted_catches:,}{star}"])
     if _pinata_live():
         try:
-            stats.append(["pinatas_owned", pinata_emoji(), f"Piñatas crafted: {int(profile.pinatas or 0):,}"])
+            stats.append(["pinatas_owned", pinata_emoji(), f"Piñata Charms crafted: {int(profile.pinatas or 0):,}"])
             stats.append(["pinata_cats_won", pinata_emoji(), f"Piñata cats won: {int(profile.pinata_cats_won or 0):,}"])
             stats.append(["pinata_cats_given", pinata_emoji(), f"Piñata cats spilled to others: {int(profile.pinata_cats_given or 0):,}"])
         except KeyError:
@@ -11635,7 +11635,7 @@ async def gen_inventory(message, person_id):
         pinata_line = ""
         if _pinata_live():
             try:
-                pinata_line = f"\n{pinata_emoji()} Piñatas: {int(person.pinatas or 0):,} · Pinata Cats: {int(person.pinata_cats_won or 0):,}"
+                pinata_line = f"\n{pinata_emoji()} Piñata Charms: {int(person.pinatas or 0):,} · Pinata Cats: {int(person.pinata_cats_won or 0):,}"
             except KeyError:
                 pass  # migration 042 not run yet
         embedVar.description += f"\n{get_emoji('staring_cat')} Cats: {total:,}, Value: {round(valuenum):,}\n🪙 Coins: {coins_now:,}\n{get_emoji('prism')} Prisms: {prism_list} ({prism_boost}%){pinata_line}\n\n{cat_desc}"
@@ -13330,7 +13330,7 @@ async def packs(message: discord.Interaction):
             description += "\n\n**Special Packs** are packs highlighted in green. Their upgrade chance is 70% instead of 30% and they start below Wooden."
         if server_pinatas:
             description += (
-                f"\n\n{pinata_emoji()} This server has **{server_pinatas}** piñata{'s' if server_pinatas != 1 else ''} "
+                f"\n\n{pinata_emoji()} This server has **{server_pinatas}** Piñata Charm{'s' if server_pinatas != 1 else ''} "
                 "— any pack you open might burst and spill cats to other players! (/catcraft)"
             )
         description += "\n\nClick the buttons below to start opening packs!"
@@ -18064,12 +18064,12 @@ async def crafted_list(message: discord.Interaction, person: Optional[discord.Us
             if len(owners) > 15:
                 listing += f", +{len(owners) - 15} more"
             pinata_section = (
-                f"{pe} **Piñatas · {p_total} in this server** — {listing}\n"
+                f"{pe} **Piñata Charms · {p_total} in this server** — {listing}\n"
                 f"Burst chance per pack: {round(pinata_burst_chance(p_total, 0) * 100, 2)}% "
                 f"(yours: {round(pinata_burst_chance(p_total, p_mine) * 100, 2)}%)\n\n"
             )
         else:
-            pinata_section = f"{pe} **Piñatas** — none in this server yet. Craft one with /catcraft!\n\n"
+            pinata_section = f"{pe} **Piñata Charms** — none in this server yet. Craft one with /catcraft!\n\n"
 
     if person_id == message.user and user_count != 0:
         try:
@@ -18295,7 +18295,7 @@ async def _pinata_craft_confirm(interaction: discord.Interaction, origin: discor
         coins, packs, missing, missing_packs, _, crafted = _pinata_recipe_check(user)
         have = int(user.coins or 0)
         if missing or missing_packs or have < coins:
-            await interaction.followup.send("You don't have everything for that piñata anymore. Nice try though.", ephemeral=True)
+            await interaction.followup.send("You don't have everything for that Piñata Charm anymore. Nice try though.", ephemeral=True)
             return
         for t in pinata_recipe_cattypes():
             user[f"cat_{t}"] -= 1
@@ -18307,15 +18307,15 @@ async def _pinata_craft_confirm(interaction: discord.Interaction, origin: discor
     total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", interaction.guild.id) or 0)
     logging.info("[pinata] %s | %s crafted piñata #%d (server now has %d)", interaction.guild.name, interaction.user.name, crafted + 1, total)
     announce = discord.Embed(
-        title=f"{pinata_emoji()} A new piñata! ¡De pelos!",
+        title=f"{pinata_emoji()} A new Piñata Charm! ¡De pelos!",
         description=(
-            f"{interaction.user.mention} crafted a piñata! This server now has **{total}** piñata{'s' if total != 1 else ''}. "
+            f"{interaction.user.mention} crafted a Piñata Charm! This server now has **{total}** Piñata Charm{'s' if total != 1 else ''}. "
             "Every pack opened here has a better chance to burst and spill cats to everyone. (🪙 "
             f"{coins:,} coins spent)"
         ),
         color=Colors.brown,
     ).set_image(url=pinata_image_url())
-    await interaction.edit_original_response(content=f"{pinata_emoji()} Piñata crafted!", view=None)
+    await interaction.edit_original_response(content=f"{pinata_emoji()} Piñata Charm crafted!", view=None)
     try:
         await origin.followup.send(embed=announce)
     except discord.HTTPException:
@@ -18325,7 +18325,7 @@ async def _pinata_craft_confirm(interaction: discord.Interaction, origin: discor
 async def pinata_craft_prompt(interaction: discord.Interaction, origin: discord.Interaction):
     """The piñata recipe + confirm screen (ephemeral)."""
     if not _pinata_live():
-        await interaction.response.send_message(f"Piñatas arrive in Season {PINATA_MIN_SEASON}!", ephemeral=True)
+        await interaction.response.send_message(f"Piñata Charms arrive in Season {PINATA_MIN_SEASON}!", ephemeral=True)
         return
     user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
     coins, packs, missing, missing_packs, last_one, crafted = _pinata_recipe_check(user)
@@ -18334,7 +18334,7 @@ async def pinata_craft_prompt(interaction: discord.Interaction, origin: discord.
     pe = pinata_emoji()
     pack_text = ", ".join(f"{n}x {get_emoji(p.lower() + 'pack')} {p}" for p, n in packs.items())
     lines = [
-        f"{pe} **Your {_ordinal(crafted + 1)} piñata on this server costs:**",
+        f"{pe} **Your {_ordinal(crafted + 1)} Piñata Charm on this server costs:**",
         f"**Cats:** one each of {recipe[0]} through {recipe[-1]} " + "".join(get_emoji(t.lower() + "cat") for t in recipe),
         f"**Packs:** {pack_text}",
         f"**Coins:** 🪙 {coins:,} (you have 🪙 {have:,})",
@@ -18379,8 +18379,8 @@ async def catcraft_menu(message: discord.Interaction, from_prism: bool = False):
     mine = f"You: **{prism_mine}** prism{'s' if prism_mine != 1 else ''}"
     if live:
         desc.append(
-            f"{pe} **Piñata** — Fine through {PINATA_RECIPE_LAST} + packs + coins. Whenever anyone here opens a pack, "
-            "it might burst and spill a cat or two to other active players — maybe even a pack! "
+            f"{pe} **Piñata Charm** — Fine through {PINATA_RECIPE_LAST} + packs + coins. Whenever anyone here opens a pack, "
+            "it might burst like a piñata and spill a cat or two to other active players — maybe even a pack! "
             "Owners burst more often on their own packs, and get cats too."
         )
         try:
@@ -18388,8 +18388,8 @@ async def catcraft_menu(message: discord.Interaction, from_prism: bool = False):
             p_mine = int((await Profile.get_or_create(guild_id=message.guild.id, user_id=message.user.id)).pinatas or 0)
         except Exception:
             p_total = p_mine = 0
-        counts += f" · **{p_total}** piñata{'s' if p_total != 1 else ''}"
-        mine += f" · **{p_mine}** piñata{'s' if p_mine != 1 else ''}"
+        counts += f" · **{p_total}** Piñata Charm{'s' if p_total != 1 else ''}"
+        mine += f" · **{p_mine}** Piñata Charm{'s' if p_mine != 1 else ''}"
     embed = discord.Embed(
         title="🛠️ Cat Crafting",
         description="\n\n".join(desc) + f"\n\n{counts}\n{mine}",
@@ -18413,17 +18413,17 @@ async def catcraft_menu(message: discord.Interaction, from_prism: bool = False):
     b.callback = do_prism
     view.add_item(b)
     if live:
-        b = Button(label="Craft a Piñata", emoji=pe, style=ButtonStyle.blurple)
+        b = Button(label="Craft a Piñata Charm", emoji=pe, style=ButtonStyle.blurple)
         b.callback = do_pinata
         view.add_item(b)
-    b = Button(label="View Prisms & Piñatas" if live else "View Prisms", emoji="👀", style=ButtonStyle.gray)
+    b = Button(label="View Prisms & Piñata Charms" if live else "View Prisms", emoji="👀", style=ButtonStyle.gray)
     b.callback = do_view
     view.add_item(b)
     note = "📢 **/prism is now /catcraft!** Use **/catcraft** from now on." if from_prism else None
     await message.response.send_message(content=note, embed=embed, view=view)
 
 
-@bot.tree.command(description="Craft prisms and piñatas, and see who owns them")
+@bot.tree.command(description="Craft prisms and Piñata Charms, and see who owns them")
 async def catcraft(message: discord.Interaction):
     await catcraft_menu(message)
 

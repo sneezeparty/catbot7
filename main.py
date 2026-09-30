@@ -1463,6 +1463,14 @@ PINATA_PACK_TIERS = PINATA.get("pack_drop_tiers", {"Wooden": 50, "Stone": 30, "B
 PINATA_CELESTIAL_CHANCE = float(PINATA.get("celestial_drop_chance", 0.001))
 PINATA_RECIPE_LAST = PINATA.get("recipe_last_cat", "Mythic")
 PINATA_CRAFT_COSTS = PINATA.get("craft_costs") or [{"coins": 2500, "packs": {"Silver": 1}}]
+# MEGA PIÑATA 💥: a burst on a charm OWNER's own pack has this chance to also
+# drop 50 cats on the owner and split 50 across every eligible player. Skips
+# the daily caps (it couldn't fit under them). Pings recipients active in the
+# last `jackpot_ping_recent_days`.
+PINATA_JACKPOT_CHANCE = float(PINATA.get("jackpot_chance", 1 / 300))
+PINATA_JACKPOT_OWNER = int(PINATA.get("jackpot_owner_cats", 50))
+PINATA_JACKPOT_SHARED = int(PINATA.get("jackpot_shared_cats", 50))
+PINATA_JACKPOT_PING_SECONDS = int(PINATA.get("jackpot_ping_recent_days", 14)) * 86400
 
 
 def pinata_emoji() -> str:
@@ -1519,21 +1527,41 @@ def _pinata_roll_pack() -> str | None:
     return None
 
 
-def _pinata_roll_opens(opens: int, chance: float, owner_room: int, recipients: dict[int, int]) -> tuple[int, dict, dict]:
+def _pinata_roll_opens(opens: int, chance: float, owner_room: int, recipients: dict[int, int], *, is_owner: bool | None = None) -> tuple[int, dict, dict, dict]:
     """Roll `opens` pack opens for bursts. Pure — no DB.
 
     owner_room: bonus cats the opener can still get today (0 = not an owner or
     capped). recipients: {user_id: cats they can still receive today}, mutated
-    as it fills. Returns (bursts, owner_loot, others_loot) where loot is
-    {"cats": {type: n}, "packs": {name: n}} and others_loot is keyed by id.
-    A burst that lands nothing on anyone doesn't count."""
+    as it fills. is_owner: the opener owns a charm (defaults to owner_room > 0;
+    pass it explicitly so a capped owner can still hit a MEGA PIÑATA).
+    Returns (bursts, owner_loot, others_loot, mega) where loot is
+    {"cats": {type: n}, "packs": {name: n}}, others_loot is keyed by id, and
+    mega is {"count": n, "owner": loot, "others": {id: loot}} — kept apart
+    because it skips the daily caps. A burst that lands nothing on anyone
+    doesn't count."""
+    if is_owner is None:
+        is_owner = owner_room > 0
     bursts = 0
     owner = {"cats": {}, "packs": {}}
     others: dict[int, dict] = {}
+    mega = {"count": 0, "owner": {"cats": {}, "packs": {}}, "others": {}}
     for _ in range(opens):
         if random.random() >= chance:
             continue
         landed = False
+        if is_owner and random.random() < PINATA_JACKPOT_CHANCE:
+            mega["count"] += 1
+            for _ in range(PINATA_JACKPOT_OWNER):
+                t = _spawn_weighted_cattype()
+                mega["owner"]["cats"][t] = mega["owner"]["cats"].get(t, 0) + 1
+            # everyone eligible, as evenly as 50 splits: shuffled round-robin
+            everyone = list(recipients)
+            random.shuffle(everyone)
+            for i in range(PINATA_JACKPOT_SHARED if everyone else 0):
+                loot = mega["others"].setdefault(everyone[i % len(everyone)], {"cats": {}, "packs": {}})
+                t = _spawn_weighted_cattype()
+                loot["cats"][t] = loot["cats"].get(t, 0) + 1
+            landed = True
         if owner_room > 0:
             for _ in range(min(owner_room, random.randint(*PINATA_OWNER_CATS))):
                 t = _spawn_weighted_cattype()
@@ -1555,17 +1583,17 @@ def _pinata_roll_opens(opens: int, chance: float, owner_room: int, recipients: d
                 loot["packs"][pack] = loot["packs"].get(pack, 0) + 1
             landed = True
         bursts += landed
-    return bursts, owner, others
+    return bursts, owner, others, mega
 
 
-async def _pinata_grant(guild_id: int, user_id: int, loot: dict, *, owner: bool) -> bool:
+async def _pinata_grant(guild_id: int, user_id: int, loot: dict, *, owner: bool, capped: bool = True) -> bool:
     """Credit one person's burst loot in ONE atomic UPDATE: cats (int32-capped),
     packs, lifetime counters, discoveries, and the daily cap counter — with the
     cap re-checked in the WHERE, so two bursts racing can't overshoot it. No
     row lock and no read-modify-write, so it can't collide with the person
     catching or trading at the same moment. Returns False if the cap filled
     up in the meantime (loot dropped)."""
-    built = _pinata_grant_sql(loot, owner=owner)
+    built = _pinata_grant_sql(loot, owner=owner, capped=capped)
     if not built:
         return False
     sql, cat_names = built
@@ -1573,10 +1601,11 @@ async def _pinata_grant(guild_id: int, user_id: int, loot: dict, *, owner: bool)
     return status.endswith(" 1")
 
 
-def _pinata_grant_sql(loot: dict, *, owner: bool) -> tuple[str, str] | None:
+def _pinata_grant_sql(loot: dict, *, owner: bool, capped: bool = True) -> tuple[str, str] | None:
     """The UPDATE behind _pinata_grant, params ($1 guild, $2 user, $3 day,
     $4 JSON list of cat names). Only literals from this module and ints are
-    interpolated."""
+    interpolated. capped=False (MEGA PIÑATA) leaves the daily counters and
+    the cap check out entirely."""
     cats = {t: int(n) for t, n in loot["cats"].items() if n > 0 and t in type_dict}
     packs = {p: int(n) for p, n in loot["packs"].items() if n > 0 and any(d["name"] == p for d in pack_data)}
     n_cats = sum(cats.values())
@@ -1589,16 +1618,20 @@ def _pinata_grant_sql(loot: dict, *, owner: bool) -> tuple[str, str] | None:
     sets += [
         f"pinata_cats_won = pinata_cats_won + {n_cats}",
         f"pinata_packs_won = pinata_packs_won + {sum(packs.values())}",
-        f"{cap_col} = (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats}",
-        f"{other_col} = CASE WHEN pinata_day = $3 THEN {other_col} ELSE 0 END",
-        "pinata_day = $3",
+    ]
+    if capped:
+        sets += [
+            f"{cap_col} = (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats}",
+            f"{other_col} = CASE WHEN pinata_day = $3 THEN {other_col} ELSE 0 END",
+            "pinata_day = $3",
+        ]
+    sets += [
         "discovered_cats = discovered_cats || (SELECT COALESCE(jsonb_agg(x), '[]'::jsonb) "
         "FROM jsonb_array_elements_text($4::text::jsonb) x WHERE NOT (profile.discovered_cats ? x))",
     ]
-    sql = (
-        f"UPDATE profile SET {', '.join(sets)} WHERE guild_id = $1 AND user_id = $2 "
-        f"AND (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats} <= {cap}"
-    )
+    sql = f"UPDATE profile SET {', '.join(sets)} WHERE guild_id = $1 AND user_id = $2"
+    # $3 must appear in the statement either way so the parameter count holds
+    sql += f" AND (CASE WHEN pinata_day = $3 THEN {cap_col} ELSE 0 END) + {n_cats} <= {cap}" if capped else " AND $3::int IS NOT NULL"
     return sql, json.dumps(list(cats))
 
 
@@ -1611,20 +1644,22 @@ def _pinata_loot_text(loot: dict, auras=None) -> str:
     return " + ".join(x for x in (cats, packs) if x)
 
 
-async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, opens: int) -> tuple[list[str], str | None, list[int]]:
+async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, opens: int) -> tuple[list[str], list[dict]]:
     """Roll piñata bursts for `opens` packs `opener` just opened (already saved)
     and credit everyone. Returns (embed lines for the opener's result screen,
-    ping message or None, user ids that message may ping). Only PACK drops to
-    other people ping; cats never do — those show in the embed, where a
-    mention can't notify anyone. Never raises: a piñata failure must not eat
-    a pack open that already happened."""
+    follow-up messages to send after it). Each follow-up is
+    {"content", "embed", "ids"} where ids are the only users it may ping.
+    Cats from normal bursts never ping (they show in the embed, where a
+    mention can't notify anyone); other people's pack drops do, and so does a
+    MEGA PIÑATA — but only for recipients active in the last 14 days. Never
+    raises: a piñata failure must not eat a pack open that already happened."""
     try:
         if opens < 1 or not _pinata_live():
-            return [], None, []
+            return [], []
         guild_id, user_id = int(opener.guild_id), int(opener.user_id)
         total = int(await Profile.sum("pinatas", "guild_id = $1 AND pinatas > 0", guild_id) or 0)
         if total < 1:
-            return [], None, []
+            return [], []
         own = int(opener.pinatas or 0)
         today = _pinata_day()
         owner_room = 0
@@ -1632,7 +1667,7 @@ async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, 
             used = int(opener.pinata_bonus_today or 0) if int(opener.pinata_day or 0) == today else 0
             owner_room = max(0, PINATA_OWNER_CAP - used)
         rows = await pool.fetch(
-            "SELECT user_id, pinata_day, pinata_recv_today FROM profile WHERE guild_id = $1 AND user_id <> $2 "
+            "SELECT user_id, pinata_day, pinata_recv_today, last_catch FROM profile WHERE guild_id = $1 AND user_id <> $2 "
             "AND last_catch > $3 AND total_catches >= $4",
             guild_id, user_id, time.time() - PINATA_RECENT_SECONDS, PINATA_MIN_CATCHES,
         )
@@ -1640,21 +1675,32 @@ async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, 
             int(r["user_id"]): PINATA_RECV_CAP - (int(r["pinata_recv_today"] or 0) if int(r["pinata_day"] or 0) == today else 0)
             for r in rows
         }
-        bursts, owner_loot, others = _pinata_roll_opens(opens, pinata_burst_chance(total, own), owner_room, recipients)
+        recent = {int(r["user_id"]) for r in rows if float(r["last_catch"] or 0) > time.time() - PINATA_JACKPOT_PING_SECONDS}
+        bursts, owner_loot, others, mega = _pinata_roll_opens(
+            opens, pinata_burst_chance(total, own), owner_room, recipients, is_owner=own > 0
+        )
         if not bursts:
-            return [], None, []
+            return [], []
 
         got_owner = await _pinata_grant(guild_id, user_id, owner_loot, owner=True) if (owner_loot["cats"] or owner_loot["packs"]) else False
         landed = {uid: loot for uid, loot in others.items() if await _pinata_grant(guild_id, uid, loot, owner=False)}
-        given = sum(sum(l["cats"].values()) for l in landed.values())
+        mega_owner = False
+        mega_landed: dict[int, dict] = {}
+        if mega["count"]:
+            mega_owner = await _pinata_grant(guild_id, user_id, mega["owner"], owner=True, capped=False)
+            mega_landed = {uid: loot for uid, loot in mega["others"].items() if await _pinata_grant(guild_id, uid, loot, owner=False, capped=False)}
+        given = sum(sum(l["cats"].values()) for l in landed.values()) + sum(sum(l["cats"].values()) for l in mega_landed.values())
         if given:
             await _bump_sql(user_id, guild_id, "pinata_cats_given", given)
-        if got_owner:
+        if got_owner or mega_owner:
             await opener.refresh_from_db()
 
         icon = pinata_emoji()
         head = "Your pack was a piñata!" if bursts == 1 else f"{bursts:,} of your packs were piñatas!"
         lines = [f"{icon} **{head} ¡De pelos!**"]
+        if mega["count"] and mega_owner:
+            mega_x = f" x{mega['count']}" if mega["count"] > 1 else ""
+            lines.append(f"💥 **MEGA PIÑATA{mega_x}!** You got **{sum(mega['owner']['cats'].values())}** extra cats!")
         if got_owner:
             lines.append(f"You got {_pinata_loot_text(owner_loot, opener.cat_auras)}")
         shown = sorted(landed.items(), key=lambda kv: -sum(kv[1]["cats"].values()))
@@ -1663,32 +1709,61 @@ async def pinata_after_opens(interaction: discord.Interaction, opener: Profile, 
         if len(shown) > 10:
             lines.append(f"...and {len(shown) - 10} more!")
 
+        pings: list[dict] = []
+        if mega["count"] and (mega_owner or mega_landed):
+            n_cats = sum(mega["owner"]["cats"].values()) * mega_owner + sum(sum(l["cats"].values()) for l in mega_landed.values())
+            desc = [f"{interaction.user.mention}'s pack exploded into a **MEGA PIÑATA** and **{n_cats}** cats rained down on the server!\n"]
+            if mega_owner:
+                desc.append(f"**{interaction.user.mention} got {sum(mega['owner']['cats'].values())}:** {_pinata_loot_text(mega['owner'], opener.cat_auras)}")
+            if mega_landed:
+                desc.append(f"\n**Everyone else split {sum(sum(l['cats'].values()) for l in mega_landed.values())}:**")
+                for uid, loot in sorted(mega_landed.items(), key=lambda kv: -sum(kv[1]["cats"].values()))[:25]:
+                    desc.append(f"<@{uid}> {_pinata_loot_text(loot)}")
+                if len(mega_landed) > 25:
+                    desc.append(f"...and {len(mega_landed) - 25} more!")
+            embed = discord.Embed(title=f"{icon}💥 MEGA PIÑATA! 💥 ¡De pelos!", description="\n".join(desc)[:4096], color=Colors.brown)
+            embed.set_image(url=pinata_image_url())
+            ping_ids = [uid for uid in mega_landed if uid in recent]
+            content = (" ".join(f"<@{uid}>" for uid in ping_ids) + " — cats from a MEGA PIÑATA just landed in your inventory!") if ping_ids else None
+            pings.append({"content": content, "embed": embed, "ids": ping_ids})
+
         pack_winners = [(uid, loot["packs"]) for uid, loot in landed.items() if loot["packs"]]
-        ping = None
         if pack_winners:
-            ping = "\n".join(
-                f"{icon} <@{uid}>, " + " and ".join(f"{'a' if n == 1 else n} {get_emoji(p.lower() + 'pack')} **{p}** pack{'s' if n > 1 else ''}" for p, n in packs.items())
-                + f" fell out of {interaction.user.mention}'s piñata! Open with /packs."
-                for uid, packs in pack_winners
-            )
+            pings.append({
+                "content": "\n".join(
+                    f"{icon} <@{uid}>, " + " and ".join(f"{'a' if n == 1 else n} {get_emoji(p.lower() + 'pack')} **{p}** pack{'s' if n > 1 else ''}" for p, n in packs.items())
+                    + f" fell out of {interaction.user.mention}'s piñata! Open with /packs."
+                    for uid, packs in pack_winners
+                ),
+                "embed": None,
+                "ids": [uid for uid, _ in pack_winners],
+            })
+
         bits = [f"{getattr(bot.get_user(uid), 'name', uid)} +{sum(l['cats'].values())} cats"
                 + (f" +{','.join(l['packs'])} pack" if l["packs"] else "") for uid, l in landed.items()]
         if got_owner:
             bits.insert(0, f"owner +{sum(owner_loot['cats'].values())} cats" + (f" +{','.join(owner_loot['packs'])} pack" if owner_loot["packs"] else ""))
+        if mega["count"]:
+            bits.insert(0, f"MEGA x{mega['count']}: owner +{sum(mega['owner']['cats'].values()) if mega_owner else 0}, "
+                           f"{len(mega_landed)} others +{sum(sum(l['cats'].values()) for l in mega_landed.values())}")
         logging.info("[pinata] %s | %s's packs burst %dx: %s", interaction.guild.name, interaction.user.name, bursts, ", ".join(bits) or "nothing landed")
-        return lines, ping, [uid for uid, _ in pack_winners]
+        return lines, pings
     except Exception:
         logging.exception("pinata_after_opens failed")
-        return [], None, []
+        return [], []
 
 
-async def pinata_send_ping(interaction: discord.Interaction, ping: str | None, ids: list[int]) -> None:
-    if not ping:
-        return
-    try:
-        await interaction.followup.send(ping, allowed_mentions=discord.AllowedMentions(users=[discord.Object(i) for i in ids], everyone=False, roles=False))
-    except Exception:
-        logging.exception("pinata ping failed")
+async def pinata_send_ping(interaction: discord.Interaction, pings: list[dict]) -> None:
+    """Send pinata_after_opens' follow-ups; each may ping only its own ids."""
+    for msg in pings or []:
+        try:
+            await interaction.followup.send(
+                content=msg["content"],
+                embed=msg["embed"] or discord.utils.MISSING,
+                allowed_mentions=discord.AllowedMentions(users=[discord.Object(i) for i in msg["ids"]], everyone=False, roles=False),
+            )
+        except Exception:
+            logging.exception("pinata ping failed")
 
 
 # Rain purchase (catstore Extras → Rain). The 2026-05-23 retune dropped
@@ -12611,14 +12686,14 @@ async def packs(message: discord.Interaction):
     async def process_pack_opening(interaction, limit=None, only_pack=None):
         # only_pack: restrict the batch to one pack type (the per-pack "Open N"
         # picker). None = every type, lowest tier first (Open All).
-        # Returns (embed, piñata ping, ping ids), or (None, None, []) if empty.
+        # Returns (embed, piñata follow-up messages), or (None, []) if empty.
         await user.refresh_from_db()
 
         pack_names = [pack["name"] for pack in pack_data]
         total_pack_count = sum(user[f"pack_{pack_id.lower()}"] for pack_id in pack_names if only_pack is None or pack_id == only_pack)
 
         if total_pack_count < 1:
-            return None, None, []
+            return None, []
 
         real_to_open = total_pack_count
         if limit:
@@ -12738,7 +12813,7 @@ async def packs(message: discord.Interaction):
         await award_pow2_milestones(message, user, "followup")
 
         # piñata bursts 🪅 for the whole batch, rolled per pack, summarised once
-        pinata_lines, pinata_ping, pinata_ids = await pinata_after_opens(interaction, user, opened_so_far)
+        pinata_lines, pinata_pings = await pinata_after_opens(interaction, user, opened_so_far)
         perk_msgs += pinata_lines
 
         final_header = f"Opened {opened_so_far:,} packs!"
@@ -12774,7 +12849,7 @@ async def packs(message: discord.Interaction):
         result = discord.Embed(title=final_header, description=description, color=Colors.brown)
         if pinata_lines:
             result.set_thumbnail(url=pinata_image_url())
-        return result, pinata_ping, pinata_ids
+        return result, pinata_pings
 
     async def confirm_open_all(interaction: discord.Interaction):
         if interaction.user != message.user:
@@ -13123,7 +13198,7 @@ async def packs(message: discord.Interaction):
         await award_pow2_milestones(message, user, "followup")
 
         # piñata burst 🪅 — rolled after the open is saved, shown with the perk toasts
-        pinata_lines, pinata_ping, pinata_ids = await pinata_after_opens(interaction, user, 1)
+        pinata_lines, pinata_pings = await pinata_after_opens(interaction, user, 1)
         perk_msgs += pinata_lines
 
         logging.debug("Opened pack %s", pack)
@@ -13170,7 +13245,7 @@ async def packs(message: discord.Interaction):
         await asyncio.sleep(1)
         view, _ = gen_view(user)
         await interaction.edit_original_response(view=view)
-        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
+        await pinata_send_ping(interaction, pinata_pings)
 
     class PackAmountModal(Modal):
         def __init__(self, pack, have):
@@ -13284,7 +13359,7 @@ async def packs(message: discord.Interaction):
             return
         packs_bulk_opening.add(key)
         try:
-            embed, pinata_ping, pinata_ids = await process_pack_opening(interaction, amount, only_pack=pack)
+            embed, pinata_pings = await process_pack_opening(interaction, amount, only_pack=pack)
         finally:
             packs_bulk_opening.discard(key)
         view, _ = gen_view(user)
@@ -13292,7 +13367,7 @@ async def packs(message: discord.Interaction):
             await interaction.edit_original_response(view=view)
             return
         await interaction.edit_original_response(embed=embed, view=view)
-        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
+        await pinata_send_ping(interaction, pinata_pings)
 
     async def open_all_packs(interaction: discord.Interaction):
         key = (message.guild.id, message.user.id)
@@ -13300,7 +13375,7 @@ async def packs(message: discord.Interaction):
             return
         packs_bulk_opening.add(key)
         try:
-            embed, pinata_ping, pinata_ids = await process_pack_opening(interaction, 10000)
+            embed, pinata_pings = await process_pack_opening(interaction, 10000)
         finally:
             packs_bulk_opening.discard(key)
         if not embed:
@@ -13322,7 +13397,7 @@ async def packs(message: discord.Interaction):
                 await interaction.followup.send(embed=embed, view=view)
             except discord.HTTPException:
                 logging.exception("open_all_packs: could not deliver result embed (channel=%s)", getattr(interaction.channel, "id", None))
-        await pinata_send_ping(interaction, pinata_ping, pinata_ids)
+        await pinata_send_ping(interaction, pinata_pings)
 
     def gen_main_embed(has_special):
         description = "Each pack starts at one of eight tiers of increasing value - Wooden, Stone, Bronze, Silver, Gold, Platinum, Diamond, or Celestial - and can repeatedly move up tiers with a 30% chance per upgrade. This means that even a pack starting at Wooden, through successive upgrades, can reach the Celestial tier."

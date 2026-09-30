@@ -164,15 +164,19 @@
     "pack_drop_tiers": { "Wooden": 50, "Stone": 30, "Bronze": 20 },
     "celestial_drop_chance": 0.001,
     "recipe_last_cat": "Mythic",
+    "jackpot_chance": 0.003333,
+    "jackpot_owner_cats": 50,
+    "jackpot_shared_cats": 50,
+    "jackpot_ping_recent_days": 14,
     "craft_costs": [
-      { "coins": 2500, "packs": { "Silver": 1 } },
-      { "coins": 5000, "packs": { "Gold": 1 } },
-      { "coins": 10000, "packs": { "Gold": 2 } },
-      { "coins": 20000, "packs": { "Platinum": 1 } },
-      { "coins": 40000, "packs": { "Platinum": 2 } },
-      { "coins": 80000, "packs": { "Diamond": 1 } },
-      { "coins": 160000, "packs": { "Diamond": 2 } },
-      { "coins": 240000, "packs": { "Celestial": 1 } }
+      { "coins": 2500, "packs": { "Silver": 5 } },
+      { "coins": 5000, "packs": { "Gold": 5 } },
+      { "coins": 10000, "packs": { "Gold": 10 } },
+      { "coins": 20000, "packs": { "Platinum": 5 } },
+      { "coins": 40000, "packs": { "Platinum": 10 } },
+      { "coins": 80000, "packs": { "Diamond": 5 } },
+      { "coins": 160000, "packs": { "Diamond": 10 } },
+      { "coins": 240000, "packs": { "Celestial": 5 } }
     ]
   }
 }

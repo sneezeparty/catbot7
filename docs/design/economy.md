@@ -501,16 +501,16 @@ On top of the cats, each craft costs escalating **packs + coins** from `config/t
 
 | Craft # | Coins | Packs |
 | ------- | ----- | ----- |
-| 1 | 2,500 | 1× Silver |
-| 2 | 5,000 | 1× Gold |
-| 3 | 10,000 | 2× Gold |
-| 4 | 20,000 | 1× Platinum |
-| 5 | 40,000 | 2× Platinum |
-| 6 | 80,000 | 1× Diamond |
-| 7 | 160,000 | 2× Diamond |
-| 8+ | 240,000 | 1× Celestial |
+| 1 | 2,500 | 5× Silver |
+| 2 | 5,000 | 5× Gold |
+| 3 | 10,000 | 10× Gold |
+| 4 | 20,000 | 5× Platinum |
+| 5 | 40,000 | 10× Platinum |
+| 6 | 80,000 | 5× Diamond |
+| 7 | 160,000 | 10× Diamond |
+| 8+ | 240,000 | 5× Celestial |
 
-Valuing the pack side at catstore list price (the Lv4/no-discount column of the [Packs in /catstore](#packs-in-catstore) table — Silver 600, Gold 1,800, Platinum 4,800, Diamond 9,000, Celestial 21,000), the cumulative cost to craft is **~23.5k through the 3rd piñata, ~98k through the 5th, and ~626k through the 8th**. Even at the 8th-craft-and-beyond rate (240k coins + a Celestial, ~261k at list price), a piñata stays cheaper than a prism at its cap — **prisms remain the priciest craftable** at a flat 320,000 coins (see the [prism cost ramp](#prism-crafting-coin-tax) above).
+Valuing the pack side at catstore list price (the Lv4/no-discount column of the [Packs in /catstore](#packs-in-catstore) table — Silver 600, Gold 1,800, Platinum 4,800, Diamond 9,000, Celestial 21,000), the cumulative cost to craft is **~47.5k through the 3rd charm, ~179.5k through the 5th, and ~900k through the 8th** (per craft: ~5.5k, 14k, 28k, 44k, 88k, 125k, 250k, then ~345k each). The pack side was raised 5× on 2026-09-30, before launch, to make charms a real pack sink: from the 8th craft on a Piñata Charm costs **more than a prism at its 320,000-coin cap** (see the [prism cost ramp](#prism-crafting-coin-tax) above).
 
 ### Burst mechanic
 
@@ -524,6 +524,8 @@ chance = min(burst_cap, burst_global_coef · ln(2·total_pinatas + 1)
 with defaults `burst_global_coef = 0.02`, `burst_owner_coef = 0.03`, `burst_cap = 0.2` (`config/tuning.json → pinata`). This is the same log-curve *shape* the prism rarity-upgrade boost uses (`PRISM_BOOST_GLOBAL_COEF · ln(2·total+1) + PRISM_BOOST_USER_COEF · ln(2·own+1)`) — a server's collective piñata count drives the base rate, and owning your own piñatas adds a personal edge on top, capped so it can never reach certainty. A server with zero piñatas never rolls at all.
 
 A successful burst spills **1–2 cats** (spawn-weighted rarity, same roll as a normal catch) to **1–2 other eligible active players**, and separately gives the *opener* **1–2 cats** of their own if they own at least one piñata and have room left under their own daily cap — the opener's own pack contents are never touched. Each landed recipient (owner included) also has an independent, small chance of a bonus pack: **2%** (`pack_drop_chance`) for a low-tier pack weighted **Wooden 50 / Stone 30 / Bronze 20**, plus a separate, tiny **0.1%** (`celestial_drop_chance`) shot at a Celestial. A burst that lands on nobody (no eligible recipients, or everyone already capped) doesn't count as a burst in the result the opener sees.
+
+**MEGA PIÑATA.** When a burst lands on a charm owner's *own* pack, it has a further **1-in-300** chance (`jackpot_chance`) to also drop **50 cats on the owner and split 50 evenly across every eligible player** (shuffled round-robin, spawn odds). These skip the daily caps: they're granted with the cap check and day counters left out of the `UPDATE`. They post a separate announcement that pings only recipients with a catch in the last **14 days** (`jackpot_ping_recent_days`). At 1 in 300 it lands roughly every 1–3 months in an active server (e.g. ~every 4 months at 5 charms / 30 opens a day on the main server, ~every 2.5 months for 3 players × 5 charms opening 10 packs each a day), and adds about +9% to the value charm owners' bursts produce. 1 in 100 was considered and rejected as too routine: every 2–6 weeks, +27%.
 
 **Design intent:** these rates were Monte Carlo'd against the operator's own main server's real shape (15 active players, ~30 pack opens/day, one heavy opener) rather than tuned by feel. At that shape, the piñata bonus adds roughly **1.6% extra pack-value opened** with a single piñata in the server, scaling up to **~6.7%** with 40 — a real but deliberately modest bump on top of normal pack income, not a second economy. One piñata nets a server on the order of **4 Legendary+ cat spills a month**; the daily caps only start binding during 200-pack binge sessions, so a normal play session never feels capped. The pack-drop trickle is intentionally slow: in a 5-piñata server it works out to roughly **1 pack a week** and **a Celestial about every 5–6 months**.
 

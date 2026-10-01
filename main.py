@@ -6716,23 +6716,30 @@ async def finale(message, user):
 # function to autocomplete cat_type choices for /givecat, and /forcespawn, which also allows more than 25 options.
 # Season-live rarities only, so an admin can't see or conjure a cat before its debut.
 async def cat_type_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
-    return [discord.app_commands.Choice(name=choice, value=choice) for choice in _season_eligible_cattypes() if current.lower() in choice.lower()][:25]
+    # rarest 25 when unfiltered (26 rarities): typing finds the commonest
+    return [discord.app_commands.Choice(name=choice, value=choice) for choice in _season_eligible_cattypes() if current.lower() in choice.lower()][-25:]
 
 
 # function to autocomplete /cat, it only shows the cats you have
 async def cat_command_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
     user = await Profile.get_or_create(guild_id=interaction.guild.id, user_id=interaction.user.id)
+    # rarest 25 when unfiltered (26 rarities): typing finds the commonest
     return [discord.app_commands.Choice(name=choice, value=choice) for choice in cattypes if current.lower() in choice.lower() and user[f"cat_{choice}"] > 0][
-        :25
+        -25:
     ]
 
 
 async def lb_type_autocomplete(interaction: discord.Interaction, current: str) -> list[discord.app_commands.Choice[str]]:
-    return [
-        discord.app_commands.Choice(name=choice, value=choice)
-        for choice in ["All"] + await cats_in_server(interaction.guild_id)
-        if current.lower() in choice.lower()
-    ][:25]
+    # Every rarity live this season, owned here or not — same list as the
+    # in-leaderboard dropdown, so a brand-new cat is pickable from day one.
+    # "All" + 26 rarities is over Discord's 25-choice cap, so an unfiltered
+    # list drops the commonest (typing a letter still finds them).
+    want = current.lower()
+    types = [t for t in _season_eligible_cattypes() if want in t.lower()]
+    head = ["All"] if want in "all" else []
+    if len(head) + len(types) > 25:
+        types = types[-(25 - len(head)):]
+    return [discord.app_commands.Choice(name=c, value=c) for c in head + types]
 
 
 async def cats_in_server(guild_id):
@@ -6757,7 +6764,7 @@ def _inventory_offer_options(profile, rain_minutes: int, owned_prisms: list[str]
     Order is deliberately the INVERSE of /gift's autocomplete — prisms, then
     packs, Rain, and cats last. /gift filters its 25 by what you've typed, so
     the cap almost never bites there; a Select can't filter, so the cap always
-    bites from the bottom. Cats lose that race on purpose: there are 24
+    bites from the bottom. Cats lose that race on purpose: there are 26
     rarities, and a veteran holding all of them would otherwise fill every
     slot and never see a pack or a prism — the two things whose names are
     hardest to type into the fallback field. "Fine" is easy to type; "Alpha
@@ -6790,13 +6797,21 @@ def _inventory_offer_options(profile, rain_minutes: int, owned_prisms: list[str]
             )
     if rain_minutes > 0:
         options.append(discord.SelectOption(label=f"Rain ({rain_minutes:,} minutes)", value="rain:rains", emoji="☔"))
+    cat_opts = []
     for cat in cattypes:
         held = _held(f"cat_{cat}")
         if held > 0:
-            options.append(
+            cat_opts.append(
                 discord.SelectOption(label=f"{cat} (x{held:,})", value=f"cat:{cat}", emoji=get_aura_emoji(cat, auras))
             )
-    return options[:25], len(options)
+    total = len(options) + len(cat_opts)
+    # Over the cap, the COMMONEST cats are the ones to drop: there are 26
+    # rarities now, and cutting from the bottom of common → rare would hide
+    # Doll / eGirl / Ultimate, the cats people most want to gift and the
+    # hardest to spell. "Fine" types fine into the free-text field.
+    room = max(0, 25 - len(options))
+    cat_opts = cat_opts[-room:] if room else []
+    return (options + cat_opts)[:25], total
 
 
 # function to autocomplete achievement choice for /giveachievement, which also allows more than 25 options
@@ -23826,7 +23841,7 @@ async def leaderboards(
         if type == "Cats":
             dd_opts = [Option(label="All", emoji=get_emoji("staring_cat"), value="All")]
 
-            type_opts = [Option(label=i, emoji=get_emoji(i.lower() + "cat"), value=i) for i in await cats_in_server(message.guild.id)]
+            type_opts = [Option(label=i, emoji=get_emoji(i.lower() + "cat"), value=i) for i in _season_eligible_cattypes()]
             # 26 rarities + "All" overflows Discord's 25-option cap in a server
             # that's found them all; drop the commonest (still reachable via
             # the slash command's type autocomplete)

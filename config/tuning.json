@@ -145,6 +145,7 @@
   "pack_coin_ratio_celestial": 0.2,
   "season_starting_coins": 100,
   "season_final_warning_days": 3,
+  "pack_rarity_tilt": { "Wooden": 0.9, "Stone": 0.8, "Bronze": 0.65, "Silver": 0.45, "Gold": 0.2, "Platinum": 0.0, "Diamond": -0.2, "Celestial": -0.35 },
   "pinata": {
     "min_season": 6,
     "burst_global_coef": 0.02,

@@ -172,15 +172,17 @@ pack_data = [
     {"name": "Birthday", "value": 45, "upgrade": 70, "totalvalue": 338, "special": True},
     # normal. `totalvalue` is the /stocks deposit payout and the trade-display
     # value — DO NOT inflate it. `store_price` is the /catstore buy price; it
-    # diverges from totalvalue on Silver+ to make high-tier packs aspirational.
+    # sits well above totalvalue on every tier so buy → open → sell-the-cats
+    # always loses money, at every catnip level and store perk (/catstore
+    # pays 4-7x value for rare cats; re-run that check before lowering one).
     # When `store_price` is missing, pack_buy_price falls back to totalvalue.
     {"name": "Wooden",    "value": 98,   "upgrade": 30, "totalvalue": 113,  "store_price": 113,   "special": False},
-    {"name": "Stone",     "value": 135,  "upgrade": 30, "totalvalue": 150,  "store_price": 150,   "special": False},
-    {"name": "Bronze",    "value": 150,  "upgrade": 30, "totalvalue": 195,  "store_price": 195,   "special": False},
-    {"name": "Silver",    "value": 173,  "upgrade": 30, "totalvalue": 300,  "store_price": 600,   "special": False},
-    {"name": "Gold",      "value": 345,  "upgrade": 30, "totalvalue": 600,  "store_price": 1800,  "special": False},
-    {"name": "Platinum",  "value": 945,  "upgrade": 30, "totalvalue": 1200, "store_price": 4800,  "special": False},
-    {"name": "Diamond",   "value": 1290, "upgrade": 30, "totalvalue": 1800, "store_price": 9000,  "special": False},
+    {"name": "Stone",     "value": 135,  "upgrade": 30, "totalvalue": 150,  "store_price": 450,   "special": False},
+    {"name": "Bronze",    "value": 150,  "upgrade": 30, "totalvalue": 195,  "store_price": 650,   "special": False},
+    {"name": "Silver",    "value": 173,  "upgrade": 30, "totalvalue": 300,  "store_price": 1150,   "special": False},
+    {"name": "Gold",      "value": 345,  "upgrade": 30, "totalvalue": 600,  "store_price": 2450,  "special": False},
+    {"name": "Platinum",  "value": 945,  "upgrade": 30, "totalvalue": 1200, "store_price": 5550,  "special": False},
+    {"name": "Diamond",   "value": 1290, "upgrade": 30, "totalvalue": 1800, "store_price": 10000,  "special": False},
     {"name": "Celestial", "value": 3000, "upgrade": 0,  "totalvalue": 3000, "store_price": 21000, "special": False},  # is that a madeline celeste reference????
 ]
 
@@ -1373,7 +1375,7 @@ def store_buy_price(cat_type: str, catnip_level: int, perk_buy_bonus: int = 0) -
     return max(1, int(price))
 
 
-def store_sell_pct(catnip_level: int, perk_sell_bonus: int = 0) -> int:
+def store_sell_pct(catnip_level: int, perk_sell_bonus: int = 0, perk_buy_bonus: int = 0) -> int:
     """What fraction of face value the mafia pays out on a sell, as a percent.
     The "natural" curve is 50% at Newbie + 5% per level (so El Patrón would
     sell at 100% face) — but the natural curve crosses the buy curve at Lv7
@@ -1387,20 +1389,21 @@ def store_sell_pct(catnip_level: int, perk_sell_bonus: int = 0) -> int:
     negative even with the perk active (this is the spec's anti-arbitrage
     guarantee)."""
     natural = 50 + max(0, catnip_level) * 5 + int(perk_sell_bonus)
-    # Cap is computed against the player's catnip-only buy discount, NOT
-    # against any buy-side perk bonus. Otherwise catstore_discount_stack and
-    # catstore_sell_premium would compound and flip the spread positive.
-    buy_pct = 100 - store_discount_pct(catnip_level)
+    # Cap against what this player actually pays to BUY right now, including
+    # the catstore_discount_stack (Mafia Markdown) perk. Capping against the
+    # catnip-only discount let a Markdown holder buy a cat and sell it straight
+    # back at a profit (+2,146 per eGirl at Lv9-10).
+    buy_pct = 100 - store_discount_pct(catnip_level, perk_buy_bonus)
     return min(natural, buy_pct - 5)
 
 
-def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0) -> int:
+def store_sell_price(cat_type: str, catnip_level: int, perk_sell_bonus: int = 0, perk_buy_bonus: int = 0) -> int:
     """Coins received per cat sold. Scales with mafia level: a Newbie only
     gets 50% of face value back, El Patrón gets the full 100%. The asymmetry
     with the buy discount is intentional — sell ceiling is 100% face while
     buy floor is 70% face at max mafia, so round-trips always net negative."""
     value = catstore_face_value(cat_type)
-    pct = store_sell_pct(catnip_level, perk_sell_bonus)
+    pct = store_sell_pct(catnip_level, perk_sell_bonus, perk_buy_bonus)
     return max(1, value * pct // 100)
 
 
@@ -1446,6 +1449,7 @@ def prism_craft_coin_cost(prisms_crafted: int) -> int:
 # opener's own pack is never touched. Daily caps (received / owner bonus) are
 # what stop bulk opens and alt farms from snowballing. Piñatas aren't
 # tradeable, so they're just a count on the profile — no table.
+PACK_RARITY_TILT = config.tuning.get("pack_rarity_tilt", {})
 PINATA = config.tuning.get("pinata", {})
 PINATA_MIN_SEASON = int(PINATA.get("min_season", 6))
 PINATA_G = float(PINATA.get("burst_global_coef", 0.02))
@@ -7749,13 +7753,28 @@ def _spawn_weighted_cattype() -> str:
     rarest cats, because 1-of-24 has nothing to do with a rarity's spawn
     weight (eGirl is 1-in-2,167 on a real spawn).
 
-    The pack roll itself must NOT use this. It picks uniformly and then
-    divides the pack's value by CAT_VALUES, which is total_weight/weight —
-    so the amount it lands on is already proportional to spawn weight.
-    Weighting the pick there too would square the rarity curve.
+    The pack roll does NOT use this: it has its own per-tier tilt in
+    _pack_cattype, so low packs lean common and high packs lean rare.
     """
     eligible = _spawn_eligible_type_dict()
     return random.choices(list(eligible.keys()), weights=list(eligible.values()))[0]
+
+
+def _pack_cattype(level: int) -> str:
+    """The cat type a pack of tier `level` (index into pack_data) holds.
+
+    Weighted by spawn_weight ** tilt, with the tilt set per tier in
+    config/tuning.json -> pack_rarity_tilt. tilt 1 is natural spawn odds,
+    0 is every rarity equally likely (the old behaviour for every pack),
+    negative favours rare cats. Low packs sit near spawn odds and high packs
+    below zero, so rare cats live in good packs: before this a Wooden or
+    Stone held an Ultimate/Doll/eGirl several times more often than a wild
+    catch did, which made bought-in-bulk low packs a coin and rare-cat
+    machine. The amount is still sized by value, so a pack's worth is
+    unchanged. Specials (no entry) use Wooden's."""
+    eligible = _season_eligible_cattypes()
+    tilt = float(PACK_RARITY_TILT.get(pack_data[level]["name"], PACK_RARITY_TILT.get("Wooden", 0.9)))
+    return random.choices(eligible, weights=[type_dict[t] ** tilt for t in eligible])[0]
 
 
 def _quest_eligible_cattypes() -> list[str]:
@@ -13032,7 +13051,7 @@ async def packs(message: discord.Interaction):
                 coin_amount = int(final_level["totalvalue"] * coin_ratio)
             # else: variant rolled but final tier is special — silently
             # behave as a regular open (coin_amount stays 0, goal_value full).
-        chosen_type = random.choice(_season_eligible_cattypes())
+        chosen_type = _pack_cattype(level)
         cat_emoji = get_aura_emoji(chosen_type, user.cat_auras)
         pre_cat_amount = goal_value / CAT_VALUES[chosen_type]
         if pre_cat_amount % 1 > random.random():
@@ -13078,7 +13097,7 @@ async def packs(message: discord.Interaction):
                     # re-roll the cat type once, run the lottery again.
                     if is_single:
                         reward_texts.append(reward_texts[-1] + "\n🎲 Re-rolling cat type...")
-                    new_type = random.choice(_season_eligible_cattypes())
+                    new_type = _pack_cattype(level)
                     new_pre = goal_value / CAT_VALUES[new_type]
                     if new_pre % 1 > random.random():
                         new_amount = math.ceil(new_pre)
@@ -14812,66 +14831,6 @@ async def stocks(message: discord.Interaction):
             view.add_item(Button(label="No packs left!", disabled=True))
         return view
 
-    async def withdraw(interaction):
-        await profile.refresh_from_db()
-        embedVar = discord.Embed(
-            title="📤 Withdraw Coins",
-            description=f"You currently have 🪙 **{profile.coins:,}** coins.\n\nThere is a **25%** withdrawal fee - You will get {get_emoji('woodenpack')} **1 Wooden Pack** for every 🪙 **{COIN_PER_PACK}** coins you withdraw.",
-            color=Colors.brown,
-        )
-        view = View(timeout=VIEW_TIMEOUT)
-        button = Button(label="Continue")
-        button.callback = send_withdrawal_modal
-        view.add_item(button)
-        await interaction.response.send_message(embed=embedVar, view=view, ephemeral=True)
-
-    async def send_withdrawal_modal(interaction):
-        await profile.refresh_from_db()
-        max_packs = profile.coins // COIN_PER_PACK
-        if max_packs < 0:
-            max_packs = 0
-        await interaction.response.send_modal(WithdrawalModal(max_packs))
-
-    class WithdrawalModal(Modal):
-        def __init__(self, max_packs):
-            super().__init__(
-                title="Withdraw...",
-                timeout=VIEW_TIMEOUT,
-            )
-
-            self.input = TextInput(
-                min_length=1,
-                max_length=5,
-                label=f"Wooden packs to withdraw (max {max_packs})",
-                style=discord.TextStyle.short,
-                required=True,
-                placeholder="2",
-            )
-            self.add_item(self.input)
-
-        async def on_submit(self, interaction: discord.Interaction):
-            try:
-                packs = int(self.input.value)
-                if packs <= 0:
-                    raise ValueError
-            except Exception:
-                await interaction.response.send_message("number pls", ephemeral=True)
-                return
-
-            await profile.refresh_from_db()
-            max_packs = profile.coins // COIN_PER_PACK
-            if max_packs < 0:
-                max_packs = 0
-            if packs > max_packs:
-                await interaction.response.send_message("u dont have enough coins", ephemeral=True)
-                return
-
-            profile.coins -= packs * COIN_PER_PACK
-            profile.pack_wooden += packs
-            await profile.save()
-            await PortfolioHistory.create(user_id=profile.id, time=int(time.time()), type="w", price=packs * COIN_PER_PACK)
-            await interaction.response.send_message(f"📤 You withdrew {packs} wooden packs! 🪙 -{packs * COIN_PER_PACK} coins.", ephemeral=True)
-
     class OrderModal(Modal):
         """Limit-order modal: takes quantity + price, escrows, places, then
         runs user-vs-user matching. Anything that survives rests in the book
@@ -15319,7 +15278,6 @@ async def stocks(message: discord.Interaction):
 
         row1 = ActionRow()
         row1.add_item(_btn("Deposit", ButtonStyle.green, deposit))
-        row1.add_item(_btn("Withdraw", ButtonStyle.red, withdraw))
         row2 = ActionRow()
         row2.add_item(_btn("Your Portfolio", ButtonStyle.blurple, view_user_portfolio))
         row2.add_item(_btn("News Feed", ButtonStyle.gray, view_news_feed, emoji="📰"))
@@ -15528,12 +15486,10 @@ async def catstore(message: discord.Interaction):
             "title": "Packs in the Store",
             "body": (
                 "**Stone through Celestial** are sold here at their `store_price` (with your Cat Mafia discount/tax applied).\n\n"
-                "**Wooden is excluded** — `/stocks` already provides a coins↔Wooden exchange at 100 coins per pack via the deposit/withdraw flow. "
-                "Selling Wooden here would duplicate that path with no benefit. Use `/stocks` for Wooden.\n\n"
+                "**Wooden isn't sold anywhere** — Wooden packs come from catching, the battlepass and Mystery boxes.\n\n"
                 "**Pack contents are random when opened.** A pack you bought here behaves identically to a pack from the battlepass — same odds, same achievements, same quest progress. Buy then open with `/packs`.\n\n"
-                "**Round-trip economics:** Stone/Bronze are net-zero versus a /stocks deposit (`store_price` == `totalvalue`). Silver and up are net-NEGATIVE — store_price is a multiple of the deposit value, so buying then depositing is the worst possible play. "
-                "Buying then **opening** is gacha-negative on expectation, because expected pack contents (`value`) are less than the deposit value (`totalvalue`), and the store_price is higher still. Top-tier packs are meant to be opened, not flipped. "
-                "Cat Mafia rank changes that math: at Lv10 the discount makes opening packs much more favorable, but Celestial is still meaningfully expensive."
+                "**Round-trip economics:** every pack costs more here than you'd get back by depositing it in /stocks or by selling the cats inside, at every Cat Mafia level. "
+                "Packs are for opening, not flipping. Low packs are mostly common cats; the rare ones live in Gold and up."
             ),
         },
     ]
@@ -15715,7 +15671,7 @@ async def catstore(message: discord.Interaction):
                 # catstore_sell_premium (job perk): additive sell-pp bonus,
                 # still capped by buy_pct-5 inside store_sell_pct.
                 _sell_perk_bonus = _perks_catstore_sell_bonus(fresh)
-                unit_price = store_sell_price(self.cat_type, fresh.catnip_level, _sell_perk_bonus)
+                unit_price = store_sell_price(self.cat_type, fresh.catnip_level, _sell_perk_bonus, _perks_catstore_buy_bonus(fresh))
                 total = unit_price * qty
                 fresh[f"cat_{self.cat_type}"] -= qty
                 fresh.coins += total
@@ -16531,7 +16487,7 @@ async def catstore(message: discord.Interaction):
             "## 📦 Cat Store — Packs",
             f"🪙 {profile.coins:,} · Mafia Lv {profile.catnip_level} ({rank}) · {_signed_pct(pack_discount)}",
             "Buy packs to open later. Higher tiers = better cats inside.",
-            "-# Wooden packs are sold via `/stocks` (deposit/withdraw flow).",
+            "-# Wooden packs aren't sold — they come from catching, the battlepass and Mystery boxes.",
         ]
         if last_toast:
             items.append(last_toast)
@@ -16582,10 +16538,10 @@ async def catstore(message: discord.Interaction):
         _buy_bonus = _perks_catstore_buy_bonus(profile)
         _sell_bonus = _perks_catstore_sell_bonus(profile)
         discount = store_discount_pct(profile.catnip_level, _buy_bonus)
-        sell_pct = store_sell_pct(profile.catnip_level, _sell_bonus)
+        sell_pct = store_sell_pct(profile.catnip_level, _sell_bonus, _buy_bonus)
         unit_value = catstore_face_value(cat_type)
         unit_buy = store_buy_price(cat_type, profile.catnip_level, _buy_bonus)
-        unit_sell = store_sell_price(cat_type, profile.catnip_level, _sell_bonus)
+        unit_sell = store_sell_price(cat_type, profile.catnip_level, _sell_bonus, _buy_bonus)
         owned = profile[f"cat_{cat_type}"]
         coins = profile.coins
         can_afford = coins // unit_buy if unit_buy > 0 else 0

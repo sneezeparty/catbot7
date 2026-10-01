@@ -44,6 +44,25 @@ The battlepass **Mystery** reward extends the same principle across reward *type
 
 > **STALE:** the parenthetical EV / "sub-3% outcomes" claim above predates the September 2026 `cats`/`coins_and_cats`/`buff` addition — several of the new families now sit at 4–10% weight, and the EV figure hasn't been recalculated for the resulting nine-family table. See the matching note in [battlepass.md → What a Mystery resolves to](battlepass.md#what-a-mystery-resolves-to) (re: main.py, config/tuning.json, commit 4788e27).
 
+### Pack rarity pick
+
+Which cat type a pack lands on is `_pack_cattype(level)`: weighted by `spawn_weight ** tilt`, where `tilt` is set **per pack tier** in `config/tuning.json → pack_rarity_tilt`:
+
+| Tier | tilt |
+| ---- | ---- |
+| Wooden | 0.9 |
+| Stone | 0.8 |
+| Bronze | 0.65 |
+| Silver | 0.45 |
+| Gold | 0.2 |
+| Platinum | 0 |
+| Diamond | -0.2 |
+| Celestial | -0.35 |
+
+`tilt = 1` reproduces natural spawn odds; `tilt = 0` makes every rarity equally likely (the old behavior — a flat `random.choice(_season_eligible_cattypes())`, same for every tier, roughly 1-in-26); negative tilt skews toward rare cats. Special packs (no entry in the table) use Wooden's tilt. The *amount* of cats a pack contains is unaffected — `goal_value / CAT_VALUES[chosen_type]` still sizes the payout off the picked type's value, so a pack's expected coin-equivalent worth doesn't change; only the *type* distribution shifted. This also drives the re-roll in the [Sub-1 fail handling](#sub-1-fail-handling) lottery below, which now calls the same weighted picker instead of a flat choice.
+
+**Design intent:** rare cats should live in good packs, not be handed out at the same odds regardless of tier. Simulated: per-Stone-pack odds of Ultimate/Doll/eGirl are now ~1 in 700+ each (was ~1 in 136 under the flat pick — a Stone pack used to beat a wild catch's 1-in-584 odds by 4-6x for those rarities; now it's much closer to a wild catch, by design). Celestial lands one of those three ~1 in 6-8 each. Per player per season (200 packs, in the main server's pack-tier mix), expected counts dropped from ~1.26/1.11/0.82 to ~1.04/0.91/0.75 Ultimate/Doll/eGirl. Total pack value delivered per season is ~9% lower — the tilt mainly removes "free" rare cats that used to fall out of low-tier packs via lucky uniform rolls and sub-1 cascades.
+
 ### Pack coin variant
 
 Each pack open has a **50% chance** (tunable `pack_coin_variant_chance`) of becoming a **"coin crate"**: the pack's `goal_value` is split so the cat side rolls at `goal_value * (1 - coin_ratio)` and the remaining `totalvalue * coin_ratio` is paid out directly as coins. The coin ratio is **tier-scaled** via `_pack_coin_ratio(level_idx)`: linear interpolation from `PACK_COIN_RATIO_WOODEN` (0.5) at Wooden down to `PACK_COIN_RATIO_CELESTIAL` (0.2) at Celestial. **Special packs** (Christmas, Valentine, Chef, Birthday) always open as regular cat packs — `_pack_coin_ratio` returns 0 for them, coin variant is a no-op.
@@ -305,6 +324,8 @@ Actual coin prices are derived live: `face = (sum(type_dict.values()) // weight)
 
   Effective sell rate by level: 50, 55, 60, 65, 70, 75, 80, 80, 75, 70, 65, 65. The non-monotonicity is intentional — once `buy_pct` starts dropping (high ranks), `sell_pct` is dragged down to keep the floor below it.
 
+  **The `buy_pct` used for the cap now includes the buyer's buy-side job perk**, not just the catnip-level discount: `store_sell_pct`/`store_sell_price` take an explicit `perk_buy_bonus` parameter, so `buy_pct = 100 - store_discount_pct(catnip_level, perk_buy_bonus)` folds in the `catstore_discount_stack` ("Mafia Markdown") perk the same way `store_buy_price` already did. Before this fix, the cap was computed against the catnip-only discount while the perk still lowered what the player actually paid — so a Markdown holder's real buy price could sit below their capped sell price, and a round trip turned a profit (817 catnip-level × perk-tier combinations did this, up to **+2,146 coins on a single eGirl** at Lv9-10). Every caller that prices a sell (the sell-confirm handler, the catstore price-preview embed) now passes the buyer's own `perk_buy_bonus` alongside `perk_sell_bonus`, so the anti-arbitrage guarantee below holds against the buyer's *actual* buy price, not just the catnip curve.
+
 The buy and sell curves are **asymmetric on purpose**: at every level, the sell price sits at least 5 points below the buy price. Round-trips always net negative, so a high-mafia player cannot farm the store. The sell penalty at low ranks doubles the punishment for selling early — Newbies who try to liquidate get the worst rate. **The trade-off:** El Patrón doesn't get 100% face back as the headline suggests; their sell rate is capped at 65% to maintain the anti-arbitrage spread. This was a deliberate design choice over making sells flat / matching upstream behavior.
 
 ### Catnip-level discount (store_discount)
@@ -347,7 +368,7 @@ Existing users were backfilled from their `cat_<Type>` counters by migration 005
 
 `/catstore` touches `profile.coins` only. Since migration 006 merged `roulette_balance` into `coins`, this means roulette winnings can now be spent in the store — that is an accepted consequence of the merge. The coins↔rain-minutes wall is now puncturable via the Rain sub-page in Extras (see below), but the puncture is gated by a steep, exponentially-scaling tax rather than removed outright.
 
-Before `/catstore`, coins had two main sinks: depositing into `/stocks` (volatile speculation) and spending via `/packs` (gacha lottery). `/catstore` was originally added as **the third — the *targeted* sink** the economy was missing: pick the rarity you want, pay coins. The Extras sub-tree extends that with two non-targeted coin sinks: **ephemeral rain** (no inventory, just channel-spawn cats) and **random-roll packs** (`/catstore`'s gacha path, kept deliberately at face `totalvalue` so it adds no arbitrage versus `/stocks`). Packs in /catstore are *intentionally non-targeted* — they're a coin-sink convenience for coin-rich players, not a correction of the original "targeted sink" design.
+Before `/catstore`, coins had two main sinks: depositing into `/stocks` (volatile speculation) and spending via `/packs` (gacha lottery). `/catstore` was originally added as **the third — the *targeted* sink** the economy was missing: pick the rarity you want, pay coins. The Extras sub-tree extends that with two non-targeted coin sinks: **ephemeral rain** (no inventory, just channel-spawn cats) and **random-roll packs** (`/catstore`'s gacha path — priced above `totalvalue` at every tier since the 2026-09-30 retune so it can't be arbitraged against `/stocks`, see [Packs in /catstore](#packs-in-catstore) below). Packs in /catstore are *intentionally non-targeted* — they're a coin-sink convenience for coin-rich players, not a correction of the original "targeted sink" design.
 
 ### Achievement integration
 
@@ -413,9 +434,9 @@ Explicitly **not** fired by rain: `catstore_collector` (which counts distinct ca
 
 ### Packs in /catstore
 
-`/catstore` → Extras → Packs sells **Stone through Celestial** packs at face `totalvalue` (with Cat Mafia discount applied). The store gives players a way to spend a surplus coin pile on pack content without going through `/stocks` or waiting for the battlepass.
+`/catstore` → Extras → Packs sells **Stone through Celestial** packs at their `store_price` (with Cat Mafia discount applied) — a markup over `totalvalue`, see the table below. The store gives players a way to spend a surplus coin pile on pack content without going through `/stocks` or waiting for the battlepass.
 
-**Wooden is excluded.** `/stocks` already exposes a coins↔Wooden exchange at `COIN_PER_PACK = 100` via the deposit/withdraw flow. Selling Wooden in /catstore would duplicate that path with no benefit and create a second price reference. The Stone-and-up tiers are a genuine economic addition because `/stocks` doesn't sell them.
+**Wooden isn't sold anywhere.** `/stocks` used to expose a coins→Wooden exchange (the Withdraw button, `COIN_PER_PACK = 100` plus a 25% fee); that button and its modal were removed. `/stocks` Deposit (packs→coins, any tier including Wooden) is unaffected — only the coins→pack direction is gone. Wooden packs now come exclusively from catching, the battlepass, and Mystery boxes. The Stone-and-up tiers remain a genuine economic addition because nothing else sells them.
 
 **Pricing (`main.py:pack_buy_price`)**:
 
@@ -425,23 +446,25 @@ adjusted = raw * (1 - mafia_discount_pct / 100)
 price    = max(1, ceil(adjusted))
 ```
 
-`store_price` was added to `pack_data` so the **catstore buy price** can diverge from `totalvalue` (which still drives the `/stocks` deposit payout and the `/trade` value display). Silver and up were inflated by a per-tier multiplier; Stone and Bronze are unchanged so low-tier packs remain accessible.
+`store_price` was added to `pack_data` so the **catstore buy price** can diverge from `totalvalue` (which still drives the `/stocks` deposit payout and the `/trade` value display). As of the **2026-09-30 retune** every tier from Stone up carries a markup over `totalvalue` — there's no tier left where `store_price == totalvalue`.
 
-| Pack      | totalvalue | store_price | Mult | Lv0 (-20%) | Lv4 (0%) | Lv10 (+30%) |
-| --------- | ---------- | ----------- | ---- | ---------- | -------- | ----------- |
-| Stone     | 150        | 150         | 1×   | 180        | 150      | 105         |
-| Bronze    | 195        | 195         | 1×   | 234        | 195      | 137         |
-| Silver    | 300        | 600         | 2×   | 720        | 600      | 420         |
-| Gold      | 600        | 1,800       | 3×   | 2,160      | 1,800    | 1,260       |
-| Platinum  | 1,200      | 4,800       | 4×   | 5,760      | 4,800    | 3,360       |
-| Diamond   | 1,800      | 9,000       | 5×   | 10,800     | 9,000    | 6,300       |
-| Celestial | 3,000      | 21,000      | 7×   | 25,200     | 21,000   | 14,700      |
+| Pack      | totalvalue | store_price | Mult  | Lv0 (-20%) | Lv4 (0%) | Lv10 (+30%) |
+| --------- | ---------- | ----------- | ----- | ---------- | -------- | ----------- |
+| Stone     | 150        | 450         | 3×    | 540        | 450      | 315         |
+| Bronze    | 195        | 650         | 3.3×  | 780        | 650      | 455         |
+| Silver    | 300        | 1,150       | 3.8×  | 1,380      | 1,150    | 805         |
+| Gold      | 600        | 2,450       | 4.1×  | 2,940      | 2,450    | 1,715       |
+| Platinum  | 1,200      | 5,550       | 4.6×  | 6,660      | 5,550    | 3,885       |
+| Diamond   | 1,800      | 10,000      | 5.6×  | 12,000     | 10,000   | 7,000       |
+| Celestial | 3,000      | 21,000      | 7×    | 25,200     | 21,000   | 14,700      |
 
-**Round-trip economics changed.** Pre-rebalance the round trip was net-zero — `store_price == totalvalue`, so buying a pack and immediately depositing it via `/stocks` returned the same coins. Post-rebalance, **Silver and up are net-negative**: buying a Celestial for 21,000 coins and depositing it pays back only 3,000. This is intentional — top-tier packs are meant to be opened, not flipped. Buy-then-**open** remains gacha-negative on expectation (pack `value` < `totalvalue` < `store_price`), but Cat Mafia rank still tilts the math; at Lv10 the +30% discount makes opening Celestial dramatically more favorable than at Lv0.
+**Round-trip economics: every tier loses money, on purpose.** `store_price` is set so that buy → open → sell-the-cats-back loses coins at **every** Cat Mafia level (0-10) and **every** store-perk strength — including the Padded Crate job perk (see [jobs.md](jobs.md)) landing a bonus cat on every single pack, and MEGA PIÑATA-favorable odds. Verified best case is Stone at **-36 coins/pack at Lv10**. Buying then **depositing** via `/stocks` (pays flat `totalvalue`, no RNG) is worse still, since `store_price` sits well above `totalvalue` at every tier now. Packs bought here are meant to be opened for their contents, never flipped — in either direction.
 
-**Design intent of the rebalance.** A maxed Tier‑4 jobs player nets ~13,800 coins/day. At the pre-rebalance Celestial price of 3,000, they could buy 4-5 Celestials a day — high-tier packs were impulse buys. Bumping `store_price` 5–7× for the top tiers turns Celestial into a multi-day grind even for whales, restoring the "aspirational" feel without crushing new players who still want a Stone/Bronze without thinking. Wooden continues to live only in `/stocks` — no catstore entry — because the existing coins↔Wooden exchange already serves the cheap-pack-on-demand role.
+**Root cause.** `/catstore`'s cat-buy side (`catstore_tier_mult`, see [Pricing model](#pricing-model) above) pays **4-7× a cat's raw `cat_value`** for Divine-through-eGirl rarities. That means *any* cheap source of rare cats — a pack whose `store_price` sat too close to `totalvalue`, say — becomes a coin-printing loop once the contents can be sold back to the same store. This `store_price` hike closes the loop at the pack layer; `catstore_tier_mult` itself is unchanged, so it stays the reason future cheap-rare-cat sources need the same scrutiny.
 
-**Quantity per purchase** is capped at 99 by the modal (`max_length=2`). Players who want more can transact twice — same convention as `/stocks` withdraw.
+**Design intent of the original (2026-05) rebalance.** A maxed Tier‑4 jobs player nets ~13,800 coins/day. At the pre-rebalance Celestial price of 3,000, they could buy 4-5 Celestials a day — high-tier packs were impulse buys. Bumping `store_price` 5–7× for the top tiers turned Celestial into a multi-day grind even for whales. That first pass left Stone/Bronze untouched and Wooden unsold-but-withdrawable via `/stocks`; the 2026-09-30 retune (above) closed both of those gaps once the sell-back loop was found.
+
+**Quantity per purchase** is capped at 99 by the modal (`max_length=2`). Players who want more can transact twice — same convention used elsewhere in `/catstore`.
 
 **Pack contents and opening** are identical to packs earned from the battlepass. The pack columns (`profile.pack_{tier}`) are shared inventory; a `/catstore`-bought pack and a battlepass-rewarded pack of the same tier are indistinguishable once they land. All existing pack-opening achievements and quest progress fire the same way.
 
@@ -451,12 +474,12 @@ price    = max(1, ceil(adjusted))
 
 Existing catstore achievements that fire on qualifying pack purchases:
 - `catstore_first_buy` — first /catstore purchase of any kind (cat OR pack).
-- `catstore_whale` — single transaction ≥ 10,000 coins. Trips on 6× Diamond (10,800 at Lv4), or much sooner if the player buys multiple Platinum+.
+- `catstore_whale` — single transaction ≥ 10,000 coins. A single Diamond already trips it (10,000 at Lv4), and two Platinum (11,100 at Lv4) gets there too.
 - `mafia_discount_max` (Lv10+) and `mafia_tax_payer` (Lv0) — apply the same way they do for cats.
 
 Explicitly **not** fired: `catstore_collector` (counts cat rarities, not packs — `store_purchased_rarities` and `store_purchased_pack_tiers` are independent arrays).
 
-**Design intent**. /catstore packs are a *non-targeted* sink — the gacha path the original "targeted sink" design avoided. They're a convenience for coin-rich players, included because the store needed something to do at the high end without inflating the cat catalog. The face-value pricing guarantees no arbitrage vs `/stocks` deposit; the cat-side targeted purchases remain the cheaper and more reliable use of /catstore.
+**Design intent**. /catstore packs are a *non-targeted* sink — the gacha path the original "targeted sink" design avoided. They're a convenience for coin-rich players, included because the store needed something to do at the high end without inflating the cat catalog. The above-`totalvalue` pricing (every tier, since the 2026-09-30 retune) guarantees no arbitrage vs `/stocks` deposit or against opening-then-selling the contents; the cat-side targeted purchases remain the cheaper and more reliable use of /catstore.
 
 ## Prism crafting (coin tax)
 
@@ -510,7 +533,7 @@ On top of the cats, each craft costs escalating **packs + coins** from `config/t
 | 7 | 160,000 | 10× Diamond |
 | 8+ | 240,000 | 5× Celestial |
 
-Valuing the pack side at catstore list price (the Lv4/no-discount column of the [Packs in /catstore](#packs-in-catstore) table — Silver 600, Gold 1,800, Platinum 4,800, Diamond 9,000, Celestial 21,000), the cumulative cost to craft is **~47.5k through the 3rd charm, ~179.5k through the 5th, and ~900k through the 8th** (per craft: ~5.5k, 14k, 28k, 44k, 88k, 125k, 250k, then ~345k each). The pack side was raised 5× on 2026-09-30, before launch, to make charms a real pack sink: from the 8th craft on a Piñata Charm costs **more than a prism at its 320,000-coin cap** (see the [prism cost ramp](#prism-crafting-coin-tax) above).
+Valuing the pack side at catstore list price (the Lv4/no-discount column of the [Packs in /catstore](#packs-in-catstore) table — Silver 1,150, Gold 2,450, Platinum 5,550, Diamond 10,000, Celestial 21,000), the cumulative cost to craft is **~60k through the 3rd charm, ~203k through the 5th, and ~938k through the 8th** (per craft: ~8.25k, 17.25k, 34.5k, 47.75k, 95.5k, 130k, 260k, then ~345k each). The pack side was raised 5× on 2026-09-30, before launch, to make charms a real pack sink: from the 8th craft on a Piñata Charm costs **more than a prism at its 320,000-coin cap** (see the [prism cost ramp](#prism-crafting-coin-tax) above).
 
 ### Burst mechanic
 

@@ -155,3 +155,7 @@
 2026-09-26 16:00  Added: "/catcraft crafting hub command (Prism + Piñata + View buttons)" (re: main.py)
 2026-09-26 16:00  Changed: "/prism deprecated to a bare /catcraft alias; person filter param removed" (re: main.py)
 2026-09-26 16:00  Internal: "[pinata] INFO log line per burst batch and per craft" (re: main.py)
+2026-10-01 13:32  Changed: "Pack cat-type roll now tilted per tier via _pack_cattype + pack_rarity_tilt" (re: main.py, config/tuning.json)
+2026-10-01 13:32  Changed: "/catstore pack prices raised so buy->open->sell always loses money" (re: main.py)
+2026-10-01 13:32  Fixed: "Mafia Markdown buy-perk exploit on /catstore sell-back closed (store_sell_pct perk_buy_bonus)" (re: main.py)
+2026-10-01 13:32  Removed: "/stocks Withdraw button (coins->Wooden packs) removed" (re: main.py)

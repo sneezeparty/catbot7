@@ -6,9 +6,9 @@ Catnip is Cat Bot's late-game endgame loop, themed as a "cat mafia". It's the pr
 
 A catnip "session" is a temporary buff window:
 
-- The user runs `/catnip` once they've unlocked it (catching enough cats flips `profile.dark_market_active`).
+- The user runs `/catnip` once they've unlocked it: past 50 total catches, a catch has a 1-in-11 chance of showing a "You see a shadow..." button, and pressing it sets `profile.dark_market_active`. Servers can switch the whole system off with the `do_catnip` setting.
 - Each session has a **level** (1–10) and a finite **duration** (`catnip_active` is the unix expiry).
-- During a session, catches roll for perk-driven effects (doubled catches, tripled catches, timer extensions, etc.).
+- During a session, catches roll for perk-driven effects (doubled catches, tripled catches, pack drops, etc.).
 - Levels increase by completing **bounties** and **paying a price** (cats of a specific rarity).
 - Failing the bounty window before the session expires drops the user one level and revokes their last perk.
 - Level 10 is repeatable but caps out — extra runs just add 24h to `catnip_active`.
@@ -17,23 +17,29 @@ A catnip "session" is a temporary buff window:
 
 ## Level structure
 
-Defined in `config/catnip.json` under `levels[<n>]`. Each level has:
-- `bonus`: a special bounty (e.g., catch a specific cat type)
-- `price`: cat type + amount required to advance
-- `perks`: list of allowed perk indices for the random-3 picker
-- `store_discount`: integer percent applied to `/catstore` buy prices for players at this rank. Negative values are a surcharge (Lv0 Newbie = -20%); positive values are a discount (Lv10 El Patrón = +30%). Sell prices are always face value regardless of rank. See the [Cat Store section of economy.md](economy.md#cat-store) for the full table and pricing formula.
+Defined in `config/catnip.json` under `levels[<n>]`. There are twelve entries, 0 (Newbie) through 11. Entry 11 ("Most Wanted") is not a reachable rank: a level's bounties are generated from the *next* entry (`get_bounties` reads `levels[level + 1]`), so level 10 needs something above it. Each entry has:
+- `name`, `change`: the rank name and the one-line "what this level adds" blurb shown on the panel
+- `duration`: session length in hours, applied when the player begins bounties
+- `cost`: a value budget for the pay-up price, not a fixed cat. `set_mafia_offer` picks a random quest-eligible rarity whose per-cat value fits inside the budget and asks for as many of it as add up to `cost`, so the same level can ask for a different cat type each time
+- `bounty_amount`, `bounty_difficulty`, `max_amount`: how many bounties, roughly how many catches each should take, and the cap on a single bounty's target
+- `bonus`: 0/1, whether the level carries a bonus bounty (see [Bounties](#bounties))
+- `weights`: rarity weights for the random-3 perk picker
+- `store_discount`: integer percent applied to `/catstore` buy prices for players at this rank. Negative values are a surcharge (Lv0 Newbie = -20%); positive values are a discount (Lv10 El Patrón = +30%). Sell prices scale with rank too: 50% of face value at Newbie, rising 5 points per level but capped 5 points under the buy price, so they top out around 65% at El Patrón. See the [Cat Store section of economy.md](economy.md#cat-store) for the full table and pricing formula.
 
 Perks themselves are defined separately under `perks` with rarity tiers (Common, Uncommon, Rare, Epic, Legendary) and effect values.
 
 ## Perks
 
-When a user pays up to level N, they pick **one of three random perks** (with rarities weighted by level). Perks stack across levels — by level 10 a user can have 10 perks active simultaneously.
+When a user pays up to level N (N ≥ 2), they pick **one of three random perks**, with rarities drawn from the new level's `weights`. The first pay-in (0 → 1) grants no perk, so perks stack to `catnip_level − 1`: 9 at level 10, all active simultaneously.
+
+Perks only fire while the session is live (`catnip_active > now`), and they are suspended during a Cat Police Pinch (`perks_suspended_until`, see [jobs.md](jobs.md#pinch-immunity-the-asymmetry-with-catnip)).
+
+**Perk-count invariant.** `len(profile.perks) + 1 == catnip_level` is reconciled every time `/catnip` opens, one step per open: a player with too few perks gets a **Select Perk** button (`perk_selected = False`), and a player with too many loses the last one. This is how anything that moves `catnip_level` without touching `perks` gets squared up. A respect-driven level loss (see [jobs.md](jobs.md#respect--the-decay-meter)) strips its perk here, and a level raised directly in the database is owed its picks here. The catch path doesn't check the level, so a surplus perk keeps firing until that next `/catnip`.
 
 Effects include:
 - Double/triple catches with some probability
-- Timer extensions on catches (extending the session)
-- Pack drops on catch (Wooden through Platinum)
-- Streak-scaled bonuses — **Loyalty Streak (`loyalty_streak`):** timer extension proportional to `user.daily_catch_streak` (UTC-day granularity streak, distinct from `profile.catch_streak` which is the per-catch counter)
+- Pack drops on catch (Wooden through Platinum). These are budgeted by `profile.pack_attempts`: set to the session length in minutes when bounties begin, spent one per catch, and pack rolls stop at zero.
+- Streak-scaled bonuses — **Loyalty Streak (`loyalty_streak`):** adds time to the session when bounties begin, scaled by `user.daily_catch_streak` (UTC-day granularity streak, distinct from `profile.catch_streak` which is the per-catch counter). One minute per streak day for the first 100 days, then half that for the next 100, a third for the next, and so on.
 - Rain triggers on catch
 - **Snowballer (`combo`):** each consecutive catch within 5 minutes adds 1 to `profile.combo_stack` (cap 30); per-stack % feeds into the double-catch pool. Values [0.5, 0.75, 1.25, 2.0, 3.0]% per stack. Weight 8, non-exclusive.
 - **Battlepass Booster (`bp_xp`):** per-catch % chance of +5 battlepass XP via `grant_achievement_xp`. Level-up embeds are sent inline if the XP pushes a level boundary. Values [5, 8, 12, 20, 30]%. Weight 10, non-exclusive.
@@ -46,7 +52,12 @@ Effects include:
 
 ## Bounties
 
-Each level has 0–3 bounties (`bounty_one`, `bounty_two`, `bounty_three`) with rarities and target counts. The user advances toward a bounty by catching matching cats during the session.
+Each level carries 1–3 regular bounties and, from level 7, one **bonus bounty**. State lives in four slots on `profile` (`bounty_{id,type,total,progress}_{one,two,three,bonus}`), with `profile.bounties` holding the regular count. There are three shapes: catch N cats, catch N of one type, and catch N of a rarity or rarer. The user advances a bounty by catching matching cats once they've begun the level (see [Hibernation](#hibernation)).
+
+- **Regular bounties gate the level-up.** Pay Up! stays disabled until all of them are complete.
+- **The bonus bounty is optional.** Completing it grants one perk **reroll**: pick any perk slot and replace it with one of three fresh options. An unused reroll is forfeited on level-up (the panel warns first). `profile.reroll` is the *spent* flag, so `False` means a reroll is available.
+- Targets are drawn only from quest-eligible rarities, as is the pay-up price, so a rarity that debuted this season is never demanded. "Or rarer" bounties still count it when caught.
+- Count and difficulty come from the *next* level's config entry (see [Level structure](#level-structure)).
 
 **Design intent:** bounties are time pressure. The "complete bounties before the session expires" loop is what keeps catnip from being passive.
 
@@ -58,11 +69,21 @@ Each level-up grants **+100 XP** to the battlepass, capped at **1000 XP per seas
 
 ## Hibernation
 
-When the user advances a level, `profile.hibernation = True`. This pauses catnip's effects until they pick their perk. It prevents weird interactions where a level-up happens mid-catch.
+`profile.hibernation` is the pause between levels. It is set by a paid level-up and by a bounty-deadline level-down (a respect-driven level loss doesn't touch it), and it is cleared only when the player presses **Begin Bounties**. While it is set:
+
+- the new level's bounties and pay-up price are hidden, and catches don't advance bounties;
+- the bounty deadline isn't running, so the level can't be lost to it;
+- perks keep firing only for whatever is left on the previous `catnip_active` (nothing after a level-down, which zeroes it).
+
+Begin Bounties clears the flag and **overwrites** `catnip_active` with a fresh full `duration` (plus any Loyalty Streak bonus) rather than adding to it. That is why the panel asks for confirmation when the player has banked more time than a fresh run would give.
+
+Perk choice is tracked separately by `profile.perk_selected`. It goes `False` on a level-up to 2 or higher and blocks the *next* pay-up until a perk is picked. It does not block Begin Bounties.
+
+> **TODO(design):** this section used to say hibernation "pauses catnip's effects until they pick their perk" to prevent "weird interactions where a level-up happens mid-catch". The code doesn't work that way (perks keep firing, and the gate is Begin Bounties, not the perk pick), so that rationale was dropped in the October 2026 audit. The intent behind letting players choose when the clock starts still needs writing down.
 
 ## Decay
 
-If a session expires with bounties incomplete: level drops by 1, last perk removed, `catnip_active = 0`. The user keeps their position in `bp_history`, just loses a level.
+If a session expires with bounties incomplete: level drops by 1, last perk removed, `catnip_active = 0`, and fresh bounties and a fresh price are rolled for the lower level, which starts in [hibernation](#hibernation). The drop is applied lazily, on the player's next `/catnip`. Because the lower level starts hibernating, an abandoned session costs exactly one level however long the player is away; ongoing decay during a long absence comes from the separate [Respect](jobs.md#respect--the-decay-meter) meter instead. The user keeps their position in `bp_history`, just loses a level.
 
 **Design intent:** failure must be visible and felt. Without the level-drop, catnip would be free progress — players would just camp at level 1 and ignore bounties.
 
@@ -80,9 +101,13 @@ The two decay systems are made congruent: a player who commits at least one `/jo
 
 The stamping is migration-guarded (`profile.last_job_time` added in migration 027). Before that migration is applied, `_job_grace_active` returns `False` and both decay paths behave exactly as before.
 
+## Season reset
+
+Catnip is active-economy state, so it is wiped at every monthly season rollover: level back to 0, and perks, bounties, price and session timer cleared. Lifetime stats (`highest_catnip_level`, `bounties_complete`, `catnip_bought`, `catnip_activations`) survive, as do the unlock (`dark_market_active`) and the cutscene flag. See [battlepass.md → Seasons](battlepass.md#seasons) for the full wipe list and the reasoning.
+
 ## Cutscenes
 
-There are two scripted cutscenes (`mafia_cutscene` at level 8 first-reach, `mafia_cutscene2` at level 10 first-reach). They unlock achievements (`thanksforplaying`, `mafia_win`) and lore.
+There are two scripted cutscenes: `mafia_cutscene` the first time a player reaches level 8, and `mafia_cutscene2` the first time they pay up *at* level 10 (completing a level-10 run, not arriving at 10). Each advances `profile.cutscene` (1, then 2). They unlock achievements (`thanksforplaying`, `mafia_win`) and lore.
 
 **Design intent:** cutscenes are *one-shot* rewards for crossing a threshold. They're not meant to gate gameplay — if a user skips them somehow, nothing breaks.
 

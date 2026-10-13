@@ -195,3 +195,8 @@
 2026-10-06 07:00  catnip.md       no change (no Bright Catcher/double_boost claim falsified) (re: main.py)
 2026-10-06 07:00  battlepass.md/achievements.md/jobs.md  no change (no overshoot-rain claims; 'prism' ach still fires on boost) (re: main.py)
 2026-10-06 09:06  economy.md      fixed stale "Hobo and Doll ... not live yet": rarity_min_season 6 is the current season, so all four gated rarities are live (re: config/tuning.json)
+2026-10-13 12:00  jobs.md         rewrote recipe archetypes + added per-tier cat bands, coins-only reward_mult, sloppy_target value climb, found_a_stash default cat (re: config/jobs.json, main.py)
+2026-10-13 12:00  jobs.md         perk section: drop chance 1.0 all tiers (old 8/15/25/35% removed), pools (Heat Shield/Clean Slate/Cooling Off, Catnip Extension & No Fines out), refresh/eviction rules, roulette perk numbers, new "Other perk behavior" subsection (re: config/jobs.json, main.py)
+2026-10-13 12:00  jobs.md         Sofia T4 jackpot TODO text updated to 2 Ultimates + Silver (still open, not resolved) (re: config/jobs.json)
+2026-10-13 12:00  economy.md      no change (job payout magnitudes not inlined; Crate Polish/No Fines mention still valid) (re: main.py)
+2026-10-13 13:00  jobs.md         perk personalities updated for 7 new perks (safe_house, shipment, protection_racket, wanted_poster, the_fixer, rain_check, voucher drops); Other perk behavior bullets added; Cloudburst fix noted; consumption-exception line extended (re: config/jobs.json, main.py)

@@ -121,14 +121,23 @@ Pre-Phase-2 NPC differentiation came from a 5-enum `reward_bias` knob (`standard
 
 Phase 2 replaces it with **explicit per-(NPC, tier) reward recipes**. Each recipe is a weighted list of entries; each entry can specify any combination of `coins range`, `cats dict`, and a `pack tier`. The recipe table for each NPC encodes who they are:
 
-- **Whiskers** — standard, balanced. Long-tail outcomes including a low-weight Silver-pack jackpot at T4. He's the reliable workhorse with the occasional surprise.
-- **Lucian Jr** — coin-leaning, occasional Stone pack at T2. Reward_mult 1.3 already biases him toward more-coins-than-baseline; the recipes keep that going.
-- **Jinx** — coin-heavy, rare cat drops. Most of her T1-3 weights are coin-only with the occasional small cat. Her cheap heat made her the safe grinder; not making her also the best cat source preserves the rotation.
-- **Jeremy** — coin laundering character. Coin-only in most weights, with one ~15% weight entry that's coins + Stone pack. The "coin guy with a wink."
-- **Lucian Sr** — Superior/Legendary specialist. Smaller coin amounts paired with mid-rare cats. He's the rare-cat dealer.
-- **Sofia** — cat dealer with occasional packs at T3, escalating pack quality at T4. One low-weight (5%) T4 jackpot entry pays a Mythic + Silver pack.
+- **Whiskers** — standard, balanced. At T4, Ultimate is a headline cat on ~40% of rolls, with a low-weight jackpot on top. He's the reliable workhorse with the occasional surprise.
+- **Lucian Jr** — coin/pack NPC: coins plus Wooden/Stone packs, no rare cats.
+- **Jinx** — coin-heavy. Mostly coins, with an occasional Epic/Rickroll. Her cheap heat made her the safe grinder; not making her also the best cat source preserves the rotation.
+- **Jeremy** — coin laundering character. **No cats at all** — coins and packs only. The "coin guy with a wink."
+- **Lucian Sr** — pays **one rarity band above the tier**, with fewer coins (T2 Rickroll→Trash, T3 Trash/Superior/Legendary). He's the rare-cat dealer.
+- **Sofia** — cat dealer; the most cats per job. Ultimate is a headline cat on ~35% of T4 rolls, plus the jackpot.
 
-`reward_mult` continues to apply as a global scalar on coins and cat counts (pack tier is unaffected) — that's the "I pay more" personality knob layered on top of the recipe shape.
+**Per-tier cat bands.** Recipes are built around cat bands in true rarity order (`type_dict` order), and within a table rarer rewards sit on lower weights:
+
+- T1: coins/packs only, no cats.
+- T2: Epic → Brave.
+- T3: Rickroll → Trash.
+- T4: Mythic / 8bit / Corrupt, with Ultimate as the headline cat.
+
+Fine/Nice/Good/Rare are never job rewards. The T4 jackpot (5% weight) is **2 Ultimates + a Silver pack** — deliberately the best roll in the table; it used to be Mythic + Silver, which was *worse* than the common Ultimate roll.
+
+`reward_mult` applies to **coins only** (pack tier and cat counts are unaffected) — the "I pay more" personality knob layered on top of the recipe shape. Previously cats were `ceil(count * mult)`, so any NPC with a mult above 1 (Sofia, Lucian Jr, Jeremy) silently turned every single cat into 2.
 
 The recipe is picked **at offer-generation time** and persisted into `reward_snapshot`. The offer board can't bait-and-switch: what you see is what you get.
 
@@ -136,7 +145,9 @@ The recipe is picked **at offer-generation time** and persisted into `reward_sna
 
 Pack rewards land in `profile.pack_{tier}` (the existing pack columns), not auto-opened. This composes with the existing pack ritual: the player saves packs for events or opens at their own pace via `/packs`. Two moments of dopamine (winning the job, opening the pack) instead of one.
 
-Complications that modify rewards (`easy_mark`, `double_cross`, `found_a_stash`, `sloppy_target`) operate on `reward_snapshot` at commit time — the modification is what gets granted. `sloppy_target` specifically **replaces** the cat reward with a pack one tier above the recipe's default ([`config/jobs.json → complications.sloppy_target_default_pack_tier_by_tier`](../../config/jobs.json)), capped at Celestial.
+Complications that modify rewards (`easy_mark`, `double_cross`, `found_a_stash`, `sloppy_target`) operate on `reward_snapshot` at commit time — the modification is what gets granted. `sloppy_target` specifically **replaces** the cat reward with a pack ([`config/jobs.json → complications.sloppy_target_default_pack_tier_by_tier`](../../config/jobs.json) gives the default tier, capped at Celestial). The replacement pack climbs tiers (`_jobs_bump_pack_tier`) until its `totalvalue` is at least the value of the cats **plus** the recipe pack it replaces (`_jobs_pack_value`) — so an Ultimate becomes a Diamond pack and a 2-Ultimate jackpot a Celestial; the swap is never a downgrade.
+
+`found_a_stash` grants a bonus cat; when the reward had no cats, the bonus is `complications.found_a_stash_default_cat_by_tier` (T2 Epic, T3 Rickroll, T4/T5 Mythic) rather than a flat Rare. `double_cross` is intentionally unchanged (halves cats, coins untouched).
 
 ## Cat dialogue
 
@@ -156,10 +167,10 @@ Job perks ("mafia favors") are a third reward bucket on top of coins and cats/pa
 
 Two-stage roll on success:
 
-1. **Drop die** — per-tier chance `perks.drop_chance_by_tier`. Defaults: T1 8%, T2 15%, T3 25%, T4 35%, T5 100% (Big Score *always* drops a capstone perk).
+1. **Drop die** — per-tier chance `perks.drop_chance_by_tier`. It is currently 1.0 at every tier, so every successful offer comes with a perk (the die still exists and is tunable; the old 8/15/25/35% values are gone).
 2. **Pool pick** — weighted choice from `perks.drop_pools[npc][tier]`. Each entry is `{id, weight}`. Weights are relative; they don't have to sum to anything specific.
 
-The two dice are independent of the success die and the complication die. **Drops are success-only** — near-miss and total-failure never drop a perk (Crew Insurance is the exception: it's a *consumption* mechanic that converts an outcome, not a drop mechanic).
+The two dice are independent of the success die and the complication die. **Drops are success-only** — near-miss and total-failure never drop a perk (Crew Insurance and Safe House are the exceptions: they're *consumption* mechanics that convert or soften an outcome, not drop mechanics).
 
 **Sub-Lv4 board gating.** `_perks_roll_drop` accepts an optional `mafia_level` parameter. When `mafia_level < 4`, the two perks in `_PERKS_REQUIRE_FULL_BOARD` (`daily_cap_extension` and `reroll_board`) are filtered from the pool before the weighted pick. At Lv2–3 the player only ever sees the single tutorial-errand board, so these perks would silently expire unused — excluding them lets the per-tier weights renormalize onto the remaining entries (`pack_drop_boost`, `free_pack`, etc.) and keeps drops feeling valuable. Both call sites in `_jobs_generate_offers` (tutorial branch at Lv2–3 and full-board loop at Lv4+) pass `mafia_level=level` so the filter is applied consistently.
 
@@ -169,13 +180,15 @@ A perk drop failure inside `_jobs_apply_outcome` is caught and swallowed — the
 
 Each NPC's perk pool encodes who they are (same idea as `reward_recipes`, expressed in a different reward axis):
 
-- **Whiskers** — reliability + pack-flavor. heat_shield, complication_insurance, pack_tier_upgrade, pack_floor, crew_insurance, eagle_eye. The disciplinarian who teaches the player to be careful.
-- **Lucian Jr** — impulsive, pack-heavy, mischievous. free_pack, pack_bonus_cat, pack_drop_boost, pack_tier_upgrade, daily_cap_extension, lightning_hands, reroll_board. The "dad doesn't know I'm doing this" guy.
-- **Jinx** — chill, catnip-side. cooling_off, catnip_extension, free_catnip, streak_protector, combo_shield. Low-heat low-stress, pairs naturally with the cat side of the game.
-- **Jeremy** — coins everywhere. roulette_luck, roulette_mercy, free_spin, catstore_sell_premium, cat_rain_coin_yield, stock_dividend_boost. The money guy with a wink. (A `bakery_discount` perk was documented here historically but never shipped in `config/jobs.json`; the /bakery command it would have discounted is disabled on this fork.)
-- **Lucian Sr** — vendetta / rarity / consequence. send_power_boost, rep_windfall, rarity_bump, bounty_boost, bounty_refresh, quest_xp_boost. Old-school don who knows the rep economy.
-- **Sofia** — the dealer. catstore_discount_stack, pack_bonus_cat, discovery_shortcut, double_cat, perk_amplifier, catch_xp_boost. Catalog + cat-flavor perks.
-- **Big Score (Whiskers, T5)** — capstone-flavored, all rare. heat_reset, crew_insurance, pack_tier_upgrade (Celestial cap), double_cat (24h variant). One-shot per season, so the pool is brutal.
+- **Whiskers** — reliability + pack-flavor. heat_shield (Heat Shield: halves the next commit's heat; replaced No Fines), heat_reset (Clean Slate: wipes heat to 0, T4-only, weight 8), complication_insurance, pack_tier_upgrade, crew_insurance, safe_house (Safe House, T2-T4), eagle_eye. The disciplinarian who teaches the player to be careful.
+- **Lucian Jr** — impulsive, pack-heavy, mischievous. free_pack, pack_bonus_cat, pack_drop_boost, pack_tier_upgrade, daily_cap_extension, lightning_hands, reroll_board, voucher_double_pack (T1/T2). The "dad doesn't know I'm doing this" guy.
+- **Jinx** — chill, catnip-side. cooling_off (heat decays x2/x2.5/x3 for 6/8/12h at T1/T2/T3 and ignores the catnip pause), free_catnip, streak_protector, combo_shield, rain_check (Rain Check, T1-T3), voucher_bounty_skip (T1-T3). Low-heat low-stress, pairs naturally with the cat side of the game.
+- **Jeremy** — coins everywhere. roulette_luck, roulette_mercy, free_spin, catstore_sell_premium, cat_rain_coin_yield, stock_dividend_boost, protection_racket (T2), voucher_egirl_bonus ("Bonus Round", T2). The money guy with a wink. (A `bakery_discount` perk was documented here historically but never shipped in `config/jobs.json`; the /bakery command it would have discounted is disabled on this fork.)
+- **Lucian Sr** — vendetta / rarity / consequence. send_power_boost, rep_windfall, rarity_bump, bounty_boost, bounty_refresh, quest_xp_boost, wanted_poster (T2/T3), the_fixer (T2/T3). Old-school don who knows the rep economy.
+- **Sofia** — the dealer. catstore_discount_stack, pack_bonus_cat, discovery_shortcut, double_cat, perk_amplifier, catch_xp_boost, shipment (T3/T4). Catalog + cat-flavor perks.
+- **Big Score (Whiskers, T5)** — capstone-flavored, all rare. crew_insurance (3 charges), pack_tier_upgrade (Celestial cap), double_cat (24h variant). One-shot per season, so the pool is brutal. `heat_reset` is deliberately **not** in this pool: Big Score auto-pinches and Clean Slate can't lift the lockout.
+
+Catalog entries that exist but sit in no drop pool: `pack_floor`, `catnip_extension`, `free_define`. `trade_fee_waiver` was deleted from the catalog (it had no code). `PERKS_DROPPABLE` (every id in any drop pool, minus `catstore_sell_premium`) is the `perk_collector` target, not catalog size.
 
 A perk can appear in multiple NPCs' pools at different weights (e.g. `pack_tier_upgrade` is in both Whiskers and Lucian Jr — but it's Whiskers's main pack tool and only one entry in Lucian Jr's pack-heavy stable).
 
@@ -189,9 +202,10 @@ Missing tier entries fall back to T2 automatically (see `_perks_tier_entry`), so
 
 ### Stacking + lifetime
 
-- **Refresh-or-extend, never stack.** Granting the same perk again resets its timer / refills its charges. Two consecutive Double Cat drops give you one fresh 2h window, not 4h.
-- **Five-perk cap.** A 6th distinct grant evicts the oldest *timed* perk. Charge-based perks are sticky — they never get evicted to make room, because that would steal a one-shot the player hasn't used yet.
-- **Lifetime tracking.** `profile.perks_received` records every distinct perk ID the player has ever gotten. Backs the `perk_collector` hidden ach (own them all) and the Mafia Favors leaderboard.
+- **Refresh-or-extend, never stack, never downgrade.** Re-granting a held perk keeps the **better of each axis** (higher tier, later expiry, more charges). It used to overwrite, so e.g. a 24h Mystery buff could be clobbered by a 1h T1 copy. Two consecutive Double Cat drops give you one fresh window, not double.
+- **Five-perk cap.** A 6th distinct grant evicts the *timed* perk with the least time left (never the new drop). Charge-based perks are sticky — they never get evicted to make room, because that would steal a one-shot the player hasn't used yet.
+- **Lifetime tracking.** `profile.perks_received` records every distinct perk ID the player has ever gotten (pruned perks still count toward `perk_hoarder`). Backs the `perk_collector` hidden ach (own every droppable perk) and the Mafia Favors leaderboard.
+- **One-shot perks read tier strength before spending the charge**, so tier scaling (e.g. Iron Grip x1.75/x2 at T3/T4) actually applies and a last charge (House Mercy) still pays out.
 
 ### Pinch immunity (the asymmetry with catnip)
 
@@ -203,7 +217,7 @@ The Cat Police Pinch (`perks_suspended_until`) suspends **catnip** perks. It doe
 
 Phase 2 Whiskers's Favor (Whiskers ≥+100 rep → next pack-open upgrades one tier, season-gated, uncapped to Diamond) is **kept** as a separate mechanic. The two perk systems coexist:
 
-- **`pack_tier_upgrade`** (job perk) is the everyday version — charge-based, drops from Whiskers + Lucian Jr at T2/T3/T4, caps at Silver (T2), Gold (T3), Platinum (T4), or Celestial (T5 only).
+- **`pack_tier_upgrade`** (job perk) is the everyday version — charge-based, drops from Whiskers + Lucian Jr at T2/T3/T4, caps by the `tier_table` `cap_tier`: Silver (T2), Gold (T3), Platinum (T4), or Celestial (T5 only). It only spends its charge on a non-event pack below the cap.
 - **Whiskers's Favor** (rep reward) is the rep capstone version — once-per-season, no per-pack-tier cap (any → Diamond), unlocked by sustained rep work rather than a single job drop.
 
 Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops constantly. Both can be active at the same time.
@@ -213,8 +227,8 @@ Favor is bigger, season-gated. `pack_tier_upgrade` is smaller, capped, drops con
 The three pack-side job perks apply identically whether the player opens one pack at a time or uses any multi-open batch path — `/packs`' "Open All" (every held type) and, as of the per-type quantity picker, "Open 5/10/25/Custom" of a single pack type. Both route through the same `process_pack_opening()` batch loop, so the charge semantics below are shared, not reimplemented:
 
 - **`pack_bonus_cat` ("Padded Crate", timed):** active for the perk's full duration window, so it naturally fires on every pack opened during the batch — one extra random cat per open.
-- **`pack_tier_upgrade` ("Crate Polish", 1 charge):** spends its single charge on the **first eligible pack** in the batch (any pack whose tier hasn't already hit the cap). Remaining packs in the same batch are unaffected.
-- **`pack_floor` ("No Fines", 1 charge):** spends its single charge on the **first Fine result** encountered in the batch. If no pack in the batch rolls Fine, the charge is not consumed.
+- **`pack_tier_upgrade` ("Crate Polish", 1 charge):** spends its single charge on the **first eligible pack** in the batch (any non-event pack whose tier is below the perk's cap). Remaining packs in the same batch are unaffected.
+- **`pack_floor` ("No Fines", 1 charge; currently in no drop pool):** spends its single charge on the **first Fine result** encountered in the batch. If no pack in the batch rolls Fine, the charge is not consumed.
 
 This means a multi-open batch with `pack_tier_upgrade` active gets at most one tier-bumped open, and a batch with `pack_floor` active gets at most one Fine-to-Nice lift, whether that batch is an Open All run or a per-type Open N. The charge semantics are the same as they would be if the player had opened one pack and then immediately opened a second.
 
@@ -222,11 +236,30 @@ This means a multi-open batch with `pack_tier_upgrade` active gets at most one t
 
 Three of Jeremy's perks touch `/roulette` — **Loaded Wheel** (`roulette_luck`), **House Mercy** (`roulette_mercy`), and **Free Spin** (`free_spin`). A 2026-07 rebalance (`_do_roulette_spin` in `main.py`, tier tables in `config/jobs.json`) closed a coin-farming exploit where the perk combo could flip roulette to positive expected value.
 
-- **Loaded Wheel** forces a winning spin at `bonus_pp` chance (T2 1% / T3 1.5% / T4 2%, down from a pre-fix 2% / 3% / 5%) — but **only on even-money red/black bets**. Green and single-number bets pay 36×; forcing a win there was wildly +EV, and that was the exploit. The perk now no-ops on those bet types regardless of the proc roll.
-- **House Mercy** used to be a coin refund on a loss. It's now **coin-neutral**: on a losing spin it spends one of its charges (3 / 4 / 5 by tier T2/T3/T4) to grant a small fixed battlepass-XP payout (15 / 20 / 25 XP per tier, via `grant_achievement_xp`) instead of touching `coins`. It only fires when **Free Spin** didn't already refund the loss — the two loss-side perks are mutually exclusive per spin, never stacking.
-- **Free Spin** is unchanged: a bounded one-shot full coin refund on a loss, gated by a per-tier `max_bet` cap (1,000 / 2,500 / 5,000) and consumed as a single charge.
+- **Loaded Wheel** forces a winning spin at `bonus_pp` chance (T2 2% / T3 2.25% / T4 2.5%; the pre-fix values were 2% / 3% / 5%, and the post-fix values were 1% / 1.5% / 2% before this retune — current numbers stay house-favorable, red/black breakeven being ~2.6pp) — but **only on even-money red/black bets**. Green and single-number bets pay 36×; forcing a win there was wildly +EV, and that was the exploit. The perk now no-ops on those bet types regardless of the proc roll.
+- **House Mercy** used to be a coin refund on a loss. It's now **coin-neutral**: on a losing spin it spends one of its charges (3 / 4 / 5 by tier T2/T3/T4) to grant a small fixed battlepass-XP payout (50 / 65 / 80 XP per losing spin by tier, via `grant_achievement_xp`) instead of touching `coins`. It only fires when **Free Spin** didn't already refund the loss — the two loss-side perks are mutually exclusive per spin, never stacking.
+- **Free Spin** is a bounded one-shot full coin refund on a loss (its charge is spent only on a *losing* bet), gated by a per-tier `max_bet` cap (1,000 / 2,500 / 5,000) and consumed as a single charge.
 
 **Design intent:** `/roulette` must stay house-favorable on every bet type — a job perk is a bounded, earned reward, not a lever that can push the house edge negative. Any perk that touches roulette's win/loss outcome has to preserve that invariant. Coin-value consolations are the wrong tool for a losing-spin reward, precisely because a refund can be tuned into a coin printer — the redesign moved that reward off the coin axis entirely onto capped, non-transferable XP.
+
+### Other perk behavior (post-audit)
+
+- **Sweep Pattern** (`complication_insurance`) cancels the next **bad** complication that rolls (`JOBS_BAD_COMPLICATIONS`: raid, rival crew, double-cross, boss, informant, witness, loose end) and spends its charge only when it sweeps something; good complications still land. 1 charge at T2/T3, 2 at T4. `rep_changes.complication_insurance_fired` stores the swept complication id.
+- **Heat Shield** halves the next commit's heat and does not burn on a zero-heat (T1) commit. **Clean Slate** (`heat_reset`) wipes heat to 0.
+- **Insider Tip** boosts only *positive* dividends (it used to multiply losses); 1 charge inside a 3/4/5-day window (+50/75/100%), credited atomically.
+- **Fence Connection** is dropped from the pool at mafia levels where the buy-5 sell cap would zero it (Lv7+).
+- **Shortcut** (`discovery_shortcut`) falls back to a pack (`fallback_pack_tier`: wooden/stone/bronze) when everything is discovered. **Bounty Refresh** re-rolls only unfinished regular bounties. **Streak Saver** bridges exactly one missed day (T1 48h, T2 72h). **Rarity Bump** uses the season-live ladder. **Comped Catnip** starts or extends a session (it absorbed the identical Catnip Extension). **Cloudburst Wages** lasts 24h at every tier.
+- **Result screen:** instant perks no longer say "is now active"; they may show a note (`rep_changes.perk_note`), and a perk with nothing to do shows "had nothing to do this time" (`rep_changes.perk_fizzled`).
+- **Safe House** (`safe_house`, Whiskers T2/T3/T4, 1/1/2 charges): on any failed job (near-miss or total wipe) nobody in the crew is destroyed; there is still no reward and failure rep still applies. Resolved in `_jobs_apply_outcome` *after* Crew Insurance, so a near-miss prefers Crew Insurance's full conversion. The charge is spent only when it actually saves cats. The commit site re-credits send-minus-`cats_destroyed` on every non-success, so an emptied `cats_destroyed` returns the whole crew. Reflected on the result screen, send-screen preview and public outcome embed; `rep_changes.safe_house_fired`.
+- **Shipment** (`shipment`, Sofia T3/T4, instant): picks a cat from the tier's `rarities` table (season-live only), weighted by spawn weight. After the job transaction commits, `_jobs_deliver_shipment` waits 10-40s and spawns it as an ordinary **open-race** cat (anyone can catch it; the operator chose this explicitly) in one of the guild's catch channels, preferring the channel `/jobs` ran in and skipping channels with a live cat or running rain, then announces it for the player. If every catch channel stays busy for ~3 minutes (6 tries, 30s apart), or the guild has none, the cat goes straight into the player's inventory with a message.
+- **Protection Racket** (`protection_racket`, Jeremy T2, timed 3h): pays the holder coins whenever *anyone* in that server catches a cat (holder included), up to a per-racket cap. The catch path fires a detached `_racket_pay(guild_id)`; holders come from one JSONB-containment query per guild cached 5 min on `config.racket_cache` (dropped when a racket is granted); running totals live in `config.racket_earned`, which resets on a full process restart, so one racket can occasionally pay past its cap once. Payout is an atomic UPDATE; `/perks` shows collected vs. cap. (Per-catch amount and cap are in `config/jobs.json`.)
+- **Wanted Poster** (`wanted_poster`, Lucian Sr T2/T3, timed 24h): stores a target rarity on the perk row (picked from a per-tier list). Each catch of that rarity (spawn or post-boost type) pays `cat_value(target) x bounty_mult` coins, once per catch (Double Cat doesn't double it). Since `cat_value` is the inverse of spawn weight, the average payout per catch is roughly `bounty_mult` whatever the target. Re-granting keeps the existing target (`_perks_grant` gained an `extra` param for this). `/perks` shows target and bounty.
+- **The Fixer** (`the_fixer`, Lucian Sr T2/T3, instant): finishes the player's misc battlepass quest, or the extra quest if misc is already done (skips `define` when `WORDNIK_API_KEY` is unset); fizzles if both are done. Implementation: inside the transaction it parks the quest at target-1, then after commit the jobs flow calls the real `progress()` once so XP, level-ups and embeds go through the normal path.
+- **Rain Check** (`rain_check`, Jinx T1-T3, instant): +1 minute to the player's per-server rain balance (`profile.rain_minutes`, spent first by `/rain`). Exactly 1 minute by operator request.
+- **Voucher drops** (instant; reuse the battlepass Mystery vouchers via `_vouchers_grant`, mapped in `PERK_VOUCHERS`): `voucher_double_pack` (Lucian Jr), `voucher_egirl_bonus` ("Bonus Round", Jeremy), `voucher_bounty_skip` (Jinx). Wiped at season rollover like all vouchers.
+- `_perks_resolve_immediate` returns a `payload` dict (data the caller acts on after commit: shipment cat, fixer quest), merged into `job.rep_changes`.
+- **Cloudburst Wages** fix: its "+coins" line used to be appended after the catch message was already sent, so players never saw it; the payout now happens before the message (next to the Wanted Poster hook).
+- Leaked Memo (stock info perk) was considered and deliberately **not** built.
 
 ## Heat meter & Cat Police Pinch
 
@@ -347,7 +380,7 @@ The asymmetry with Heat is intentional: Heat punishes *over-commitment* (too man
 
 ## Open questions
 
-> **TODO(design):** the recipe weights for Sofia T4 include a 5%-weight "Mythic + Silver pack" jackpot. If post-launch data shows it firing often enough to bend the late-game cat supply, drop it to weight 2-3 or move it to a separate `jackpot_pool` that requires +50 Sofia rep to unlock. Right now any Lv8 Sofia commit can hit it.
+> **TODO(design):** the recipe weights for T4 include a 5%-weight jackpot, now **2 Ultimates + a Silver pack** (it was Mythic + Silver when this note was written). If post-launch data shows it firing often enough to bend the late-game cat supply, drop it to weight 2-3 or move it to a separate `jackpot_pool` that requires +50 rep to unlock. Right now any Lv8 commit can hit it, and the stakes are higher than when this was written.
 
 > **TODO(design):** `informant` currently only downgrades success → near_miss. If success was a near-miss already (or worse), the event silently no-ops. Worth confirming this reads correctly to players. Alternative: have `informant` always force a wipe regardless of the success die. That's harsher but more legible.
 

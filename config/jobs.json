@@ -142,7 +142,7 @@
               350
             ],
             "cats": {
-              "Good": 1
+              "Epic": 1
             }
           },
           {
@@ -152,18 +152,17 @@
               380
             ],
             "cats": {
-              "Rare": 1
+              "Sus": 1
             }
           },
           {
             "weight": 15,
             "coins": [
-              150,
-              300
+              220,
+              380
             ],
             "cats": {
-              "Nice": 1,
-              "Good": 1
+              "Brave": 1
             }
           },
           {
@@ -173,7 +172,7 @@
               400
             ],
             "cats": {
-              "Rare": 1
+              "Sus": 1
             },
             "pack": "wooden"
           }
@@ -186,17 +185,17 @@
               1200
             ],
             "cats": {
-              "Epic": 1
+              "Rickroll": 1
             }
           },
           {
             "weight": 25,
             "coins": [
-              500,
-              900
+              700,
+              1200
             ],
             "cats": {
-              "Rare": 3
+              "Reverse": 1
             }
           },
           {
@@ -206,28 +205,38 @@
               1300
             ],
             "cats": {
-              "Rare": 2,
-              "Epic": 1
+              "Superior": 1
             }
           },
           {
-            "weight": 15,
+            "weight": 10,
             "coins": [
               600,
               1000
             ],
             "cats": {
-              "Epic": 1
+              "Reverse": 1
             },
             "pack": "stone"
+          },
+          {
+            "weight": 5,
+            "coins": [
+              900,
+              1400
+            ],
+            "cats": {
+              "Trash": 1
+            },
+            "pack": "bronze"
           }
         ],
         "4": [
           {
             "weight": 40,
             "coins": [
-              3000,
-              4500
+              2500,
+              3500
             ],
             "cats": {
               "Ultimate": 1
@@ -236,33 +245,34 @@
           {
             "weight": 25,
             "coins": [
-              2500,
-              4000
+              3500,
+              4500
             ],
             "cats": {
-              "Legendary": 1
+              "Mythic": 1
             },
             "pack": "bronze"
           },
           {
             "weight": 20,
             "coins": [
-              3500,
+              4000,
               5000
             ],
             "cats": {
-              "Legendary": 2
+              "8bit": 1
             }
           },
           {
             "weight": 10,
             "coins": [
-              2000,
-              3000
+              3500,
+              4500
             ],
             "cats": {
-              "Ultimate": 2
-            }
+              "Corrupt": 1
+            },
+            "pack": "bronze"
           },
           {
             "weight": 5,
@@ -271,7 +281,7 @@
               6000
             ],
             "cats": {
-              "Mythic": 1
+              "Ultimate": 2
             },
             "pack": "silver"
           }
@@ -296,7 +306,7 @@
       "reward_recipes": {
         "1": [
           {
-            "weight": 35,
+            "weight": 65,
             "coins": [
               80,
               150
@@ -306,32 +316,8 @@
             "weight": 35,
             "coins": [
               60,
-              120
+              110
             ],
-            "cats": {
-              "Nice": 1
-            }
-          },
-          {
-            "weight": 20,
-            "coins": [
-              70,
-              140
-            ],
-            "cats": {
-              "Fine": 1,
-              "Nice": 1
-            }
-          },
-          {
-            "weight": 10,
-            "coins": [
-              80,
-              150
-            ],
-            "cats": {
-              "Fine": 1
-            },
             "pack": "wooden"
           }
         ],
@@ -341,30 +327,22 @@
             "coins": [
               220,
               380
-            ],
-            "cats": {
-              "Nice": 1
-            }
+            ]
           },
           {
-            "weight": 25,
+            "weight": 30,
             "coins": [
               180,
               320
             ],
-            "cats": {
-              "Good": 1
-            }
+            "pack": "wooden"
           },
           {
-            "weight": 20,
+            "weight": 15,
             "coins": [
-              200,
-              350
+              180,
+              300
             ],
-            "cats": {
-              "Good": 1
-            },
             "pack": "stone"
           }
         ]
@@ -388,120 +366,64 @@
       "reward_recipes": {
         "1": [
           {
-            "weight": 20,
+            "weight": 85,
             "coins": [
               90,
               150
             ]
           },
           {
-            "weight": 50,
-            "coins": [
-              70,
-              130
-            ],
-            "cats": {
-              "Fine": 2
-            }
-          },
-          {
-            "weight": 20,
-            "coins": [
-              100,
-              150
-            ],
-            "cats": {
-              "Nice": 1
-            }
-          },
-          {
-            "weight": 10,
+            "weight": 15,
             "coins": [
               80,
               140
             ],
-            "cats": {
-              "Fine": 1
-            },
             "pack": "wooden"
           }
         ],
         "2": [
           {
-            "weight": 20,
+            "weight": 70,
             "coins": [
               250,
               400
             ]
           },
           {
-            "weight": 40,
+            "weight": 20,
             "coins": [
               200,
               350
             ],
             "cats": {
-              "Nice": 1
-            }
-          },
-          {
-            "weight": 22,
-            "coins": [
-              220,
-              380
-            ],
-            "cats": {
-              "Good": 1
-            }
-          },
-          {
-            "weight": 8,
-            "coins": [
-              180,
-              300
-            ],
-            "cats": {
-              "Rare": 1
+              "Epic": 1
             }
           },
           {
             "weight": 10,
             "coins": [
-              240,
-              380
+              220,
+              360
             ],
-            "cats": {
-              "Nice": 1
-            },
             "pack": "wooden"
           }
         ],
         "3": [
           {
-            "weight": 25,
+            "weight": 65,
             "coins": [
               900,
               1500
             ]
           },
           {
-            "weight": 40,
+            "weight": 20,
             "coins": [
               700,
               1200
             ],
             "cats": {
-              "Rare": 1
-            }
-          },
-          {
-            "weight": 20,
-            "coins": [
-              600,
-              1100
-            ],
-            "cats": {
-              "Epic": 1
+              "Rickroll": 1
             }
           },
           {
@@ -510,10 +432,7 @@
               800,
               1300
             ],
-            "cats": {
-              "Rare": 2
-            },
-            "pack": "wooden"
+            "pack": "stone"
           }
         ]
       }
@@ -533,29 +452,19 @@
       "reward_recipes": {
         "2": [
           {
-            "weight": 60,
+            "weight": 85,
             "coins": [
               280,
               400
             ]
           },
           {
-            "weight": 25,
+            "weight": 15,
             "coins": [
               200,
               350
             ],
             "pack": "stone"
-          },
-          {
-            "weight": 15,
-            "coins": [
-              220,
-              360
-            ],
-            "cats": {
-              "Good": 1
-            }
           }
         ]
       }
@@ -583,7 +492,7 @@
               200
             ],
             "cats": {
-              "Trash": 1
+              "Rickroll": 1
             }
           },
           {
@@ -593,7 +502,7 @@
               250
             ],
             "cats": {
-              "Superior": 1
+              "Reverse": 1
             }
           },
           {
@@ -603,7 +512,7 @@
               180
             ],
             "cats": {
-              "Legendary": 1
+              "Superior": 1
             }
           },
           {
@@ -613,7 +522,7 @@
               220
             ],
             "cats": {
-              "Superior": 1
+              "Trash": 1
             },
             "pack": "stone"
           }
@@ -626,29 +535,39 @@
               900
             ],
             "cats": {
-              "Superior": 2
+              "Trash": 1
             }
           },
           {
-            "weight": 30,
+            "weight": 25,
             "coins": [
               400,
               800
             ],
             "cats": {
+              "Superior": 2
+            }
+          },
+          {
+            "weight": 20,
+            "coins": [
+              300,
+              600
+            ],
+            "cats": {
               "Legendary": 1
             }
           },
           {
-            "weight": 15,
+            "weight": 10,
             "coins": [
-              600,
-              1000
+              400,
+              700
             ],
             "cats": {
-              "Trash": 2,
-              "Legendary": 1
-            }
+              "Trash": 1
+            },
+            "pack": "bronze"
           },
           {
             "weight": 10,
@@ -657,19 +576,9 @@
               600
             ],
             "cats": {
-              "Legendary": 2
+              "Legendary": 1,
+              "Trash": 1
             }
-          },
-          {
-            "weight": 10,
-            "coins": [
-              500,
-              900
-            ],
-            "cats": {
-              "Legendary": 1
-            },
-            "pack": "bronze"
           }
         ]
       }
@@ -697,7 +606,7 @@
               1200
             ],
             "cats": {
-              "Epic": 1
+              "Reverse": 2
             }
           },
           {
@@ -707,7 +616,8 @@
               900
             ],
             "cats": {
-              "Rare": 2
+              "Rickroll": 1,
+              "Superior": 1
             }
           },
           {
@@ -717,7 +627,7 @@
               700
             ],
             "cats": {
-              "Epic": 1
+              "Superior": 1
             },
             "pack": "stone"
           },
@@ -728,7 +638,7 @@
               1100
             ],
             "cats": {
-              "Epic": 2
+              "Trash": 2
             }
           }
         ],
@@ -736,8 +646,8 @@
           {
             "weight": 35,
             "coins": [
-              2500,
-              4000
+              2000,
+              3500
             ],
             "cats": {
               "Ultimate": 1
@@ -746,11 +656,11 @@
           {
             "weight": 25,
             "coins": [
-              2000,
-              3500
+              2500,
+              4000
             ],
             "cats": {
-              "Legendary": 2
+              "Mythic": 2
             }
           },
           {
@@ -760,7 +670,8 @@
               4500
             ],
             "cats": {
-              "Ultimate": 1
+              "8bit": 1,
+              "Mythic": 1
             },
             "pack": "bronze"
           },
@@ -771,7 +682,8 @@
               4000
             ],
             "cats": {
-              "Legendary": 1
+              "Corrupt": 1,
+              "Mythic": 1
             },
             "pack": "silver"
           },
@@ -782,7 +694,7 @@
               6000
             ],
             "cats": {
-              "Mythic": 1
+              "Ultimate": 2
             },
             "pack": "silver"
           }
@@ -918,6 +830,12 @@
       "3": "stone",
       "4": "bronze",
       "5": "silver"
+    },
+    "found_a_stash_default_cat_by_tier": {
+      "2": "Epic",
+      "3": "Rickroll",
+      "4": "Mythic",
+      "5": "Mythic"
     }
   },
   "complication_pools": {
@@ -1846,56 +1764,72 @@
       "whiskers": {
         "2": [
           {
-            "id": "pack_floor",
-            "weight": 50
+            "id": "heat_shield",
+            "weight": 45
           },
           {
             "id": "complication_insurance",
-            "weight": 30
+            "weight": 27
+          },
+          {
+            "id": "safe_house",
+            "weight": 12
           },
           {
             "id": "pack_tier_upgrade",
-            "weight": 14
+            "weight": 11
           },
           {
             "id": "crew_insurance",
-            "weight": 6
+            "weight": 5
           }
         ],
         "3": [
           {
-            "id": "pack_floor",
-            "weight": 45
+            "id": "heat_shield",
+            "weight": 40
           },
           {
             "id": "complication_insurance",
-            "weight": 28
+            "weight": 25
+          },
+          {
+            "id": "safe_house",
+            "weight": 13
           },
           {
             "id": "pack_tier_upgrade",
-            "weight": 18
+            "weight": 15
           },
           {
             "id": "crew_insurance",
-            "weight": 9
+            "weight": 7
           }
         ],
         "4": [
           {
-            "id": "pack_floor",
-            "weight": 45
+            "id": "heat_shield",
+            "weight": 35
           },
           {
             "id": "complication_insurance",
-            "weight": 28
+            "weight": 22
+          },
+          {
+            "id": "safe_house",
+            "weight": 12
           },
           {
             "id": "pack_tier_upgrade",
-            "weight": 18
+            "weight": 16
           },
           {
             "id": "crew_insurance",
-            "weight": 9
+            "weight": 8
+          },
+          {
+            "id": "heat_reset",
+            "weight": 7
           }
         ],
         "5": [
@@ -1917,37 +1851,45 @@
         "1": [
           {
             "id": "pack_drop_boost",
-            "weight": 50
+            "weight": 45
           },
           {
             "id": "daily_cap_extension",
-            "weight": 30
+            "weight": 27
           },
           {
             "id": "free_pack",
-            "weight": 20
+            "weight": 18
+          },
+          {
+            "id": "voucher_double_pack",
+            "weight": 10
           }
         ],
         "2": [
           {
             "id": "pack_drop_boost",
-            "weight": 31
+            "weight": 28
           },
           {
             "id": "pack_bonus_cat",
-            "weight": 25
+            "weight": 22
           },
           {
             "id": "daily_cap_extension",
-            "weight": 19
+            "weight": 17
           },
           {
-            "id": "free_pack",
+            "id": "voucher_double_pack",
             "weight": 10
           },
           {
-            "id": "pack_tier_upgrade",
+            "id": "free_pack",
             "weight": 9
+          },
+          {
+            "id": "pack_tier_upgrade",
+            "weight": 8
           },
           {
             "id": "reroll_board",
@@ -1959,35 +1901,63 @@
         "1": [
           {
             "id": "streak_protector",
-            "weight": 100
+            "weight": 55
+          },
+          {
+            "id": "cooling_off",
+            "weight": 25
+          },
+          {
+            "id": "rain_check",
+            "weight": 12
+          },
+          {
+            "id": "voucher_bounty_skip",
+            "weight": 8
           }
         ],
         "2": [
           {
             "id": "streak_protector",
-            "weight": 47
-          },
-          {
-            "id": "catnip_extension",
-            "weight": 36
+            "weight": 32
           },
           {
             "id": "free_catnip",
-            "weight": 17
+            "weight": 28
+          },
+          {
+            "id": "cooling_off",
+            "weight": 20
+          },
+          {
+            "id": "rain_check",
+            "weight": 10
+          },
+          {
+            "id": "voucher_bounty_skip",
+            "weight": 10
           }
         ],
         "3": [
           {
             "id": "streak_protector",
-            "weight": 44
-          },
-          {
-            "id": "catnip_extension",
             "weight": 28
           },
           {
             "id": "free_catnip",
             "weight": 28
+          },
+          {
+            "id": "cooling_off",
+            "weight": 24
+          },
+          {
+            "id": "rain_check",
+            "weight": 10
+          },
+          {
+            "id": "voucher_bounty_skip",
+            "weight": 10
           }
         ]
       },
@@ -1995,27 +1965,35 @@
         "2": [
           {
             "id": "roulette_luck",
-            "weight": 28
+            "weight": 22
           },
           {
             "id": "cat_rain_coin_yield",
-            "weight": 24
-          },
-          {
-            "id": "roulette_mercy",
             "weight": 18
           },
           {
+            "id": "roulette_mercy",
+            "weight": 14
+          },
+          {
+            "id": "protection_racket",
+            "weight": 14
+          },
+          {
             "id": "catstore_sell_premium",
-            "weight": 12
+            "weight": 10
           },
           {
             "id": "stock_dividend_boost",
-            "weight": 12
+            "weight": 10
+          },
+          {
+            "id": "voucher_egirl_bonus",
+            "weight": 7
           },
           {
             "id": "free_spin",
-            "weight": 6
+            "weight": 5
           }
         ]
       },
@@ -2023,53 +2001,69 @@
         "2": [
           {
             "id": "bounty_boost",
-            "weight": 30
+            "weight": 25
           },
           {
             "id": "quest_xp_boost",
-            "weight": 20
+            "weight": 16
+          },
+          {
+            "id": "wanted_poster",
+            "weight": 16
           },
           {
             "id": "bounty_refresh",
-            "weight": 20
+            "weight": 15
           },
           {
             "id": "rarity_bump",
+            "weight": 12
+          },
+          {
+            "id": "send_power_boost",
+            "weight": 8
+          },
+          {
+            "id": "the_fixer",
+            "weight": 4
+          },
+          {
+            "id": "rep_windfall",
+            "weight": 4
+          }
+        ],
+        "3": [
+          {
+            "id": "bounty_boost",
+            "weight": 20
+          },
+          {
+            "id": "quest_xp_boost",
+            "weight": 16
+          },
+          {
+            "id": "wanted_poster",
+            "weight": 16
+          },
+          {
+            "id": "bounty_refresh",
             "weight": 15
+          },
+          {
+            "id": "rarity_bump",
+            "weight": 12
           },
           {
             "id": "send_power_boost",
             "weight": 10
           },
           {
+            "id": "the_fixer",
+            "weight": 6
+          },
+          {
             "id": "rep_windfall",
             "weight": 5
-          }
-        ],
-        "3": [
-          {
-            "id": "bounty_boost",
-            "weight": 25
-          },
-          {
-            "id": "quest_xp_boost",
-            "weight": 20
-          },
-          {
-            "id": "bounty_refresh",
-            "weight": 20
-          },
-          {
-            "id": "rarity_bump",
-            "weight": 15
-          },
-          {
-            "id": "send_power_boost",
-            "weight": 12
-          },
-          {
-            "id": "rep_windfall",
-            "weight": 8
           }
         ]
       },
@@ -2077,53 +2071,61 @@
         "3": [
           {
             "id": "catstore_discount_stack",
-            "weight": 25
+            "weight": 22
           },
           {
             "id": "discovery_shortcut",
-            "weight": 20
+            "weight": 17
           },
           {
             "id": "pack_bonus_cat",
-            "weight": 20
+            "weight": 17
+          },
+          {
+            "id": "shipment",
+            "weight": 13
           },
           {
             "id": "catch_xp_boost",
-            "weight": 15
+            "weight": 13
           },
           {
             "id": "double_cat",
-            "weight": 10
+            "weight": 9
           },
           {
             "id": "perk_amplifier",
-            "weight": 10
+            "weight": 9
           }
         ],
         "4": [
           {
             "id": "catstore_discount_stack",
-            "weight": 20
+            "weight": 17
           },
           {
             "id": "discovery_shortcut",
-            "weight": 20
+            "weight": 17
           },
           {
             "id": "pack_bonus_cat",
-            "weight": 20
+            "weight": 17
+          },
+          {
+            "id": "shipment",
+            "weight": 14
           },
           {
             "id": "catch_xp_boost",
-            "weight": 15
+            "weight": 13
           },
           {
             "id": "double_cat",
-            "weight": 15
+            "weight": 13
           },
           {
             "id": "perk_amplifier",
-            "weight": 10
+            "weight": 9
           }
         ]
       }
@@ -2207,13 +2209,13 @@
       },
       "streak_protector": {
         "name": "Streak Saver",
-        "desc": "Daily catch streak survives one skipped day while active.",
+        "desc": "Your daily catch streak survives one missed day while active.",
         "tier_table": {
           "1": {
-            "duration_seconds": 86400
+            "duration_seconds": 172800
           },
           "2": {
-            "duration_seconds": 172800
+            "duration_seconds": 259200
           },
           "3": {
             "duration_seconds": 345600
@@ -2223,9 +2225,27 @@
           }
         }
       },
+      "cooling_off": {
+        "name": "Cooling Off",
+        "desc": "Heat cools down faster while active, even during a catnip session.",
+        "tier_table": {
+          "1": {
+            "duration_seconds": 21600,
+            "multiplier": 2.0
+          },
+          "2": {
+            "duration_seconds": 28800,
+            "multiplier": 2.5
+          },
+          "3": {
+            "duration_seconds": 43200,
+            "multiplier": 3.0
+          }
+        }
+      },
       "catstore_discount_stack": {
         "name": "Mafia Markdown",
-        "desc": "Stacks extra discount onto /catstore purchases.",
+        "desc": "Stacks extra discount onto /catstore cat purchases.",
         "tier_table": {
           "2": {
             "duration_seconds": 7200,
@@ -2265,15 +2285,15 @@
         "tier_table": {
           "2": {
             "duration_seconds": 7200,
-            "bonus_pp": 0.01
+            "bonus_pp": 0.02
           },
           "3": {
             "duration_seconds": 14400,
-            "bonus_pp": 0.015
+            "bonus_pp": 0.0225
           },
           "4": {
             "duration_seconds": 21600,
-            "bonus_pp": 0.02
+            "bonus_pp": 0.025
           }
         }
       },
@@ -2284,23 +2304,23 @@
           "2": {
             "duration_seconds": 7200,
             "charges": 3,
-            "xp_per": 15
+            "xp_per": 50
           },
           "3": {
             "duration_seconds": 14400,
             "charges": 4,
-            "xp_per": 20
+            "xp_per": 65
           },
           "4": {
             "duration_seconds": 21600,
             "charges": 5,
-            "xp_per": 25
+            "xp_per": 80
           }
         }
       },
       "free_spin": {
         "name": "Free Spin",
-        "desc": "One roulette bet up to the cap is fully refunded if it loses.",
+        "desc": "Your next losing roulette bet up to the cap is fully refunded.",
         "tier_table": {
           "2": {
             "charges": 1,
@@ -2318,19 +2338,22 @@
       },
       "stock_dividend_boost": {
         "name": "Insider Tip",
-        "desc": "Bonus coins on top of stock reward payouts.",
+        "desc": "Your next positive dividend on a stock you hold pays extra.",
         "tier_table": {
           "2": {
-            "duration_seconds": 7200,
-            "amount_bonus_pct": 0.25
+            "duration_seconds": 259200,
+            "charges": 1,
+            "amount_bonus_pct": 0.5
           },
           "3": {
-            "duration_seconds": 14400,
-            "amount_bonus_pct": 0.4
+            "duration_seconds": 345600,
+            "charges": 1,
+            "amount_bonus_pct": 0.75
           },
           "4": {
-            "duration_seconds": 21600,
-            "amount_bonus_pct": 0.6
+            "duration_seconds": 432000,
+            "charges": 1,
+            "amount_bonus_pct": 1.0
           }
         }
       },
@@ -2339,22 +2362,22 @@
         "desc": "Earns coins per cat caught during a rain.",
         "tier_table": {
           "2": {
-            "duration_seconds": 7200,
+            "duration_seconds": 86400,
             "coins_per_catch": 25
           },
           "3": {
-            "duration_seconds": 14400,
+            "duration_seconds": 86400,
             "coins_per_catch": 50
           },
           "4": {
-            "duration_seconds": 21600,
+            "duration_seconds": 86400,
             "coins_per_catch": 100
           }
         }
       },
       "pack_tier_upgrade": {
         "name": "Crate Polish",
-        "desc": "Your next pack open is bumped up one tier (cap Silver).",
+        "desc": "Your next pack below the cap tier opens one tier higher.",
         "tier_table": {
           "2": {
             "charges": 1,
@@ -2427,19 +2450,16 @@
       },
       "complication_insurance": {
         "name": "Sweep Pattern",
-        "desc": "Lowers complication chance on your next commit.",
+        "desc": "Cancels your next bad complication (raid, rival crew, double-cross...). Good ones still land.",
         "tier_table": {
           "2": {
-            "charges": 1,
-            "reduction_pp": 0.2
+            "charges": 1
           },
           "3": {
-            "charges": 1,
-            "reduction_pp": 0.3
+            "charges": 1
           },
           "4": {
-            "charges": 1,
-            "reduction_pp": 0.4
+            "charges": 2
           }
         }
       },
@@ -2457,13 +2477,35 @@
             "charges": 1
           },
           "5": {
-            "charges": 1
+            "charges": 3
           }
+        }
+      },
+      "heat_shield": {
+        "name": "Heat Shield",
+        "desc": "Halves the heat cost of your next job commit.",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 2
+          }
+        }
+      },
+      "heat_reset": {
+        "name": "Clean Slate",
+        "desc": "Wipes your heat to zero on the spot.",
+        "tier_table": {
+          "4": {}
         }
       },
       "daily_cap_extension": {
         "name": "Overtime",
-        "desc": "Adds one extra job commit to today's limit.",
+        "desc": "One extra job commit beyond the usual cap, usable within 24h.",
         "tier_table": {
           "1": {
             "duration_seconds": 86400,
@@ -2518,7 +2560,7 @@
       },
       "free_catnip": {
         "name": "Comped Catnip",
-        "desc": "Immediately starts a catnip session.",
+        "desc": "Starts a catnip session, or extends the one you're running.",
         "tier_table": {
           "2": {
             "duration_seconds": 3600
@@ -2566,7 +2608,7 @@
       },
       "bounty_refresh": {
         "name": "Bounty Refresh",
-        "desc": "Re-rolls your current bounty board on grant.",
+        "desc": "Re-rolls your unfinished catnip bounties on grant.",
         "tier_table": {
           "2": {},
           "3": {},
@@ -2588,21 +2630,6 @@
           "4": {
             "duration_seconds": 21600,
             "multiplier": 2.0
-          }
-        }
-      },
-      "trade_fee_waiver": {
-        "name": "Trade Waiver",
-        "desc": "Waives any fee on your next few trades.",
-        "tier_table": {
-          "2": {
-            "charges": 3
-          },
-          "3": {
-            "charges": 5
-          },
-          "4": {
-            "charges": 10
           }
         }
       },
@@ -2635,11 +2662,17 @@
       },
       "discovery_shortcut": {
         "name": "Shortcut",
-        "desc": "Adds one random unlearned rarity to your /catstore discoveries.",
+        "desc": "Adds one undiscovered rarity to your /catstore discoveries, or a free pack if you've found them all.",
         "tier_table": {
-          "2": {},
-          "3": {},
-          "4": {}
+          "2": {
+            "fallback_pack_tier": "wooden"
+          },
+          "3": {
+            "fallback_pack_tier": "stone"
+          },
+          "4": {
+            "fallback_pack_tier": "bronze"
+          }
         }
       },
       "reroll_board": {
@@ -2655,6 +2688,132 @@
           "4": {
             "charges": 1
           }
+        }
+      },
+      "safe_house": {
+        "name": "Safe House",
+        "desc": "If a job fails, your whole crew still makes it home.",
+        "tier_table": {
+          "2": {
+            "charges": 1
+          },
+          "3": {
+            "charges": 1
+          },
+          "4": {
+            "charges": 2
+          }
+        }
+      },
+      "shipment": {
+        "name": "Shipment",
+        "desc": "A cat from Sofia spawns in one of this server's catch channels. Anyone can catch it, so be quick.",
+        "tier_table": {
+          "3": {
+            "rarities": [
+              "Rickroll",
+              "Reverse",
+              "Superior",
+              "Trash"
+            ]
+          },
+          "4": {
+            "rarities": [
+              "Mythic",
+              "8bit",
+              "Corrupt",
+              "Professor",
+              "Divine"
+            ]
+          }
+        }
+      },
+      "protection_racket": {
+        "name": "Protection Racket",
+        "desc": "The house pays you coins every time anyone in this server catches a cat.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 10800,
+            "coins_per_catch": 5,
+            "max_coins": 1500
+          }
+        }
+      },
+      "wanted_poster": {
+        "name": "Wanted Poster",
+        "desc": "Every cat of the wanted rarity you catch pays a coin bounty.",
+        "tier_table": {
+          "2": {
+            "duration_seconds": 86400,
+            "bounty_mult": 10,
+            "targets": [
+              "Rare",
+              "Wild",
+              "Baby",
+              "Shadow",
+              "Epic",
+              "Sus",
+              "Brave"
+            ]
+          },
+          "3": {
+            "duration_seconds": 86400,
+            "bounty_mult": 15,
+            "targets": [
+              "Brave",
+              "Rickroll",
+              "Reverse",
+              "Superior",
+              "Trash"
+            ]
+          }
+        }
+      },
+      "the_fixer": {
+        "name": "The Fixer",
+        "desc": "Instantly finishes your misc battlepass quest (or your extra quest if misc is already done).",
+        "tier_table": {
+          "2": {},
+          "3": {}
+        }
+      },
+      "rain_check": {
+        "name": "Rain Check",
+        "desc": "Adds 1 minute of cat rain to your /rain balance in this server.",
+        "tier_table": {
+          "1": {
+            "rain_minutes": 1
+          },
+          "2": {
+            "rain_minutes": 1
+          },
+          "3": {
+            "rain_minutes": 1
+          }
+        }
+      },
+      "voucher_double_pack": {
+        "name": "Double Pack",
+        "desc": "A voucher: your next pack opens with doubled contents.",
+        "tier_table": {
+          "1": {},
+          "2": {}
+        }
+      },
+      "voucher_egirl_bonus": {
+        "name": "Bonus Round",
+        "desc": "A voucher: your next /catslots spin triggers the eGirl bonus round.",
+        "tier_table": {
+          "2": {}
+        }
+      },
+      "voucher_bounty_skip": {
+        "name": "Bounty Skip",
+        "desc": "A voucher: your next catch autocompletes a catnip bounty.",
+        "tier_table": {
+          "1": {},
+          "2": {},
+          "3": {}
         }
       }
     }

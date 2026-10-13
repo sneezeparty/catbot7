@@ -105,3 +105,5 @@
 2026-09-26 15:57 Skipped: env-vars (config.py unchanged — no new/removed vars, no behavior change)
 2026-09-26 15:57 Skipped: migrations table (deliberately absent per operator instruction; migrations/042_pinatas.py is not on its own a reason to add one)
 2026-10-06 09:04  Skipped: main.py (prism boost overshoot no longer starts rain; mechanic-level tweak, below README granularity; no env var change)
+2026-10-13 16:08  Skipped: main.py (jobs reward recipes, perk pool swaps/bug fixes; README /jobs row stays accurate, no env var changes)
+2026-10-13 16:30  Skipped: main.py (seven new /jobs perks + Cloudburst Wages message fix; README PvE row only says 'job perks' generally, still accurate; no env var changes)

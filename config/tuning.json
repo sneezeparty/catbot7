@@ -36,8 +36,6 @@
   "quest_cooldown_seconds": 43200,
   "fast_catcher_threshold_seconds": 5,
   "slow_catcher_threshold_seconds": 3600,
-  "rainboost_short_seconds": 600,
-  "rainboost_long_seconds": 1200,
   "prism_boost_global_coef": 0.06,
   "prism_boost_user_coef": 0.05,
   "prism_boost_floor": 0.15,

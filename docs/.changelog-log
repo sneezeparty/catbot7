@@ -159,3 +159,4 @@
 2026-10-01 13:32  Changed: "/catstore pack prices raised so buy->open->sell always loses money" (re: main.py)
 2026-10-01 13:32  Fixed: "Mafia Markdown buy-perk exploit on /catstore sell-back closed (store_sell_pct perk_buy_bonus)" (re: main.py)
 2026-10-01 13:32  Removed: "/stocks Withdraw button (coins->Wooden packs) removed" (re: main.py)
+2026-10-06 09:04 Changed: "Prism boost past top rarity gives an extra eGirl instead of starting/extending a rain" (re: main.py, config/tuning.json)

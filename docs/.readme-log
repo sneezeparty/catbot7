@@ -104,3 +104,4 @@
 2026-09-26 15:57 Updated: gameplay-divergence: added Piñatas row — new Season 6 craftable, pack opens can burst and spill cats/packs to other active players, crafted via new /catcraft (replaces /prism as crafting hub; /prism is now a deprecated alias) (re: main.py, config/tuning.json, schema.sql, migrations/042_pinatas.py)
 2026-09-26 15:57 Skipped: env-vars (config.py unchanged — no new/removed vars, no behavior change)
 2026-09-26 15:57 Skipped: migrations table (deliberately absent per operator instruction; migrations/042_pinatas.py is not on its own a reason to add one)
+2026-10-06 09:04  Skipped: main.py (prism boost overshoot no longer starts rain; mechanic-level tweak, below README granularity; no env var change)

@@ -191,3 +191,7 @@
 2026-10-06 06:08  catnip.md       fixed Bounties: real column names, bonus bounty + perk reroll (previously unrepresented), quest-eligible targets (re: main.py)
 2026-10-06 06:08  catnip.md       rewrote Hibernation facts (gate is Begin Bounties, not perk pick; perks keep firing); old rationale dropped, TODO(design) added for the intent (re: main.py)
 2026-10-06 06:08  catnip.md       fixed Decay (lazy, one level per absence, re-rolls bounties) and Cutscenes (cutscene2 fires on first pay-up AT Lv10, not on reaching it); added Season reset cross-link to battlepass.md (re: main.py)
+2026-10-06 07:00  economy.md      removed 'prism/rain boost ladder' wording; added 'Boosting past the top rarity' note (extra cat replaces overshoot rain; rainboost_* keys and forcespawned gate gone; operator intent quoted) (re: main.py, config/tuning.json)
+2026-10-06 07:00  catnip.md       no change (no Bright Catcher/double_boost claim falsified) (re: main.py)
+2026-10-06 07:00  battlepass.md/achievements.md/jobs.md  no change (no overshoot-rain claims; 'prism' ach still fires on boost) (re: main.py)
+2026-10-06 09:06  economy.md      fixed stale "Hobo and Doll ... not live yet": rarity_min_season 6 is the current season, so all four gated rarities are live (re: config/tuning.json)

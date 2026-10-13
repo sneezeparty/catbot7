@@ -355,8 +355,6 @@ with open("config/jobs_help.json", "r", encoding="utf-8") as f:
 # Named aliases for tunables. Refreshed on every module reload via the
 # json.load above. Edits to config/tuning.json apply on next cat!restart.
 QUEST_COOLDOWN = config.tuning["quest_cooldown_seconds"]
-RAINBOOST_LONG = config.tuning["rainboost_long_seconds"]
-RAINBOOST_SHORT = config.tuning["rainboost_short_seconds"]
 PRISM_BOOST_GLOBAL_COEF = config.tuning["prism_boost_global_coef"]
 PRISM_BOOST_USER_COEF = config.tuning["prism_boost_user_coef"]
 PRISM_BOOST_FLOOR = config.tuning["prism_boost_floor"]
@@ -9597,41 +9595,28 @@ async def on_message(message: discord.Message):
                                 logging.exception("prism owner XP grant failed")
                         asyncio.create_task(_grant_prism_owner_xp(message.guild.id, prism_which_boosted.user_id))
                     logging.debug("Boosted from %s", le_emoji)
-                    idx_shift = 0
                     # climb only rarities that are live this season, so a boost
                     # can't hand out a cat before its debut (rarity_min_season)
                     ladder = _season_eligible_cattypes()
                     if le_emoji not in ladder:
                         ladder = cattypes
-                    try:
-                        le_old_emoji = le_emoji
-                        if double_boost:
-                            idx_shift = ladder.index(le_emoji) + 2
-                        else:
-                            idx_shift = ladder.index(le_emoji) + 1
-                        le_emoji = ladder[idx_shift]
-                        normal_bump = True
-                    except IndexError:
-                        normal_bump = False
-                        if not channel.forcespawned:
-                            if idx_shift == len(ladder) + 1:
-                                rainboost = RAINBOOST_LONG
-                            elif idx_shift == len(ladder):
-                                rainboost = RAINBOOST_SHORT
-                            logging.debug("Boosted to rain: %d", rainboost)
-                            channel.cat_rains += math.ceil(rainboost / 2.75)
-                            if channel.cat_rains > math.ceil(rainboost / 2.75):
-                                await message.channel.send(f"# ‼️‼️ RAIN EXTENDED BY {int(rainboost / 60)} MINUTES ‼️‼️")
-                                await message.channel.send(f"# ‼️‼️ RAIN EXTENDED BY {int(rainboost / 60)} MINUTES ‼️‼️")
-                                await message.channel.send(f"# ‼️‼️ RAIN EXTENDED BY {int(rainboost / 60)} MINUTES ‼️‼️")
-                            elif server.do_rain:
-                                force_rain_summary = config.cat_cought_rain.get(channel.channel_id, {}).copy()
-                                decided_time = random.uniform(1, 2)
-                                channel.rain_should_end = int(time.time() + decided_time)
-                                channel.yet_to_spawn = 0
-                                config.cat_cought_rain[channel.channel_id] = {}
-                                config.rain_starter[channel.channel_id] = message.author.id
-                                bot.loop.create_task(rain_recovery_loop(channel))
+                    le_old_emoji = le_emoji
+                    # A boost can't climb past the rarest cat. A double boost
+                    # from one rung below just lands on the top, and a boost
+                    # that STARTS on the top (eGirl) hands over one extra cat of
+                    # the same type instead. Both cases used to start a 10-20m
+                    # rain (219-437 cats, counted down per catch, so it sits
+                    # there for as long as nobody is catching) — which is how
+                    # one boosted cat!egirl spawn left a server raining all
+                    # morning.
+                    old_idx = ladder.index(le_emoji)
+                    new_idx = min(old_idx + (2 if double_boost else 1), len(ladder) - 1)
+                    le_emoji = ladder[new_idx]
+                    normal_bump = new_idx > old_idx
+                    # don't resurrect a catnip "none" outcome
+                    extra_cat = not normal_bump and silly_amount > 0
+                    if extra_cat:
+                        silly_amount += 1
 
                     # Cross-user boosts grant +PRISM_OWNER_XP_PER_BOOST XP to
                     # the prism owner (the grant fires above via
@@ -9641,13 +9626,14 @@ async def on_message(message: discord.Message):
                     is_cross_user_boost = prism_which_boosted.user_id != message.author.id
                     xp_tag = f" (+{PRISM_OWNER_XP_PER_BOOST} XP)" if is_cross_user_boost else ""
                     if normal_bump:
-                        if double_boost:
+                        if new_idx - old_idx == 2:
                             suffix_string += f"\n{get_emoji('prism')}{get_emoji('prism')} {boost_applied_prism} boosted this catch twice from a {get_aura_emoji(le_old_emoji, user.cat_auras)} {le_old_emoji} cat!{xp_tag}"
                         else:
                             suffix_string += f"\n{get_emoji('prism')} {boost_applied_prism} boosted this catch from a {get_aura_emoji(le_old_emoji, user.cat_auras)} {le_old_emoji} cat!{xp_tag}"
-                    elif not channel.forcespawned:
+                    elif extra_cat:
                         suffix_string += (
-                            f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but failed! A {rainboost // 60}m rain will start!{xp_tag}"
+                            f"\n{get_emoji('prism')} {boost_applied_prism} tried to boost this catch, but nothing is rarer than a "
+                            f"{get_aura_emoji(le_emoji, user.cat_auras)} {le_emoji} cat! You got an extra one instead!{xp_tag}"
                         )
 
                 # ---- Job-perk catch-loop effects ----
